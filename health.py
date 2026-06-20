@@ -1,56 +1,37 @@
-# --- health_check/health.py ---
+# --- health/health.py ---
 """
-Health check endpoint
+Health check
 """
 
+import os
+import sys
+import json
 from fastapi import FastAPI
 from datetime import datetime
-import os
-import redis
-import json
 
-app = FastAPI(title="Health Check Service")
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+from app.redis_client import RedisManager
 
-@app.get("/")
+app = FastAPI()
+redis_manager = RedisManager()
+
+@app.on_event("startup")
+async def startup():
+    await redis_manager.connect()
+
 @app.get("/health")
-async def health_check():
-    redis_status = "unknown"
-    try:
-        r = redis.from_url(REDIS_URL, decode_responses=True)
-        r.ping()
-        redis_status = "healthy"
-    except:
-        redis_status = "unhealthy"
-        
+async def health():
     return {
-        "status": "healthy" if redis_status == "healthy" else "degraded",
-        "timestamp": datetime.now().isoformat(),
-        "components": {
-            "redis": redis_status
-        },
-        "service": "nexus-healthcheck",
-        "version": "2.0.0"
+        "status": "healthy",
+        "time": datetime.now().isoformat()
     }
 
 @app.get("/stats")
-async def get_stats():
-    try:
-        r = redis.from_url(REDIS_URL, decode_responses=True)
-        stats_data = r.get("nexus:stats")
-        stats = json.loads(stats_data) if stats_data else {}
-        return {
-            "stats": stats,
-            "timestamp": datetime.now().isoformat()
-        }
-    except Exception as e:
-        return {
-            "error": str(e),
-            "timestamp": datetime.now().isoformat()
-        }
+async def stats():
+    stats = await redis_manager.get_stats()
+    return stats
 
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.getenv("PORT", 8080))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8080)))
