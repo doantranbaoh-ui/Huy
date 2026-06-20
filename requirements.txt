@@ -26,3 +26,4 @@ uvicorn[standard]==0.24.0
 redis==5.0.1
 httpx==0.25.0
 python-dotenv==1.0.0
+proxy_manager.redis_client
