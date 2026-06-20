@@ -1,19 +1,13 @@
 services:
   - type: worker
     name: nexus-proxy-bot
-    runtime: python
+    runtime: image
     plan: starter
     region: frankfurt
-    buildCommand: pip install --prefer-binary -r requirements.txt
-    startCommand: python bot.py
+    image:
+      dockerfilePath: ./Dockerfile
     envVars:
       - key: TELEGRAM_BOT_TOKEN
         sync: false
-        # ⬆️ sync: false nghĩa là nhập từ dashboard
-      - key: ALLOWED_USERS
+      - key: ADMIN_USER_IDS
         sync: false
-      - key: REDIS_URL
-        fromService:
-          type: redis
-          name: nexus-redis
-          property: connectionString
