@@ -14,5 +14,4 @@ click==8.1.7
 gunicorn==21.2.0
 Optional
 brotli==1.1.0
-zstandard==0.22.0
 python-dotenv==1.0.0
