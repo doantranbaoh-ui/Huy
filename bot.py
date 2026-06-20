@@ -22,8 +22,8 @@ from urllib.parse import urlparse
 # 🔑 CONFIGURATION — ĐIỀN THÔNG TIN CỦA BẠN
 # ============================================
 
-TELEGRAM_BOT_TOKEN = "PASTE_YOUR_BOT_TOKEN_HERE"  # <--- Điền token
-ADMIN_USER_IDS = [123456789]  # <--- Điền ID admin
+TELEGRAM_BOT_TOKEN = "6320148381:AAHIsLUglnab_3rEU7R0tyN9x7h7E9xSXdY"  # <--- Điền token
+ADMIN_USER_IDS = [5736655322]  # <--- Điền ID admin
 
 # ============================================
 # LOGGING
