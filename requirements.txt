@@ -1,4 +1,4 @@
-# --- proxy_manager/requirements.txt (FIXED) ---
+# --- requirements.txt ---
 fastapi==0.104.1
 uvicorn[standard]==0.24.0
 redis==5.0.1
@@ -6,24 +6,4 @@ aiohttp==3.9.1
 python-multipart==0.0.6
 pydantic==1.10.13
 python-dotenv==1.0.0
-# REMOVED: shared.models
-
-# --- telegram_bot/requirements.txt (FIXED) ---
 python-telegram-bot==20.6
-redis==5.0.1
-aiohttp==3.9.1
-python-dotenv==1.0.0
-# REMOVED: shared.models
-
-# --- keep_alive/requirements.txt (FIXED) ---
-redis==5.0.1
-aiohttp==3.9.1
-python-dotenv==1.0.0
-
-# --- health_check/requirements.txt (FIXED) ---
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
-redis==5.0.1
-httpx==0.25.0
-python-dotenv==1.0.0
-proxy_manager.redis_client
