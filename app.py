@@ -1,19 +1,18 @@
-# --- proxy_manager/app.py ---
+# --- proxy_manager/app.py (Updated for Pydantic v1) ---
 """
 FastAPI web service for Proxy Manager
 Deploy on Render as Web Service
+Pydantic v1 compatible
 """
 
 import os
 import sys
-import asyncio
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime
 import uvicorn
-import tempfile
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from proxy_manager.manager import ProxyManager
@@ -35,7 +34,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- Models ---
+# --- Models (Pydantic v1 compatible) ---
 class LoadResponse(BaseModel):
     success: bool
     count: int
@@ -45,8 +44,8 @@ class StatsResponse(BaseModel):
     total: int
     alive: int
     dead: int
-    last_update: Optional[str]
-    uptime_seconds: int
+    last_update: Optional[str] = None
+    uptime_seconds: int = 0
 
 class ValidateResponse(BaseModel):
     total: int
@@ -126,7 +125,7 @@ async def get_stats() -> StatsResponse:
         alive=stats.get("alive", 0),
         dead=stats.get("dead", 0),
         last_update=stats.get("last_update"),
-        uptime_seconds=int((datetime.now() - datetime.now()).seconds)  # Will be fixed
+        uptime_seconds=0
     )
 
 @app.get("/proxies/alive")
