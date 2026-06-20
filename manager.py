@@ -1,7 +1,6 @@
 # --- proxy_manager/manager.py ---
 """
 Proxy Manager Core — handles proxy loading, validation, storage
-NO EXTERNAL DEPENDENCIES — all local
 """
 
 import asyncio
@@ -16,12 +15,12 @@ from dataclasses import dataclass, field
 import sys
 import os
 
-# Import local modules only
+# Local imports — NO proxy_manager. prefix
 from redis_client import RedisManager
 
 logger = logging.getLogger(__name__)
 
-# --- Local Models (no external package needed) ---
+# --- Local Models ---
 @dataclass
 class Proxy:
     ip: str
