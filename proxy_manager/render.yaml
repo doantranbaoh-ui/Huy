@@ -7,14 +7,13 @@ services:
     buildCommand: pip install --prefer-binary -r requirements.txt
     startCommand: python bot.py
     envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+        # ⬆️ sync: false nghĩa là nhập từ dashboard
+      - key: ALLOWED_USERS
+        sync: false
       - key: REDIS_URL
         fromService:
           type: redis
           name: nexus-redis
           property: connectionString
-      - key: TELEGRAM_BOT_TOKEN
-        sync: false
-      - key: ALLOWED_USERS
-        sync: false
-      - key: SOC_WEBHOOK_URL
-        sync: false
