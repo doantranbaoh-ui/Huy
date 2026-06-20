@@ -1,7 +1,6 @@
 # --- telegram_bot/bot.py ---
 """
 Telegram Bot Worker
-NO EXTERNAL PACKAGES — all local
 """
 
 import os
@@ -12,8 +11,10 @@ import json
 from datetime import datetime
 from typing import List, Optional
 
-# Local imports
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Add parent directory to path for imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# Local imports — from proxy_manager directory
 from proxy_manager.redis_client import RedisManager
 from proxy_manager.manager import ProxyManager
 
@@ -33,7 +34,6 @@ logger = logging.getLogger(__name__)
 # --- Config ---
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 ALLOWED_USERS = [int(id) for id in os.getenv("ALLOWED_USERS", "").split(",")]
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
 # --- Redis Manager ---
 redis_manager = RedisManager()
@@ -129,6 +129,46 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"✅ Loaded {count} proxies from {document.file_name}"
     )
 
+async def export_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Export alive proxies"""
+    user_id = update.effective_user.id
+    if user_id not in ALLOWED_USERS:
+        await update.message.reply_text("❌ Unauthorized")
+        return
+        
+    alive = await redis_manager.get_alive_proxies()
+    if not alive:
+        await update.message.reply_text("⚠️ No alive proxies")
+        return
+        
+    content = "\n".join([f"{p['ip']}:{p['port']}" for p in alive])
+    filename = f"alive_proxies_{datetime.now().strftime('%Y%m%d')}.txt"
+    
+    await update.message.reply_document(
+        document=content.encode('utf-8'),
+        filename=filename
+    )
+
+async def clean_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Clean dead proxies"""
+    user_id = update.effective_user.id
+    if user_id not in ALLOWED_USERS:
+        await update.message.reply_text("❌ Unauthorized")
+        return
+        
+    # Get all proxies
+    proxies = await redis_manager.get_all_proxies()
+    dead = [p for p in proxies if not p.get('is_alive', False)]
+    
+    for p in dead:
+        await redis_manager.remove_proxy(f"{p['ip']}:{p['port']}")
+    
+    await update.message.reply_text(
+        f"🧹 **Cleaned**\n"
+        f"Removed {len(dead)} dead proxies\n"
+        f"Remaining: {len(proxies) - len(dead)}"
+    )
+
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle button callbacks"""
     query = update.callback_query
@@ -143,6 +183,10 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_stats(update, context)
     elif query.data == "validate":
         await validate_command(update, context)
+    elif query.data == "export":
+        await export_command(update, context)
+    elif query.data == "clean":
+        await clean_command(update, context)
 
 async def main():
     """Run the bot"""
@@ -157,6 +201,8 @@ async def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("stats", send_stats))
     app.add_handler(CommandHandler("validate", validate_command))
+    app.add_handler(CommandHandler("export", export_command))
+    app.add_handler(CommandHandler("clean", clean_command))
     app.add_handler(MessageHandler(filters.Document.TXT, handle_file))
     app.add_handler(CallbackQueryHandler(button_callback))
     
