@@ -28,7 +28,7 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 # 🔧 CONFIGURATION
 # ============================================
 
-TELEGRAM_BOT_TOKEN = "PASTE_YOUR_BOT_TOKEN_HERE"  # <--- Điền token
+TELEGRAM_BOT_TOKEN = "6320148381:AAFvtpr4l8t61IRgynsiUkwKVbCNMw9kdtU"  # <--- Điền token
 HEALTH_PORT = 8080
 RATE_LIMIT = 10  # Số lệnh tối đa mỗi phút
 
