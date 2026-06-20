@@ -1,7 +1,6 @@
 """
-Nexus Proxy Manager Bot — Complete Single File
-Deploy on Render as Worker
-No import errors, no module missing
+Nexus Proxy Manager Bot — Layer 7 Defense
+HTTP/HTTPS Attack Detection & Mitigation
 SentinelCore Compliant — Defensive Monitoring Only
 """
 
@@ -13,26 +12,72 @@ import json
 import re
 import random
 import time
+import hashlib
 from datetime import datetime, timedelta
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Set
 from dataclasses import dataclass, field
-from urllib.parse import urlparse
+from collections import defaultdict, deque
+from urllib.parse import urlparse, parse_qs
 
 # ============================================
-# THIRD PARTY IMPORTS
+# 🔑 CONFIGURATION — ĐIỀN THÔNG TIN CỦA BẠN
 # ============================================
-import redis.asyncio as redis
-import aiohttp
-import aiofiles
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    MessageHandler,
-    CallbackQueryHandler,
-    ContextTypes,
-    filters
-)
+
+TELEGRAM_BOT_TOKEN = "6320148381:AAHIsLUglnab_3rEU7R0tyN9x7h7E9xSXdY"  # <--- Điền token
+ADMIN_USER_IDS = [5736655322]  # <--- Điền ID admin
+REDIS_URL = "redis://localhost:6379/0"
+SOC_WEBHOOK_URL = ""
+
+# Layer 7 Defense Config
+RATE_LIMIT_REQUESTS = 60  # requests per minute per IP
+RATE_LIMIT_WINDOW = 60  # seconds
+BURST_THRESHOLD = 30  # requests in 10 seconds
+USER_AGENT_BLOCKLIST = [
+    "python-requests",
+    "curl",
+    "wget",
+    "nmap",
+    "nikto",
+    "sqlmap",
+    "gobuster",
+    "dirb",
+]
+PATH_ATTACK_PATTERNS = [
+    r"\.\./",  # Directory traversal
+    r"etc/passwd",  # File inclusion
+    r"proc/self/environ",
+    r"wp-admin",
+    r"wp-login",
+    r"admin/",
+    r"\.env",
+    r"\.git/",
+    r"\.sql",
+    r"\.bak",
+    r"config\.php",
+    r"\.htaccess",
+    r"\.htpasswd",
+]
+
+SQL_INJECTION_PATTERNS = [
+    r"union\s+select",
+    r"or\s+1=1",
+    r"' or '1'='1",
+    r'" or "1"="1',
+    r";\s*drop\s+table",
+    r";\s*delete\s+from",
+    r"information_schema",
+    r"@@version",
+]
+
+XSS_PATTERNS = [
+    r"<script",
+    r"javascript:",
+    r"onerror=",
+    r"onload=",
+    r"alert\(",
+    r"prompt\(",
+    r"confirm\(",
+]
 
 # ============================================
 # LOGGING
@@ -44,75 +89,475 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ============================================
-# CONFIGURATION
+# IMPORTS
 # ============================================
-TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
-ALLOWED_USERS = [
-    int(id.strip()) 
-    for id in os.getenv("ALLOWED_USERS", "").split(",") 
-    if id.strip()
-]
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-SOC_WEBHOOK_URL = os.getenv("SOC_WEBHOOK_URL", "")
+import redis.asyncio as redis
+import aiohttp
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    MessageHandler,
+    CallbackQueryHandler,
+    ContextTypes,
+    filters
+)
 
 # ============================================
-# MODELS
+# DATA MODELS
 # ============================================
 @dataclass
-class Proxy:
+class Layer7Attack:
     ip: str
-    port: int
-    protocol: str = "http"
-    country: Optional[str] = None
-    speed: float = 0.0
-    is_alive: bool = True
-    last_checked: Optional[str] = None
-    fail_count: int = 0
-    anonymity: str = "unknown"
-    source: str = "upload"
-    
-    def to_dict(self) -> dict:
-        return {
-            "ip": self.ip,
-            "port": self.port,
-            "protocol": self.protocol,
-            "country": self.country,
-            "speed": self.speed,
-            "is_alive": self.is_alive,
-            "last_checked": self.last_checked,
-            "fail_count": self.fail_count,
-            "anonymity": self.anonymity,
-            "source": self.source
-        }
-    
-    @classmethod
-    def from_dict(cls, data: dict) -> 'Proxy':
-        return cls(
-            ip=data.get("ip", ""),
-            port=int(data.get("port", 0)),
-            protocol=data.get("protocol", "http"),
-            country=data.get("country"),
-            speed=float(data.get("speed", 0.0)),
-            is_alive=data.get("is_alive", True),
-            last_checked=data.get("last_checked"),
-            fail_count=int(data.get("fail_count", 0)),
-            anonymity=data.get("anonymity", "unknown"),
-            source=data.get("source", "upload")
-        )
-    
-    def __str__(self):
-        return f"{self.protocol}://{self.ip}:{self.port}"
-    
-    def to_proxy_string(self):
-        return f"{self.ip}:{self.port}"
+    attack_type: str
+    path: str
+    method: str
+    user_agent: str
+    timestamp: str
+    details: Dict[str, Any] = field(default_factory=dict)
+    severity: str = "medium"
+
+@dataclass
+class RateLimitEntry:
+    ip: str
+    requests: int = 0
+    first_seen: float = 0
+    blocked: bool = False
+    blocked_until: float = 0
 
 # ============================================
-# REDIS MANAGER
+# LAYER 7 DEFENSE ENGINE
+# ============================================
+class Layer7DefenseEngine:
+    def __init__(self):
+        self.redis = None
+        self.prefix = "nexus:layer7:"
+        self.rate_limits = defaultdict(lambda: RateLimitEntry(""))
+        self.attack_log = deque(maxlen=1000)
+        self.blocked_ips: Set[str] = set()
+        self._initialized = False
+        self.stats = {
+            "total_requests": 0,
+            "blocked_requests": 0,
+            "attacks_detected": 0,
+            "blocked_ips": 0,
+            "last_attack": None,
+            "attack_types": defaultdict(int)
+        }
+        
+    async def initialize(self):
+        if self._initialized:
+            return
+            
+        self.redis = redis.from_url(REDIS_URL, decode_responses=True)
+        await self.redis.ping()
+        
+        # Load blocked IPs from Redis
+        blocked_data = await self.redis.get(f"{self.prefix}blocked_ips")
+        if blocked_data:
+            self.blocked_ips = set(json.loads(blocked_data))
+            
+        self._initialized = True
+        logger.info(f"Layer 7 Defense initialized — {len(self.blocked_ips)} blocked IPs")
+        
+    async def analyze_request(self, request_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Analyze incoming HTTP request for Layer 7 attacks"""
+        self.stats["total_requests"] += 1
+        
+        result = {
+            "blocked": False,
+            "attack_detected": False,
+            "attack_type": None,
+            "severity": "low",
+            "reason": None
+        }
+        
+        ip = request_data.get("ip", "")
+        path = request_data.get("path", "/")
+        method = request_data.get("method", "GET")
+        user_agent = request_data.get("user_agent", "")
+        query = request_data.get("query", "")
+        body = request_data.get("body", "")
+        headers = request_data.get("headers", {})
+        
+        # 1. Check if IP is blocked
+        if ip in self.blocked_ips:
+            result["blocked"] = True
+            result["reason"] = "IP blocked"
+            self.stats["blocked_requests"] += 1
+            return result
+            
+        # 2. Rate limiting check
+        rate_check = await self._check_rate_limit(ip)
+        if rate_check["blocked"]:
+            result["blocked"] = True
+            result["reason"] = rate_check["reason"]
+            self.stats["blocked_requests"] += 1
+            self.stats["attacks_detected"] += 1
+            self.stats["attack_types"]["rate_limit"] += 1
+            return result
+            
+        # 3. Check for User-Agent attacks
+        ua_check = self._check_user_agent(user_agent)
+        if ua_check["attack"]:
+            result["attack_detected"] = True
+            result["attack_type"] = "bad_user_agent"
+            result["severity"] = ua_check["severity"]
+            self.stats["attacks_detected"] += 1
+            self.stats["attack_types"]["bad_user_agent"] += 1
+            
+            # Log attack
+            await self._log_attack(Layer7Attack(
+                ip=ip,
+                attack_type="bad_user_agent",
+                path=path,
+                method=method,
+                user_agent=user_agent,
+                timestamp=datetime.now().isoformat(),
+                details={"user_agent": user_agent},
+                severity=ua_check["severity"]
+            ))
+            
+            # Block if severe
+            if ua_check["severity"] == "high":
+                await self._block_ip(ip, "Bad User-Agent", 3600)
+                result["blocked"] = True
+                result["reason"] = "Blocked for bad user agent"
+                self.stats["blocked_requests"] += 1
+                
+            return result
+            
+        # 4. Check for path traversal / directory attacks
+        path_check = self._check_path_attacks(path, query)
+        if path_check["attack"]:
+            result["attack_detected"] = True
+            result["attack_type"] = path_check["type"]
+            result["severity"] = path_check["severity"]
+            self.stats["attacks_detected"] += 1
+            self.stats["attack_types"][path_check["type"]] += 1
+            
+            # Log attack
+            await self._log_attack(Layer7Attack(
+                ip=ip,
+                attack_type=path_check["type"],
+                path=path,
+                method=method,
+                user_agent=user_agent,
+                timestamp=datetime.now().isoformat(),
+                details={"path": path, "query": query},
+                severity=path_check["severity"]
+            ))
+            
+            # Block immediately
+            if path_check["severity"] in ["high", "critical"]:
+                await self._block_ip(ip, f"Path attack: {path_check['type']}", 86400)
+                result["blocked"] = True
+                result["reason"] = f"Blocked for path attack: {path_check['type']}"
+                self.stats["blocked_requests"] += 1
+                
+            return result
+            
+        # 5. Check for SQL Injection
+        if query or body:
+            sqli_check = self._check_sql_injection(query, body)
+            if sqli_check["attack"]:
+                result["attack_detected"] = True
+                result["attack_type"] = "sql_injection"
+                result["severity"] = "critical"
+                self.stats["attacks_detected"] += 1
+                self.stats["attack_types"]["sql_injection"] += 1
+                
+                await self._log_attack(Layer7Attack(
+                    ip=ip,
+                    attack_type="sql_injection",
+                    path=path,
+                    method=method,
+                    user_agent=user_agent,
+                    timestamp=datetime.now().isoformat(),
+                    details={"query": query, "body": body[:200]},
+                    severity="critical"
+                ))
+                
+                # Block immediately
+                await self._block_ip(ip, "SQL Injection detected", 86400)
+                result["blocked"] = True
+                result["reason"] = "Blocked for SQL injection"
+                self.stats["blocked_requests"] += 1
+                
+                return result
+                
+        # 6. Check for XSS
+        if query or body:
+            xss_check = self._check_xss(query, body)
+            if xss_check["attack"]:
+                result["attack_detected"] = True
+                result["attack_type"] = "xss"
+                result["severity"] = "high"
+                self.stats["attacks_detected"] += 1
+                self.stats["attack_types"]["xss"] += 1
+                
+                await self._log_attack(Layer7Attack(
+                    ip=ip,
+                    attack_type="xss",
+                    path=path,
+                    method=method,
+                    user_agent=user_agent,
+                    timestamp=datetime.now().isoformat(),
+                    details={"query": query, "body": body[:200]},
+                    severity="high"
+                ))
+                
+                await self._block_ip(ip, "XSS detected", 3600)
+                result["blocked"] = True
+                result["reason"] = "Blocked for XSS attempt"
+                self.stats["blocked_requests"] += 1
+                
+                return result
+                
+        # 7. Check for HTTP method attacks
+        method_check = self._check_method_attack(method, path)
+        if method_check["attack"]:
+            result["attack_detected"] = True
+            result["attack_type"] = "bad_method"
+            result["severity"] = "medium"
+            self.stats["attacks_detected"] += 1
+            self.stats["attack_types"]["bad_method"] += 1
+            
+            await self._log_attack(Layer7Attack(
+                ip=ip,
+                attack_type="bad_method",
+                path=path,
+                method=method,
+                user_agent=user_agent,
+                timestamp=datetime.now().isoformat(),
+                details={"method": method},
+                severity="medium"
+            ))
+            
+            return result
+            
+        return result
+        
+    async def _check_rate_limit(self, ip: str) -> Dict[str, Any]:
+        """Check if IP is rate limited"""
+        key = f"{self.prefix}rate:{ip}"
+        now = time.time()
+        
+        # Get current count
+        count_data = await self.redis.get(key)
+        if count_data:
+            count, first_seen = count_data.split(":")
+            count = int(count)
+            first_seen = float(first_seen)
+        else:
+            count = 0
+            first_seen = now
+            
+        # Check if window expired
+        if now - first_seen > RATE_LIMIT_WINDOW:
+            count = 0
+            first_seen = now
+            
+        # Increment count
+        count += 1
+        await self.redis.setex(
+            key,
+            RATE_LIMIT_WINDOW,
+            f"{count}:{first_seen}"
+        )
+        
+        # Check if over limit
+        if count > RATE_LIMIT_REQUESTS:
+            # Block IP
+            await self._block_ip(ip, f"Rate limit exceeded ({count} requests)", 300)
+            return {"blocked": True, "reason": f"Rate limit exceeded ({count} requests)"}
+            
+        # Check for burst
+        burst_key = f"{self.prefix}burst:{ip}"
+        burst_count = await self.redis.get(burst_key)
+        if burst_count:
+            burst_count = int(burst_count)
+            if burst_count > BURST_THRESHOLD:
+                await self._block_ip(ip, f"Burst detected ({burst_count} requests)", 600)
+                return {"blocked": True, "reason": f"Burst detected ({burst_count} requests)"}
+            await self.redis.incr(burst_key)
+            await self.redis.expire(burst_key, 10)
+        else:
+            await self.redis.setex(burst_key, 10, 1)
+            
+        return {"blocked": False}
+        
+    def _check_user_agent(self, user_agent: str) -> Dict[str, Any]:
+        """Check if User-Agent is malicious"""
+        if not user_agent:
+            return {"attack": True, "severity": "medium"}
+            
+        user_agent_lower = user_agent.lower()
+        
+        for pattern in USER_AGENT_BLOCKLIST:
+            if pattern in user_agent_lower:
+                return {"attack": True, "severity": "high"}
+                
+        # Check for empty or invalid UA
+        if len(user_agent) < 5:
+            return {"attack": True, "severity": "medium"}
+            
+        return {"attack": False}
+        
+    def _check_path_attacks(self, path: str, query: str) -> Dict[str, Any]:
+        """Check for path traversal and directory attacks"""
+        combined = f"{path}?{query}".lower()
+        
+        for pattern in PATH_ATTACK_PATTERNS:
+            if re.search(pattern.lower(), combined):
+                if "passwd" in pattern or "proc/" in pattern:
+                    return {"attack": True, "type": "file_inclusion", "severity": "critical"}
+                elif "wp-admin" in pattern or "wp-login" in pattern:
+                    return {"attack": True, "type": "admin_bruteforce", "severity": "high"}
+                elif ".env" in pattern or ".git" in pattern:
+                    return {"attack": True, "type": "config_exposure", "severity": "high"}
+                else:
+                    return {"attack": True, "type": "path_traversal", "severity": "high"}
+                    
+        return {"attack": False}
+        
+    def _check_sql_injection(self, query: str, body: str) -> Dict[str, Any]:
+        """Check for SQL injection patterns"""
+        combined = f"{query} {body}".lower()
+        
+        for pattern in SQL_INJECTION_PATTERNS:
+            if re.search(pattern.lower(), combined):
+                return {"attack": True, "severity": "critical"}
+                
+        return {"attack": False}
+        
+    def _check_xss(self, query: str, body: str) -> Dict[str, Any]:
+        """Check for XSS patterns"""
+        combined = f"{query} {body}".lower()
+        
+        for pattern in XSS_PATTERNS:
+            if re.search(pattern.lower(), combined):
+                return {"attack": True, "severity": "high"}
+                
+        return {"attack": False}
+        
+    def _check_method_attack(self, method: str, path: str) -> Dict[str, Any]:
+        """Check for dangerous HTTP methods"""
+        dangerous_methods = ["PUT", "DELETE", "OPTIONS", "TRACE", "CONNECT", "PATCH"]
+        
+        if method in dangerous_methods:
+            return {"attack": True, "severity": "medium"}
+            
+        # Check for method smuggling
+        if method and len(method) > 10:
+            return {"attack": True, "severity": "medium"}
+            
+        return {"attack": False}
+        
+    async def _block_ip(self, ip: str, reason: str, duration: int = 3600):
+        """Block an IP address"""
+        if ip in self.blocked_ips:
+            return
+            
+        self.blocked_ips.add(ip)
+        self.stats["blocked_ips"] += 1
+        
+        # Store in Redis
+        block_data = {
+            "ip": ip,
+            "reason": reason,
+            "blocked_at": datetime.now().isoformat(),
+            "expires": (datetime.now() + timedelta(seconds=duration)).isoformat()
+        }
+        
+        key = f"{self.prefix}blocked:{ip}"
+        await self.redis.setex(key, duration, json.dumps(block_data))
+        
+        # Update blocked IPs set
+        await self.redis.set(
+            f"{self.prefix}blocked_ips",
+            json.dumps(list(self.blocked_ips))
+        )
+        
+        logger.warning(f"🔒 Blocked IP: {ip} - {reason} ({duration}s)")
+        
+    async def _log_attack(self, attack: Layer7Attack):
+        """Log an attack"""
+        # Store in Redis
+        key = f"{self.prefix}attacks:{datetime.now().strftime('%Y%m%d')}"
+        await self.redis.lpush(key, json.dumps({
+            "ip": attack.ip,
+            "type": attack.attack_type,
+            "path": attack.path,
+            "method": attack.method,
+            "user_agent": attack.user_agent,
+            "timestamp": attack.timestamp,
+            "severity": attack.severity
+        }))
+        await self.redis.ltrim(key, 0, 999)
+        
+        # Store in local log
+        self.attack_log.append(attack)
+        
+        # Update stats
+        self.stats["last_attack"] = attack.timestamp
+        
+        logger.warning(
+            f"🚨 Attack detected: {attack.attack_type} from {attack.ip} "
+            f"({attack.severity}) - {attack.path}"
+        )
+        
+    async def get_attacks(self, limit: int = 50) -> List[Dict]:
+        """Get recent attacks"""
+        key = f"{self.prefix}attacks:{datetime.now().strftime('%Y%m%d')}"
+        attacks = await self.redis.lrange(key, 0, limit - 1)
+        return [json.loads(a) for a in attacks]
+        
+    async def get_blocked_ips(self) -> List[Dict]:
+        """Get list of blocked IPs"""
+        key = f"{self.prefix}blocked:*"
+        keys = await self.redis.keys(key)
+        blocked = []
+        for key in keys:
+            data = await self.redis.get(key)
+            if data:
+                blocked.append(json.loads(data))
+        return blocked
+        
+    async def unblock_ip(self, ip: str) -> bool:
+        """Unblock an IP"""
+        if ip not in self.blocked_ips:
+            return False
+            
+        self.blocked_ips.remove(ip)
+        
+        key = f"{self.prefix}blocked:{ip}"
+        await self.redis.delete(key)
+        
+        await self.redis.set(
+            f"{self.prefix}blocked_ips",
+            json.dumps(list(self.blocked_ips))
+        )
+        
+        logger.info(f"🔓 Unblocked IP: {ip}")
+        return True
+        
+    def get_stats(self) -> Dict[str, Any]:
+        """Get defense statistics"""
+        return {
+            **self.stats,
+            "attack_types": dict(self.stats["attack_types"]),
+            "blocked_ips_count": len(self.blocked_ips),
+            "attack_log_count": len(self.attack_log)
+        }
+
+# ============================================
+# REDIS MANAGER (Proxy Management)
 # ============================================
 class RedisManager:
     def __init__(self):
         self.redis_url = REDIS_URL
-        self.client: Optional[redis.Redis] = None
+        self.client = None
         self.prefix = "nexus:"
         
     async def connect(self):
@@ -128,285 +573,16 @@ class RedisManager:
     async def disconnect(self):
         if self.client:
             await self.client.close()
-            
-    async def set_proxy(self, proxy_id: str, proxy_data: dict):
-        key = f"{self.prefix}proxy:{proxy_id}"
-        await self.client.hset(key, mapping=proxy_data)
-        await self.client.expire(key, 86400)  # 24 hours
-        
-    async def get_proxy(self, proxy_id: str) -> Optional[dict]:
-        key = f"{self.prefix}proxy:{proxy_id}"
-        return await self.client.hgetall(key)
-        
-    async def get_all_proxies(self) -> List[dict]:
-        pattern = f"{self.prefix}proxy:*"
-        keys = await self.client.keys(pattern)
-        proxies = []
-        for key in keys:
-            data = await self.client.hgetall(key)
-            if data:
-                proxies.append(data)
-        return proxies
-        
-    async def set_stats(self, stats: dict):
-        key = f"{self.prefix}stats"
-        await self.client.set(key, json.dumps(stats))
-        await self.client.expire(key, 3600)
-        
-    async def get_stats(self) -> dict:
-        key = f"{self.prefix}stats"
-        data = await self.client.get(key)
-        return json.loads(data) if data else {}
-        
-    async def add_alive_proxy(self, proxy: dict):
-        key = f"{self.prefix}alive"
-        await self.client.sadd(key, json.dumps(proxy))
-        
-    async def get_alive_proxies(self) -> List[dict]:
-        key = f"{self.prefix}alive"
-        members = await self.client.smembers(key)
-        return [json.loads(m) for m in members]
-        
-    async def remove_alive_proxy(self, proxy: dict):
-        key = f"{self.prefix}alive"
-        await self.client.srem(key, json.dumps(proxy))
-        
-    async def remove_proxy(self, proxy_id: str):
-        key = f"{self.prefix}proxy:{proxy_id}"
-        await self.client.delete(key)
-        
-    async def get_all_alive_keys(self) -> set:
-        key = f"{self.prefix}alive"
-        return await self.client.smembers(key)
-        
-    async def set_config(self, key: str, value: str):
-        await self.client.set(f"{self.prefix}config:{key}", value)
-        
-    async def get_config(self, key: str) -> Optional[str]:
-        return await self.client.get(f"{self.prefix}config:{key}")
-        
-    async def log_command(self, command: str, user_id: int, data: dict = None):
-        log_key = f"{self.prefix}logs:{datetime.now().strftime('%Y%m%d')}"
-        entry = {
-            "command": command,
-            "user_id": user_id,
-            "data": json.dumps(data or {}),
-            "timestamp": datetime.now().isoformat()
-        }
-        await self.client.lpush(log_key, json.dumps(entry))
-        await self.client.ltrim(log_key, 0, 999)  # Keep last 1000 entries
-        
-    async def get_logs(self, limit: int = 50) -> List[dict]:
-        log_key = f"{self.prefix}logs:{datetime.now().strftime('%Y%m%d')}"
-        logs = await self.client.lrange(log_key, 0, limit - 1)
-        return [json.loads(log) for log in logs]
 
 # ============================================
-# PROXY MANAGER
-# ============================================
-class ProxyManager:
-    def __init__(self):
-        self.redis = RedisManager()
-        self._initialized = False
-        self.validating = False
-        
-    async def initialize(self):
-        if self._initialized:
-            return
-        await self.redis.connect()
-        self._initialized = True
-        logger.info("ProxyManager initialized")
-        
-    async def load_from_text(self, content: str, source: str = "upload") -> int:
-        lines = content.strip().split('\n')
-        count = 0
-        
-        for line in lines:
-            if not line.strip() or line.startswith('#'):
-                continue
-                
-            proxy = self._parse_proxy(line.strip())
-            if proxy:
-                proxy.source = source
-                await self.redis.set_proxy(
-                    f"{proxy.ip}:{proxy.port}",
-                    proxy.to_dict()
-                )
-                count += 1
-                
-        await self._update_stats()
-        logger.info(f"Loaded {count} proxies from {source}")
-        return count
-        
-    async def load_from_url(self, url: str) -> int:
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, timeout=15) as resp:
-                    if resp.status != 200:
-                        return 0
-                    content = await resp.text()
-                    return await self.load_from_text(content, source=f"url:{url}")
-        except Exception as e:
-            logger.error(f"Failed to load from URL: {e}")
-            return 0
-            
-    def _parse_proxy(self, line: str) -> Optional[Proxy]:
-        line = line.strip()
-        
-        patterns = [
-            r'^(https?|socks[45])://([^:]+):(\d+)$',
-            r'^([^:]+):(\d+)$'
-        ]
-        
-        for pattern in patterns:
-            match = re.match(pattern, line)
-            if match:
-                if len(match.groups()) == 3:
-                    protocol, ip, port = match.groups()
-                else:
-                    ip, port = match.groups()
-                    protocol = "http"
-                    
-                try:
-                    port = int(port)
-                    if 1 <= port <= 65535:
-                        return Proxy(ip=ip, port=port, protocol=protocol)
-                except ValueError:
-                    continue
-        return None
-        
-    async def validate_proxy(self, proxy_data: dict) -> tuple[bool, float]:
-        proxy = Proxy.from_dict(proxy_data)
-        start = datetime.now()
-        
-        try:
-            url = f"{proxy.protocol}://{proxy.ip}:{proxy.port}"
-            
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    "http://httpbin.org/ip",
-                    proxy=url,
-                    timeout=5,
-                    ssl=False
-                ) as resp:
-                    if resp.status == 200:
-                        response_time = (datetime.now() - start).total_seconds() * 1000
-                        proxy.is_alive = True
-                        proxy.speed = response_time
-                        proxy.last_checked = datetime.now().isoformat()
-                        proxy.fail_count = 0
-                        
-                        await self.redis.set_proxy(
-                            f"{proxy.ip}:{proxy.port}",
-                            proxy.to_dict()
-                        )
-                        await self.redis.add_alive_proxy(proxy.to_dict())
-                        return True, response_time
-                        
-        except Exception as e:
-            logger.debug(f"Proxy {proxy} validation failed: {e}")
-            
-        proxy.is_alive = False
-        proxy.fail_count += 1
-        proxy.last_checked = datetime.now().isoformat()
-        await self.redis.set_proxy(
-            f"{proxy.ip}:{proxy.port}",
-            proxy.to_dict()
-        )
-        await self.redis.remove_alive_proxy(proxy.to_dict())
-        return False, 0
-        
-    async def validate_all(self, max_concurrent: int = 30, progress_callback=None) -> Dict:
-        if self.validating:
-            return {"status": "already_running"}
-            
-        self.validating = True
-        
-        try:
-            proxies = await self.redis.get_all_proxies()
-            if not proxies:
-                return {"total": 0, "validated": 0, "alive": 0}
-                
-            semaphore = asyncio.Semaphore(max_concurrent)
-            
-            async def validate_one(proxy_data, index):
-                async with semaphore:
-                    is_alive, speed = await self.validate_proxy(proxy_data)
-                    if progress_callback and index % 5 == 0:
-                        await progress_callback(index, len(proxies))
-                    return is_alive, speed
-                    
-            tasks = [validate_one(p, i) for i, p in enumerate(proxies)]
-            results = await asyncio.gather(*tasks)
-            
-            validated = sum(1 for r in results if r[0])
-            await self._update_stats()
-            
-            return {
-                "total": len(proxies),
-                "validated": validated,
-                "failed": len(proxies) - validated,
-                "success_rate": (validated / len(proxies)) * 100 if proxies else 0
-            }
-            
-        finally:
-            self.validating = False
-            
-    async def _update_stats(self):
-        proxies = await self.redis.get_all_proxies()
-        alive = await self.redis.get_alive_proxies()
-        
-        stats = {
-            "total": len(proxies),
-            "alive": len(alive),
-            "dead": len(proxies) - len(alive),
-            "last_update": datetime.now().isoformat(),
-            "uptime": int(time.time())
-        }
-        
-        await self.redis.set_stats(stats)
-        
-    async def get_stats(self) -> dict:
-        await self._update_stats()
-        return await self.redis.get_stats()
-        
-    async def cleanup(self):
-        await self.redis.disconnect()
-        
-    async def get_proxy_for_scan(self) -> Optional[dict]:
-        alive = await self.redis.get_alive_proxies()
-        if not alive:
-            return None
-        alive.sort(key=lambda x: x.get("speed", float('inf')))
-        return alive[0] if alive else None
-        
-    async def get_random_alive(self) -> Optional[dict]:
-        alive = await self.redis.get_alive_proxies()
-        if not alive:
-            return None
-        return random.choice(alive)
-        
-    async def clean_dead(self) -> int:
-        proxies = await self.redis.get_all_proxies()
-        dead = [p for p in proxies if not p.get('is_alive', False)]
-        for p in dead:
-            await self.redis.remove_proxy(f"{p['ip']}:{p['port']}")
-            await self.redis.remove_alive_proxy(p)
-        return len(dead)
-
-# ============================================
-# BOT INSTANCE
+# BOT HANDLERS
 # ============================================
 redis_manager = RedisManager()
-proxy_manager = ProxyManager()
-
-# ============================================
-# COMMAND HANDLERS
-# ============================================
+layer7_engine = Layer7DefenseEngine()
 
 async def is_authorized(update: Update) -> bool:
     user_id = update.effective_user.id
-    if user_id not in ALLOWED_USERS:
+    if user_id not in ADMIN_USER_IDS:
         await update.message.reply_text("❌ Unauthorized access")
         return False
     return True
@@ -415,355 +591,245 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_authorized(update):
         return
         
+    stats = layer7_engine.get_stats()
+    
     keyboard = [
         [InlineKeyboardButton("📊 Stats", callback_data="stats")],
-        [InlineKeyboardButton("✅ Validate", callback_data="validate")],
-        [InlineKeyboardButton("📤 Export Alive", callback_data="export")],
-        [InlineKeyboardButton("🧹 Clean Dead", callback_data="clean")],
+        [InlineKeyboardButton("🛡️ Layer 7 Stats", callback_data="l7_stats")],
+        [InlineKeyboardButton("🚨 Attacks", callback_data="attacks")],
+        [InlineKeyboardButton("🔒 Blocked IPs", callback_data="blocked")],
+        [InlineKeyboardButton("🔓 Unblock IP", callback_data="unblock")],
         [InlineKeyboardButton("📋 Logs", callback_data="logs")],
-        [InlineKeyboardButton("🎲 Random Proxy", callback_data="random")],
     ]
     
-    stats = await proxy_manager.get_stats()
-    alive = stats.get('alive', 0)
-    total = stats.get('total', 0)
-    rate = (alive / max(total, 1)) * 100
-    
     await update.message.reply_text(
-        f"🤖 **Nexus Proxy Manager Bot**\n"
+        f"🛡️ **Nexus Layer 7 Defense Bot**\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n"
         f"📡 Status: 🟢 Online\n"
-        f"📦 Proxies: {total}\n"
-        f"✅ Alive: {alive}\n"
-        f"📈 Rate: {rate:.1f}%\n"
+        f"🔄 Total Requests: {stats['total_requests']}\n"
+        f"🚫 Blocked: {stats['blocked_requests']}\n"
+        f"🚨 Attacks: {stats['attacks_detected']}\n"
+        f"🔒 Blocked IPs: {stats['blocked_ips']}\n"
         f"🕒 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"📤 Upload a .txt file with proxies\n"
-        f"📋 Format: ip:port (one per line)\n"
-        f"🔒 SentinelCore Compliant",
+        f"🛡️ **Layer 7 Protection Active**\n"
+        f"• Rate Limiting: {RATE_LIMIT_REQUESTS}/min\n"
+        f"• Burst Protection: {BURST_THRESHOLD}/10s\n"
+        f"• SQL Injection Detection\n"
+        f"• XSS Detection\n"
+        f"• Path Traversal Detection\n"
+        f"• Bad User-Agent Blocking",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
-    
-    await redis_manager.log_command("start", update.effective_user.id)
 
-async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def layer7_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_authorized(update):
         return
         
-    stats = await proxy_manager.get_stats()
-    
-    if not stats or stats.get('total', 0) == 0:
-        await update.message.reply_text("⚠️ No proxies loaded")
-        return
-        
-    alive = stats.get('alive', 0)
-    total = stats.get('total', 0)
-    rate = (alive / max(total, 1)) * 100
+    stats = layer7_engine.get_stats()
     
     msg = (
-        f"📊 **Proxy Statistics**\n"
+        f"🛡️ **Layer 7 Defense Statistics**\n"
         f"━━━━━━━━━━━━━━━━━━\n"
-        f"📦 Total: {total}\n"
-        f"✅ Alive: {alive}\n"
-        f"❌ Dead: {stats.get('dead', 0)}\n"
-        f"📈 Success Rate: {rate:.1f}%\n"
-        f"🔄 Last Update: {stats.get('last_update', 'Never')}\n"
-        f"⏱️ Uptime: {stats.get('uptime', 0)}s"
+        f"📊 Total Requests: {stats['total_requests']}\n"
+        f"🚫 Blocked: {stats['blocked_requests']}\n"
+        f"🚨 Attacks Detected: {stats['attacks_detected']}\n"
+        f"🔒 Blocked IPs: {stats['blocked_ips']}\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"📋 **Attack Types:**\n"
     )
+    
+    for attack_type, count in stats.get('attack_types', {}).items():
+        msg += f"  • {attack_type}: {count}\n"
+        
+    msg += f"\n🕒 Last Attack: {stats.get('last_attack', 'None')}"
     
     await update.message.reply_text(msg, parse_mode="Markdown")
-    await redis_manager.log_command("stats", update.effective_user.id)
 
-async def validate(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def show_attacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_authorized(update):
         return
         
-    if proxy_manager.validating:
-        await update.message.reply_text("⏳ Validation already running...")
+    attacks = await layer7_engine.get_attacks(20)
+    
+    if not attacks:
+        await update.message.reply_text("✅ No attacks detected")
         return
         
-    await update.message.reply_text("🔄 Validating proxies... (this may take a few minutes)")
-    
-    async def progress_callback(current, total):
-        try:
-            await update.message.edit_text(
-                f"🔄 Validating proxies... {current}/{total} ({int(current/total*100)}%)"
-            )
-        except:
-            pass
-    
-    result = await proxy_manager.validate_all(
-        max_concurrent=30,
-        progress_callback=progress_callback
-    )
-    
-    if result.get("status") == "already_running":
-        await update.message.edit_text("⏳ Validation already running...")
-        return
+    msg = "🚨 **Recent Attacks**\n━━━━━━━━━━━━━━━━━━\n"
+    for attack in attacks[:10]:
+        msg += (
+            f"• {attack.get('timestamp', '')[:19]} - "
+            f"{attack.get('type', 'unknown')} "
+            f"from {attack.get('ip', 'unknown')} "
+            f"({attack.get('severity', 'low')})\n"
+        )
         
-    msg = (
-        f"✅ **Validation Complete**\n"
-        f"━━━━━━━━━━━━━━━━━━\n"
-        f"Total: {result['total']}\n"
-        f"✅ Alive: {result['validated']}\n"
-        f"❌ Dead: {result['failed']}\n"
-        f"📈 Success Rate: {result['success_rate']:.1f}%"
-    )
-    
-    await update.message.edit_text(msg, parse_mode="Markdown")
-    await redis_manager.log_command("validate", update.effective_user.id, result)
-
-async def export(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await is_authorized(update):
-        return
-        
-    alive = await redis_manager.get_alive_proxies()
-    
-    if not alive:
-        await update.message.reply_text("⚠️ No alive proxies to export")
-        return
-        
-    content = "\n".join([f"{p['ip']}:{p['port']}" for p in alive])
-    filename = f"alive_proxies_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
-    
-    await update.message.reply_document(
-        document=content.encode('utf-8'),
-        filename=filename
-    )
-    
-    await redis_manager.log_command("export", update.effective_user.id, {"count": len(alive)})
-
-async def clean(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await is_authorized(update):
-        return
-        
-    await update.message.reply_text("🧹 Cleaning dead proxies...")
-    
-    removed = await proxy_manager.clean_dead()
-    
-    await update.message.reply_text(
-        f"🧹 **Clean Complete**\n"
-        f"━━━━━━━━━━━━━━━━━━\n"
-        f"Removed: {removed} dead proxies"
-    )
-    
-    await redis_manager.log_command("clean", update.effective_user.id, {"removed": removed})
-
-async def random_proxy(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await is_authorized(update):
-        return
-        
-    proxy = await proxy_manager.get_random_alive()
-    
-    if not proxy:
-        await update.message.reply_text("⚠️ No alive proxies available")
-        return
-        
-    msg = (
-        f"🎲 **Random Proxy**\n"
-        f"━━━━━━━━━━━━━━━━━━\n"
-        f"IP: `{proxy['ip']}`\n"
-        f"Port: `{proxy['port']}`\n"
-        f"Protocol: `{proxy.get('protocol', 'http')}`\n"
-        f"Speed: `{proxy.get('speed', 0):.0f}ms`\n"
-        f"Anonymity: `{proxy.get('anonymity', 'unknown')}`"
-    )
-    
     await update.message.reply_text(msg, parse_mode="Markdown")
-    await redis_manager.log_command("random", update.effective_user.id, {"ip": proxy['ip']})
+
+async def show_blocked(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await is_authorized(update):
+        return
+        
+    blocked = await layer7_engine.get_blocked_ips()
+    
+    if not blocked:
+        await update.message.reply_text("✅ No IPs blocked")
+        return
+        
+    msg = "🔒 **Blocked IPs**\n━━━━━━━━━━━━━━━━━━\n"
+    for entry in blocked[:10]:
+        msg += (
+            f"• {entry.get('ip')} - {entry.get('reason')}\n"
+            f"  Expires: {entry.get('expires', '')[:19]}\n"
+        )
+        
+    await update.message.reply_text(msg, parse_mode="Markdown")
+
+async def unblock_ip(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await is_authorized(update):
+        return
+        
+    args = context.args
+    if not args:
+        await update.message.reply_text("⚠️ Usage: /unblock <ip>")
+        return
+        
+    ip = args[0]
+    success = await layer7_engine.unblock_ip(ip)
+    
+    if success:
+        await update.message.reply_text(f"✅ Unblocked IP: {ip}")
+    else:
+        await update.message.reply_text(f"❌ IP not found: {ip}")
 
 async def logs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_authorized(update):
         return
         
-    logs = await redis_manager.get_logs(20)
-    
+    logs = layer7_engine.attack_log
     if not logs:
         await update.message.reply_text("📋 No logs available")
         return
         
-    msg = "📋 **Recent Activity**\n━━━━━━━━━━━━━━━━━━\n"
-    for log in logs[:10]:
-        msg += f"• {log.get('timestamp', '')[:19]} - /{log.get('command')}\n"
-    
+    msg = "📋 **Recent Attack Logs**\n━━━━━━━━━━━━━━━━━━\n"
+    for attack in list(logs)[-10:]:
+        msg += (
+            f"• {attack.timestamp[:19]} - "
+            f"{attack.attack_type} from {attack.ip}\n"
+        )
+        
     await update.message.reply_text(msg, parse_mode="Markdown")
 
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def test_attack(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Test attack detection (for testing only)"""
     if not await is_authorized(update):
         return
         
-    await update.message.reply_text(
-        f"📚 **Help**\n"
-        f"━━━━━━━━━━━━━━━━━━\n\n"
-        f"📋 **Commands:**\n"
-        f"/start - Show main menu\n"
-        f"/stats - View statistics\n"
-        f"/validate - Validate all proxies\n"
-        f"/export - Export alive proxies\n"
-        f"/clean - Remove dead proxies\n"
-        f"/random - Get random alive proxy\n"
-        f"/logs - View recent activity\n"
-        f"/help - Show this help\n\n"
-        f"📤 **Upload:**\n"
-        f"Send a .txt file with proxies\n"
-        f"Format: ip:port (one per line)\n\n"
-        f"🔒 **SentinelCore Compliant**"
+    # Simulate an attack for testing
+    test_attack = Layer7Attack(
+        ip="192.168.1.100",
+        attack_type="sql_injection",
+        path="/login.php?id=1' OR '1'='1",
+        method="GET",
+        user_agent="python-requests/2.28.1",
+        timestamp=datetime.now().isoformat(),
+        details={"query": "id=1' OR '1'='1"},
+        severity="critical"
     )
-
-# ============================================
-# MESSAGE HANDLERS
-# ============================================
-
-async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await is_authorized(update):
-        return
-        
-    document = update.message.document
-    if not document or not document.file_name.endswith('.txt'):
-        await update.message.reply_text("⚠️ Please send a .txt file")
-        return
-        
-    await update.message.reply_text(f"📤 Loading proxies from {document.file_name}...")
     
-    try:
-        file = await context.bot.get_file(document.file_id)
-        content = await file.download_as_bytearray()
-        text = content.decode('utf-8')
-        
-        count = await proxy_manager.load_from_text(text, source=f"file:{document.file_name}")
-        
-        await update.message.reply_text(
-            f"✅ **Load Complete**\n"
-            f"━━━━━━━━━━━━━━━━━━\n"
-            f"Loaded: {count} proxies\n"
-            f"File: {document.file_name}\n\n"
-            f"Use /validate to check them"
-        )
-        
-        await redis_manager.log_command(
-            "upload", 
-            update.effective_user.id, 
-            {"file": document.file_name, "count": count}
-        )
-        
-    except Exception as e:
-        await update.message.reply_text(f"❌ Error loading file: {str(e)}")
-
-async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await is_authorized(update):
-        return
-        
-    text = update.message.text.strip()
-    
-    # Check if message contains a URL
-    url_match = re.search(r'https?://[^\s]+', text)
-    if not url_match:
-        return
-        
-    url = url_match.group(0)
-    
-    await update.message.reply_text(f"📤 Loading proxies from URL...")
-    
-    try:
-        count = await proxy_manager.load_from_url(url)
-        
-        if count > 0:
-            await update.message.reply_text(
-                f"✅ **Load Complete**\n"
-                f"━━━━━━━━━━━━━━━━━━\n"
-                f"Loaded: {count} proxies\n"
-                f"URL: {url}\n\n"
-                f"Use /validate to check them"
-            )
-            
-            await redis_manager.log_command(
-                "load_url",
-                update.effective_user.id,
-                {"url": url, "count": count}
-            )
-        else:
-            await update.message.reply_text(
-                f"⚠️ No proxies found in URL: {url}\n"
-                f"Make sure the file is in ip:port format"
-            )
-            
-    except Exception as e:
-        await update.message.reply_text(f"❌ Error loading URL: {str(e)}")
-
-# ============================================
-# CALLBACK HANDLERS
-# ============================================
+    await layer7_engine._log_attack(test_attack)
+    await update.message.reply_text("🧪 Test attack logged successfully")
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
     user_id = update.effective_user.id
-    if user_id not in ALLOWED_USERS:
+    if user_id not in ADMIN_USER_IDS:
         await query.edit_message_text("❌ Unauthorized")
         return
         
     action = query.data
     
     if action == "stats":
-        await stats(update, context)
-    elif action == "validate":
-        await validate(update, context)
-    elif action == "export":
-        await export(update, context)
-    elif action == "clean":
-        await clean(update, context)
+        await start(update, context)
+    elif action == "l7_stats":
+        await layer7_stats(update, context)
+    elif action == "attacks":
+        await show_attacks(update, context)
+    elif action == "blocked":
+        await show_blocked(update, context)
+    elif action == "unblock":
+        await query.edit_message_text("⚠️ Send /unblock <ip>")
     elif action == "logs":
         await logs(update, context)
-    elif action == "random":
-        await random_proxy(update, context)
+
+# ============================================
+# WEBHOOK SIMULATOR (For testing)
+# ============================================
+async def handle_webhook(request_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle incoming webhook requests (for integration with real traffic)"""
+    result = await layer7_engine.analyze_request(request_data)
+    
+    if result["blocked"]:
+        return {
+            "status": 403,
+            "message": "Blocked by Layer 7 Defense",
+            "reason": result["reason"]
+        }
+    elif result["attack_detected"]:
+        return {
+            "status": 403,
+            "message": f"Attack detected: {result['attack_type']}",
+            "severity": result["severity"]
+        }
+        
+    return {
+        "status": 200,
+        "message": "OK",
+        "attack_detected": False
+    }
 
 # ============================================
 # MAIN
 # ============================================
-
 async def main():
-    if not TOKEN:
-        logger.error("❌ TELEGRAM_BOT_TOKEN not set")
+    # Validate config
+    if TELEGRAM_BOT_TOKEN == "PASTE_YOUR_BOT_TOKEN_HERE":
+        logger.error("❌ Please set TELEGRAM_BOT_TOKEN")
         return
         
     # Connect to Redis
     await redis_manager.connect()
     
-    # Initialize proxy manager
-    await proxy_manager.initialize()
+    # Initialize Layer 7 engine
+    await layer7_engine.initialize()
     
     # Create application
-    app = Application.builder().token(TOKEN).build()
+    app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
     
-    # Add command handlers
+    # Add handlers
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("help", help_command))
-    app.add_handler(CommandHandler("stats", stats))
-    app.add_handler(CommandHandler("validate", validate))
-    app.add_handler(CommandHandler("export", export))
-    app.add_handler(CommandHandler("clean", clean))
-    app.add_handler(CommandHandler("random", random_proxy))
+    app.add_handler(CommandHandler("stats", layer7_stats))
+    app.add_handler(CommandHandler("attacks", show_attacks))
+    app.add_handler(CommandHandler("blocked", show_blocked))
+    app.add_handler(CommandHandler("unblock", unblock_ip))
     app.add_handler(CommandHandler("logs", logs))
-    
-    # Add message handlers
-    app.add_handler(MessageHandler(filters.Document.TXT, handle_file))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_url))
+    app.add_handler(CommandHandler("test", test_attack))
     
     # Add callback handler
     app.add_handler(CallbackQueryHandler(button_callback))
     
-    logger.info("🚀 Bot started successfully")
-    logger.info(f"📊 Allowed users: {ALLOWED_USERS}")
-    logger.info(f"🔗 Redis: {REDIS_URL}")
+    logger.info("🛡️ Layer 7 Defense Bot started successfully")
     
     try:
         await app.run_polling()
     except Exception as e:
         logger.error(f"❌ Bot error: {e}")
     finally:
-        await proxy_manager.cleanup()
+        await redis_manager.disconnect()
 
 if __name__ == "__main__":
     try:
