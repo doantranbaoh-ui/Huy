@@ -1,19 +1,19 @@
-# --- Dockerfile (Poetry) ---
 FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install poetry
-RUN pip install poetry==1.7.1
+# Cài đặt dependencies hệ thống
+RUN apt-get update && apt-get install -y \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
 
-# Copy dependency files
-COPY pyproject.toml poetry.lock* ./
+# Copy requirements và cài đặt
+COPY requirements.txt .
+RUN pip install --upgrade pip
+RUN pip install --no-cache-dir --prefer-binary -r requirements.txt
 
-# Install dependencies (no Rust)
-RUN poetry config virtualenvs.create false \
-    && poetry install --no-interaction --no-ansi --no-root
+# Copy code
+COPY bot.py .
 
-# Copy application
-COPY . .
-
-CMD ["poetry", "run", "uvicorn", "proxy_manager.app:app", "--host", "0.0.0.0", "--port", "8000"]
+# Chạy bot
+CMD ["python", "bot.py"]
