@@ -1,7 +1,6 @@
 # --- proxy_manager/app.py ---
 """
 FastAPI web service for Proxy Manager
-All imports local — NO external packages
 """
 
 import os
@@ -13,7 +12,7 @@ from typing import Optional, List
 from datetime import datetime
 import uvicorn
 
-# Local imports only
+# Local imports — NO proxy_manager. prefix
 from manager import ProxyManager
 
 # --- Initialize ---
