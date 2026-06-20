@@ -7,6 +7,7 @@ python-multipart==0.0.6
 pydantic==1.10.13
 python-dotenv==1.0.0
 shared
+shared.models
 # --- telegram_bot/requirements.txt (FINAL) ---
 python-telegram-bot==20.6
 redis==5.0.1
