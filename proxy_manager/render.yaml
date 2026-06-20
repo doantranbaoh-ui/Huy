@@ -1,11 +1,24 @@
 services:
   - type: worker
     name: nexus-proxy-bot
-    runtime: image
+    runtime: python
     plan: starter
     region: frankfurt
-    image:
-      dockerfilePath: ./Dockerfile
+    buildCommand: |
+      # Install system dependencies for Pillow
+      apt-get update
+      apt-get install -y \
+        libjpeg-dev \
+        libpng-dev \
+        libtiff-dev \
+        libfreetype6-dev \
+        gcc \
+        python3-dev
+      
+      # Install Python packages
+      pip install --upgrade pip
+      pip install --prefer-binary -r requirements.txt
+    startCommand: python bot.py
     envVars:
       - key: TELEGRAM_BOT_TOKEN
         sync: false
