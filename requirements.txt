@@ -5,3 +5,4 @@ gunicorn
 h2
 hyperframe
 hpack
+psutil
