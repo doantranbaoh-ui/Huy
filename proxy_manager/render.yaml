@@ -1,16 +1,14 @@
-# --- render.yaml ---
+# --- render.yaml (Fixed) ---
 services:
-  # 1. Redis (Use Render's Redis or Upstash)
-  # Create a Redis instance manually in Render dashboard
-
-  # 2. Proxy Manager API
+  # 1. Proxy Manager API
   - type: web
     name: nexus-proxy-manager
     runtime: python
-    repo: https://github.com/yourusername/nexus-render
     plan: starter
     region: frankfurt
-    buildCommand: cd proxy_manager && pip install -r requirements.txt
+    buildCommand: |
+      cd proxy_manager && \
+      pip install --prefer-binary --no-cache-dir -r requirements.txt
     startCommand: cd proxy_manager && uvicorn app:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: REDIS_URL
@@ -21,14 +19,15 @@ services:
       - key: PORT
         value: 8000
 
-  # 3. Telegram Bot Worker
+  # 2. Telegram Bot Worker
   - type: worker
     name: nexus-telegram-bot
     runtime: python
-    repo: https://github.com/yourusername/nexus-render
     plan: starter
     region: frankfurt
-    buildCommand: cd telegram_bot && pip install -r requirements.txt
+    buildCommand: |
+      cd telegram_bot && \
+      pip install --prefer-binary --no-cache-dir -r requirements.txt
     startCommand: cd telegram_bot && python bot.py
     envVars:
       - key: REDIS_URL
@@ -41,5 +40,40 @@ services:
       - key: ALLOWED_USERS
         sync: false
 
-  # 4. Keep-Alive Service
- 
+  # 3. Keep-Alive Service
+  - type: worker
+    name: nexus-keepalive
+    runtime: python
+    plan: starter
+    region: frankfurt
+    buildCommand: |
+      cd keep_alive && \
+      pip install --prefer-binary --no-cache-dir -r requirements.txt
+    startCommand: cd keep_alive && python keepalive.py
+    envVars:
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: nexus-redis
+          property: connectionString
+      - key: SOC_WEBHOOK_URL
+        sync: false
+
+  # 4. Health Check
+  - type: web
+    name: nexus-healthcheck
+    runtime: python
+    plan: starter
+    region: frankfurt
+    buildCommand: |
+      cd health_check && \
+      pip install --prefer-binary --no-cache-dir -r requirements.txt
+    startCommand: cd health_check && uvicorn health:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: nexus-redis
+          property: connectionString
+      - key: PORT
+        value: 8080
