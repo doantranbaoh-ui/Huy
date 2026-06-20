@@ -1,6 +1,7 @@
 # --- proxy_manager/manager.py ---
 """
 Proxy Manager Core — handles proxy loading, validation, storage
+NO EXTERNAL DEPENDENCIES — all local
 """
 
 import asyncio
@@ -8,16 +9,77 @@ import aiohttp
 import logging
 import re
 import random
+import json
 from datetime import datetime, timedelta
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any
+from dataclasses import dataclass, field
 import sys
 import os
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from shared.models import Proxy, ProxyStats
-from shared.redis_client import RedisManager
+# Import local modules only
+from redis_client import RedisManager
 
 logger = logging.getLogger(__name__)
+
+# --- Local Models (no external package needed) ---
+@dataclass
+class Proxy:
+    ip: str
+    port: int
+    protocol: str = "http"
+    country: Optional[str] = None
+    speed: float = 0.0
+    is_alive: bool = True
+    last_checked: Optional[str] = None
+    fail_count: int = 0
+    anonymity: str = "unknown"
+    
+    def to_dict(self) -> dict:
+        return {
+            "ip": self.ip,
+            "port": self.port,
+            "protocol": self.protocol,
+            "country": self.country,
+            "speed": self.speed,
+            "is_alive": self.is_alive,
+            "last_checked": self.last_checked,
+            "fail_count": self.fail_count,
+            "anonymity": self.anonymity
+        }
+    
+    @classmethod
+    def from_dict(cls, data: dict) -> 'Proxy':
+        return cls(
+            ip=data.get("ip", ""),
+            port=data.get("port", 0),
+            protocol=data.get("protocol", "http"),
+            country=data.get("country"),
+            speed=data.get("speed", 0.0),
+            is_alive=data.get("is_alive", True),
+            last_checked=data.get("last_checked"),
+            fail_count=data.get("fail_count", 0),
+            anonymity=data.get("anonymity", "unknown")
+        )
+    
+    def __str__(self):
+        return f"{self.protocol}://{self.ip}:{self.port}"
+
+@dataclass
+class ProxyStats:
+    total: int = 0
+    alive: int = 0
+    dead: int = 0
+    last_update: Optional[str] = None
+    uptime_seconds: int = 0
+    
+    def to_dict(self) -> dict:
+        return {
+            "total": self.total,
+            "alive": self.alive,
+            "dead": self.dead,
+            "last_update": self.last_update,
+            "uptime_seconds": self.uptime_seconds
+        }
 
 class ProxyManager:
     """Main proxy management engine"""
@@ -118,7 +180,6 @@ class ProxyManager:
                         proxy.last_checked = datetime.now().isoformat()
                         proxy.fail_count = 0
                         
-                        # Update in Redis
                         await self.redis.set_proxy(
                             f"{proxy.ip}:{proxy.port}",
                             proxy.to_dict()
@@ -178,7 +239,6 @@ class ProxyManager:
         if not alive:
             return None
             
-        # Sort by speed (fastest first)
         alive.sort(key=lambda x: x.get("speed", float('inf')))
         return alive[0] if alive else None
         
