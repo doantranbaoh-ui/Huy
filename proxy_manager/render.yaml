@@ -1,6 +1,4 @@
-# --- render.yaml (Fixed) ---
 services:
-  # 1. Proxy Manager API
   - type: web
     name: nexus-proxy-manager
     runtime: python
@@ -16,10 +14,7 @@ services:
           type: redis
           name: nexus-redis
           property: connectionString
-      - key: PORT
-        value: 8000
 
-  # 2. Telegram Bot Worker
   - type: worker
     name: nexus-telegram-bot
     runtime: python
@@ -40,7 +35,6 @@ services:
       - key: ALLOWED_USERS
         sync: false
 
-  # 3. Keep-Alive Service
   - type: worker
     name: nexus-keepalive
     runtime: python
@@ -56,10 +50,7 @@ services:
           type: redis
           name: nexus-redis
           property: connectionString
-      - key: SOC_WEBHOOK_URL
-        sync: false
 
-  # 4. Health Check
   - type: web
     name: nexus-healthcheck
     runtime: python
@@ -75,5 +66,3 @@ services:
           type: redis
           name: nexus-redis
           property: connectionString
-      - key: PORT
-        value: 8080
