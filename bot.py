@@ -70,7 +70,7 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 # ============================================
 
 # Điền thông tin của bạn
-TELEGRAM_BOT_TOKEN = "PASTE_YOUR_BOT_TOKEN_HERE"  # <--- Điền token
+TELEGRAM_BOT_TOKEN = "6320148381:AAFvtpr4l8t61IRgynsiUkwKVbCNMw9kdtU"  # <--- Điền token
 ADMIN_USER_IDS = [123456789]  # <--- Điền ID admin
 
 # ============================================
