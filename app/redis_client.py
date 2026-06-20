@@ -1,7 +1,6 @@
-# --- proxy_manager/redis_client.py ---
+# --- app/redis_client.py ---
 """
-Redis client for proxy management
-NO EXTERNAL DEPENDENCIES — local only
+Redis client for cross-service communication
 """
 
 import os
