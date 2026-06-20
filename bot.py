@@ -21,7 +21,7 @@ from urllib.parse import urlparse
 import socks
 
 # -------------------- CẤU HÌNH TELEGRAM --------------------
-TELEGRAM_BOT_TOKEN = "1234567890:ABCdefGHIjklMNOpqrsTUVwxyz"  # Thay token thật
+TELEGRAM_BOT_TOKEN = "6320148381:AAFvtpr4l8t61IRgynsiUkwKVbCNMw9kdtU"  # Thay token thật
 # Không cần chat_id cố định - bot tự động lưu chat_id đầu tiên
 
 # -------------------- CẤU HÌNH TẤN CÔNG --------------------
