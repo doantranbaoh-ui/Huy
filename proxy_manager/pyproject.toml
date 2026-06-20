@@ -1,0 +1,26 @@
+# --- pyproject.toml ---
+[project]
+name = "nexus-proxy-manager"
+version = "2.0.0"
+description = "Proxy Manager for legitimate security testing"
+readme = "README.md"
+requires-python = ">=3.9,<3.14"
+dependencies = [
+    "fastapi==0.104.1",
+    "uvicorn[standard]==0.24.0",
+    "redis==5.0.1",
+    "aiohttp==3.9.1",
+    "python-multipart==0.0.6",
+    "pydantic==1.10.13",  # v1 - no Rust
+    "python-dotenv==1.0.0"
+]
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+package-mode = true
+
+[tool.poetry.dependencies]
+python = ">=3.9,<3.14"
