@@ -71,7 +71,7 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 
 # Điền thông tin của bạn
 TELEGRAM_BOT_TOKEN = "6320148381:AAFvtpr4l8t61IRgynsiUkwKVbCNMw9kdtU"  # <--- Điền token
-ADMIN_USER_IDS = [123456789]  # <--- Điền ID admin
+ADMIN_USER_IDS = [5736655322]  # <--- Điền ID admin
 
 # ============================================
 # 🔧 FIX 4: Logging
