@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Telegram Bot tự động cày view YouTube qua proxy xoay vòng, chạy 24/7.
-- Sửa lỗi RuntimeError: no current event loop
+Telegram Bot tự động cày view YouTube qua proxy xoay vòng, chạy 24/7 trên Render.
+- FIX LỖI EVENT LOOP: sử dụng asyncio.run() đúng cách, không dùng app.run()
 - Tự động kiểm tra proxy sống/chết, loại bỏ proxy chết khỏi danh sách dùng nhưng GIỮ NGUYÊN file proxy.txt (không xóa)
 - Khi upload file proxy mới, bot tự động merge (không ghi đè), chỉ thêm proxy mới
 - Lưu proxy chết vào file dead_proxy.txt để tham khảo
@@ -33,9 +33,9 @@ from pyrogram import Client, filters
 from pyrogram.types import Message
 
 # ===== CẤU HÌNH =====
-API_ID = 27657608  # Thay bằng API ID
-API_HASH = "3b6e52a3713b44ad5adaa2bcf579de66"  # Thay bằng API Hash
-BOT_TOKEN = "6320148381:AAGqyLUkP6gn6GvCir7xzFHk1jznw-mIAKw"  # Thay bằng token
+API_ID = 123456  # Thay bằng API ID
+API_HASH = "your_api_hash"  # Thay bằng API Hash
+BOT_TOKEN = "your_bot_token"  # Thay bằng token
 PROXY_FILE = "proxy.txt"
 DEAD_PROXY_FILE = "dead_proxy.txt"
 LOG_FILE = "bot_log.txt"
@@ -68,6 +68,7 @@ last_proxy_reload = 0
 bot_running = True
 view_stats = {"total": 0, "success": 0, "failed": 0}
 start_time = time.time()
+app_bot = None  # Khởi tạo sau
 
 # ===== GHI LOG =====
 def log_message(msg):
@@ -300,6 +301,7 @@ async def start_web_server():
     log_message(f"Web server: http://{WEB_HOST}:{WEB_PORT}")
 
 # ===== BOT TELEGRAM =====
+# Khởi tạo app_bot TOÀN CỤC để các hàm handler có thể truy cập
 app_bot = Client("view_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
 # ===== TASK NỀN =====
@@ -496,7 +498,9 @@ async def stop_cmd(client, message: Message):
     global bot_running
     await message.reply_text("🛑 Đang dừng bot...")
     bot_running = False
-    asyncio.get_event_loop().call_later(1, lambda: asyncio.get_event_loop().stop())
+    # Dừng event loop sau 1 giây
+    loop = asyncio.get_event_loop()
+    loop.call_later(1, loop.stop)
 
 # ===== XỬ LÝ TÍN HIỆU =====
 def signal_handler(sig, frame):
@@ -504,11 +508,18 @@ def signal_handler(sig, frame):
     log_message(f"Signal {sig}, shutting down...")
     bot_running = False
     remove_pid()
+    # Dừng event loop nếu đang chạy
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            loop.call_soon_threadsafe(loop.stop)
+    except:
+        pass
     sys.exit(0)
 
 # ===== KHỞI ĐỘNG =====
 async def main():
-    global bot_running, start_time
+    global bot_running, start_time, app_bot
     
     if check_already_running():
         log_message("Bot đã chạy, thoát.")
@@ -529,23 +540,28 @@ async def main():
     asyncio.create_task(periodic_check_proxy())
     asyncio.create_task(heartbeat())
     
-    # Chạy bot
+    # Chạy bot - SỬ DỤNG start() VÀ idle() THAY VÌ run()
     try:
         await app_bot.start()
         log_message("Bot Telegram đã kết nối")
-        await app_bot.idle()
+        # Giữ bot chạy bằng cách chờ idle
+        while bot_running:
+            await asyncio.sleep(1)
     except Exception as e:
         log_message(f"Lỗi bot: {e}")
     finally:
-        await app_bot.stop()
+        if app_bot:
+            await app_bot.stop()
         remove_pid()
         log_message("Bot đã dừng")
 
 if __name__ == "__main__":
+    # Đăng ký signal handler
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
     
     try:
+        # Sử dụng asyncio.run() để chạy main loop
         asyncio.run(main())
     except KeyboardInterrupt:
         log_message("Keyboard interrupt")
