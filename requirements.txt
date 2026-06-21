@@ -7,3 +7,4 @@ hyperframe
 hpack
 psutil
 aiohttp
+pyrogram
