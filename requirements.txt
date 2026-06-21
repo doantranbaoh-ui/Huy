@@ -1,11 +1,27 @@
-requests
-PySocks
-Flask
-gunicorn
-h2
-hyperframe
-hpack
-psutil
-aiohttp
-pyrogram
-uvloop
+# requirements.txt - Cài đặt các thư viện cần thiết cho bot
+# Cài đặt: pip install -r requirements.txt
+
+# === THƯ VIỆN CHÍNH ===
+# Pyrogram - Framework để tạo bot Telegram
+pyrogram==2.0.106
+
+# TgCrypto - Tăng tốc mã hóa cho Pyrogram (bắt buộc để tránh chậm)
+tgcrypto==1.2.5
+
+# === THƯ VIỆN HỖ TRỢ ===
+# Requests - Gửi HTTP request để cày view
+requests==2.31.0
+
+# aiohttp - Web server giữ tiến trình 24/7
+aiohttp==3.9.1
+
+# asyncio - Đã có sẵn trong Python 3.7+
+
+# === TÙY CHỌN (KHÔNG BẮT BUỘC) ===
+# uvloop - Tăng tốc event loop (có thể gây lỗi trên một số môi trường, không khuyến nghị dùng trên Render)
+# uvloop==0.19.0
+
+# === LƯU Ý ===
+# - Python 3.8 trở lên được khuyến nghị
+# - Nếu gặp lỗi "No module named pyrogram", hãy cài đặt bằng pip
+# - Trên Render, đảm bảo file này nằm trong thư mục gốc của project
