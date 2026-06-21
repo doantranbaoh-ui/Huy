@@ -27,7 +27,7 @@ import socks
 from flask import Flask, jsonify
 
 # -------------------- CẤU HÌNH --------------------
-TELEGRAM_BOT_TOKEN = "1234567890:ABCdefGHIjklMNOpqrsTUVwxyz"  # THAY TOKEN
+TELEGRAM_BOT_TOKEN = "6320148381:AAGj1RnEXBmNuWBhJF8l7OvcQTwhh6VTa-s"  # THAY TOKEN
 
 # TỐI ƯU TỐC ĐỘ TỐI ĐA
 THREAD_COUNT = 5000
