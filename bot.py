@@ -2,12 +2,13 @@
 # -*- coding: utf-8 -*-
 """
 Telegram Bot tự động cày view YouTube qua proxy xoay vòng, chạy 24/7.
+- Sửa lỗi RuntimeError: no current event loop
 - Tự động kiểm tra proxy sống/chết, loại bỏ proxy chết khỏi danh sách dùng nhưng GIỮ NGUYÊN file proxy.txt (không xóa)
 - Khi upload file proxy mới, bot tự động merge (không ghi đè), chỉ thêm proxy mới
 - Lưu proxy chết vào file dead_proxy.txt để tham khảo
 - Web server giữ tiến trình tại 0.0.0.0:8080
 Yêu cầu: python3, requests, pyrogram, asyncio, aiohttp
-Cài đặt: pip install requests pyrogram asyncio aiohttp
+Cài đặt: pip install requests pyrogram asyncio aiohttp tgcrypto uvloop
 """
 
 import asyncio
@@ -23,14 +24,18 @@ from concurrent.futures import ThreadPoolExecutor
 from threading import Lock
 from aiohttp import web
 
+# === FIX LỖI EVENT LOOP - PHẢI ĐẶT ĐẦU FILE ===
+import uvloop
+uvloop.install()  # Gọi NGAY LẬP TỨC trước khi import pyrogram
+
 # === THƯ VIỆN PYROGRAM ===
 from pyrogram import Client, filters
 from pyrogram.types import Message
 
 # ===== CẤU HÌNH =====
-API_ID = 27657608  # Thay bằng API ID
-API_HASH = "3b6e52a3713b44ad5adaa2bcf579de66"  # Thay bằng API Hash
-BOT_TOKEN = "6320148381:AAGqyLUkP6gn6GvCir7xzFHk1jznw-mIAKw"  # Thay bằng token
+API_ID = 123456  # Thay bằng API ID
+API_HASH = "your_api_hash"  # Thay bằng API Hash
+BOT_TOKEN = "your_bot_token"  # Thay bằng token
 PROXY_FILE = "proxy.txt"
 DEAD_PROXY_FILE = "dead_proxy.txt"
 LOG_FILE = "bot_log.txt"
