@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Telegram Bot tự động cày view YouTube qua proxy xoay vòng, chạy 24/7 trên Render.
-- FIX LỖI EVENT LOOP: Không dùng uvloop, dùng asyncio policy mặc định
+- FIX LỖI EVENT LOOP: Sửa bằng cách tạo event loop trước khi import pyrogram
 - Tự động kiểm tra proxy sống/chết, loại bỏ proxy chết khỏi danh sách dùng nhưng GIỮ NGUYÊN file proxy.txt (không xóa)
 - Khi upload file proxy mới, bot tự động merge (không ghi đè), chỉ thêm proxy mới
 - Lưu proxy chết vào file dead_proxy.txt để tham khảo
@@ -12,11 +12,28 @@ Cài đặt: pip install requests pyrogram asyncio aiohttp tgcrypto
 """
 
 import asyncio
+import sys
+import os
+
+# === FIX LỖI EVENT LOOP - TẠO LOOP TRƯỚC KHI IMPORT PYROGRAM ===
+if sys.platform == 'win32':
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+else:
+    try:
+        # Tạo event loop ngay lập tức
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    except Exception:
+        pass
+
+# === THƯ VIỆN PYROGRAM ===
+from pyrogram import Client, filters
+from pyrogram.types import Message
+
+# === CÁC THƯ VIỆN KHÁC ===
 import random
 import time
 import requests
-import os
-import sys
 import signal
 import json
 from datetime import datetime
@@ -24,17 +41,10 @@ from concurrent.futures import ThreadPoolExecutor
 from threading import Lock
 from aiohttp import web
 
-# === FIX LỖI EVENT LOOP - KHÔNG DÙNG UVLOOP ===
-# Pyrogram sẽ tự tạo event loop khi cần, không cần gọi trước
-
-# === THƯ VIỆN PYROGRAM ===
-from pyrogram import Client, filters
-from pyrogram.types import Message
-
 # ===== CẤU HÌNH =====
-API_ID = 27657608  # Thay bằng API ID
-API_HASH = "3b6e52a3713b44ad5adaa2bcf579de66"  # Thay bằng API Hash
-BOT_TOKEN = "6320148381:AAGqyLUkP6gn6GvCir7xzFHk1jznw-mIAKw"  # Thay bằng token
+API_ID = 123456  # Thay bằng API ID
+API_HASH = "your_api_hash"  # Thay bằng API Hash
+BOT_TOKEN = "your_bot_token"  # Thay bằng token
 PROXY_FILE = "proxy.txt"
 DEAD_PROXY_FILE = "dead_proxy.txt"
 LOG_FILE = "bot_log.txt"
@@ -553,7 +563,12 @@ if __name__ == "__main__":
     signal.signal(signal.SIGTERM, signal_handler)
     
     try:
-        asyncio.run(main())
+        # Đảm bảo có event loop trước khi chạy
+        loop = asyncio.get_event_loop()
+        if loop.is_closed():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        loop.run_until_complete(main())
     except KeyboardInterrupt:
         log_message("Keyboard interrupt")
         remove_pid()
