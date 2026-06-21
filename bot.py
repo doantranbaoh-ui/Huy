@@ -42,9 +42,9 @@ from threading import Lock
 from aiohttp import web
 
 # ===== CẤU HÌNH =====
-API_ID = 123456  # Thay bằng API ID
-API_HASH = "your_api_hash"  # Thay bằng API Hash
-BOT_TOKEN = "your_bot_token"  # Thay bằng token
+API_ID = 27657608  # Thay bằng API ID
+API_HASH = "3b6e52a3713b44ad5adaa2bcf579de66"  # Thay bằng API Hash
+BOT_TOKEN = "6320148381:AAG8gj3AkesAySvvuJ-upX5Ov48azxUrYRA"  # Thay bằng token
 PROXY_FILE = "proxy.txt"
 DEAD_PROXY_FILE = "dead_proxy.txt"
 LOG_FILE = "bot_log.txt"
