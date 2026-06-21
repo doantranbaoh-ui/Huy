@@ -1,364 +1,248 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
+⏱ Đã xem: {random.randint(30, video_info['duration']//2)}/{video_info['duration']}s
+
+━━━━━━━━━━━━━━━━━━━━━
+🌐 **PROXY STATUS:**
+├ 📡 Sống: {alive}
+├ 💀 Chết: {dead}
+├ 📂 Master: {len(state.proxy_master)}
+├ ✅ Thành công: {state.view_stats['success']}
+└ ❌ Thất bại: {state.view_stats['failed']}
+
+━━━━━━━━━━━━━━━━━━━━━
+📈 **THỐNG KÊ:**
+├ 👁 Tổng view: {state.view_stats['total']}
+├ 🎯 View đang chạy: {count}
+├ 📊 Tỷ lệ: {int((state.view_stats['success'] / max(1, state.view_stats['total'])) * 100)}%
+└ 🕒 Uptime: {int(time.time() - state.start_time)}s
+
+━━━━━━━━━━━━━━━━━━━━━
+🔘 **ĐIỀU KHIỂN:**
+⏸ Tạm dừng  |  ⏭ Tiếp theo  |  🔄 Làm mới
 """
-TELEGRAM BOT CÀY VIEW YOUTUBE - NHẬN MỌI FILE .TXT
-- Tự động nhận bất kỳ file .txt nào, đọc proxy từ đó
-- Merge proxy không xóa, lưu vào proxy.txt
-- Hỗ trợ HTTP/SOCKS4/SOCKS5
-"""
-
-import asyncio
-import sys
-import os
-import random
-import time
-import requests
-import signal
-import json
-from datetime import datetime
-from concurrent.futures import ThreadPoolExecutor
-from threading import Lock
-from aiohttp import web
-
-if sys.platform == 'win32':
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-else:
-    try:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-    except Exception:
-        pass
-
-from pyrogram import Client, filters
-from pyrogram.types import Message, Document, InlineKeyboardMarkup, InlineKeyboardButton
-
-# ===== CẤU HÌNH =====
-API_ID = 27657608
-API_HASH = "3b6e52a3713b44ad5adaa2bcf579de66"
-BOT_TOKEN = "6320148381:AAG8gj3AkesAySvvuJ-upX5Ov48azxUrYRA"
-MAIN_PROXY_FILE = "proxy.txt"
-DEAD_PROXY_FILE = "dead_proxy.txt"
-LOG_FILE = "bot_log.txt"
-PID_FILE = "bot.pid"
-WEB_HOST = "0.0.0.0"
-WEB_PORT = 8080
-
-# ===== CẤU HÌNH VIEW =====
-YOUTUBE_WATCH_URL = "https://www.youtube.com/watch?v={video_id}"
-MAX_WORKERS = 30
-VIEW_RETRY = 3
-PROXY_CHECK_INTERVAL = 1800
-PROXY_RELOAD_INTERVAL = 3600
-MIN_WATCH_TIME = 120
-MAX_WATCH_TIME = 180
-
-USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15",
-    "Mozilla/5.0 (Android 14; Mobile) AppleWebKit/537.36 Chrome/120.0.0.0",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0",
-]
-
-PROXY_LIST = []
-PROXY_MASTER = set()
-DEAD_PROXIES = set()
-proxy_lock = Lock()
-bot_running = True
-view_stats = {"total": 0, "success": 0, "failed": 0}
-start_time = time.time()
-app_bot = None
-
-DEMO_VIDEOS = {
-    "dQw4w9WgXcQ": "Rick Astley - Never Gonna Give You Up",
-    "9bZkp7q19f0": "PSY - GANGNAM STYLE",
-    "kJQP7kiw5Fk": "Luis Fonsi - Despacito",
-}
-
-def log_message(msg):
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    log_line = f"[{timestamp}] {msg}"
-    print(log_line)
-    try:
-        with open(LOG_FILE, "a", encoding="utf-8") as f:
-            f.write(log_line + "\n")
-    except:
-        pass
-
-def write_pid():
-    with open(PID_FILE, "w") as f:
-        f.write(str(os.getpid()))
-
-def remove_pid():
-    if os.path.exists(PID_FILE):
-        os.remove(PID_FILE)
-
-def check_already_running():
-    if os.path.exists(PID_FILE):
-        try:
-            with open(PID_FILE, "r") as f:
-                pid = int(f.read().strip())
-            try:
-                os.kill(pid, 0)
-                return True
-            except OSError:
-                os.remove(PID_FILE)
-                return False
-        except:
-            return False
-    return False
-
-def parse_proxy(proxy_str):
-    if proxy_str.startswith("http://"):
-        return {"http": proxy_str, "https": proxy_str}
-    elif proxy_str.startswith("socks5://"):
-        return {"http": proxy_str, "https": proxy_str}
-    elif proxy_str.startswith("socks4://"):
-        return {"http": proxy_str, "https": proxy_str}
-    else:
-        return {"http": "http://" + proxy_str, "https": "http://" + proxy_str}
-
-def load_proxies_from_file(filename):
-    proxies = set()
-    if os.path.exists(filename):
-        with open(filename, "r", encoding="utf-8", errors="ignore") as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith("#"):
-                    proxies.add(line)
-    return proxies
-
-def merge_proxies_from_file(filename):
-    """Merge proxy từ bất kỳ file .txt nào vào master"""
-    global PROXY_MASTER, PROXY_LIST, DEAD_PROXIES
-    new_proxies = load_proxies_from_file(filename)
-    added = 0
-    
-    for p in new_proxies:
-        if p not in PROXY_MASTER:
-            PROXY_MASTER.add(p)
-            added += 1
-            # Lưu vào file chính
-            with open(MAIN_PROXY_FILE, "a", encoding="utf-8") as f:
-                f.write(p + "\n")
-    
-    with proxy_lock:
-        PROXY_LIST = [p for p in PROXY_MASTER if p not in DEAD_PROXIES]
-    
-    log_message(f"Merge từ {filename}: thêm {added}, master={len(PROXY_MASTER)}, sống={len(PROXY_LIST)}")
-    return added, len(PROXY_LIST)
-
-def reload_proxies():
-    added = merge_proxies_from_file(MAIN_PROXY_FILE)
-    return len(PROXY_LIST), added
-
-def save_dead_proxy(proxy):
-    DEAD_PROXIES.add(proxy)
-    with open(DEAD_PROXY_FILE, "a", encoding="utf-8") as f:
-        f.write(f"{proxy}  # {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-    with proxy_lock:
-        if proxy in PROXY_LIST:
-            PROXY_LIST.remove(proxy)
-
-def get_proxy():
-    with proxy_lock:
-        if PROXY_LIST:
-            return random.choice(PROXY_LIST)
-    return None
-
-def check_proxy_alive(proxy_str: str, timeout: int = 15) -> bool:
-    test_url = "https://www.youtube.com"
-    headers = {"User-Agent": random.choice(USER_AGENTS)}
-    try:
-        proxies = parse_proxy(proxy_str)
-        resp = requests.get(test_url, headers=headers, proxies=proxies, timeout=timeout)
-        return resp.status_code == 200
-    except:
-        return False
-
-def scan_dead_proxies():
-    dead_found = []
-    with proxy_lock:
-        current_list = PROXY_LIST.copy()
-    for proxy in current_list:
-        if not check_proxy_alive(proxy):
-            dead_found.append(proxy)
-            save_dead_proxy(proxy)
-    if dead_found:
-        log_message(f"Đã loại {len(dead_found)} proxy chết, còn {len(PROXY_LIST)} sống")
-    return len(dead_found)
-
-def fetch_video_page(video_id: str, proxy_str: str = None, retry: int = VIEW_RETRY):
-    url = YOUTUBE_WATCH_URL.format(video_id=video_id)
-    headers = {
-        "User-Agent": random.choice(USER_AGENTS),
-        "Accept-Language": "en-US,en;q=0.9",
-        "Cache-Control": "no-cache",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Connection": "keep-alive",
-        "Upgrade-Insecure-Requests": "1",
-    }
-    
-    proxies = parse_proxy(proxy_str) if proxy_str else None
-    
-    for attempt in range(retry):
-        try:
-            session = requests.Session()
-            resp = session.get(url, headers=headers, proxies=proxies, timeout=20)
-            if resp.status_code != 200:
-                session.close()
-                time.sleep(random.uniform(1.0, 3.0) * (attempt + 1))
-                continue
-            
-            watch_time = random.randint(MIN_WATCH_TIME, MAX_WATCH_TIME)
-            segments = random.randint(4, 8)
-            segment_time = watch_time // segments
-            
-            for seg in range(segments):
-                time.sleep(segment_time + random.uniform(0.5, 2.0))
-                if seg < segments - 1:
-                    try:
-                        session.get(
-                            url + "&t=" + str(int(segment_time * seg)),
-                            headers=headers,
-                            proxies=proxies,
-                            timeout=5
-                        )
-                    except:
-                        pass
-            
-            session.get(
-                url + "&t=" + str(random.randint(watch_time - 10, watch_time + 10)),
-                headers=headers,
-                proxies=proxies,
-                timeout=5
-            )
-            
-            time.sleep(random.uniform(1.0, 3.0))
-            session.get(
-                f"https://www.youtube.com/embed/{video_id}?autoplay=1",
-                headers=headers,
-                proxies=proxies,
-                timeout=5
-            )
-            
-            session.close()
-            return True
-            
-        except Exception:
-            if attempt == retry - 1:
-                if proxy_str:
-                    save_dead_proxy(proxy_str)
-            else:
-                time.sleep(random.uniform(1.0, 3.0) * (attempt + 1))
-    
-    return False
-
-def run_view_task(video_id: str, count: int):
-    with proxy_lock:
-        if not PROXY_LIST:
-            return 0, "Không có proxy sống"
-    
-    success = 0
-    failed = 0
-    
-    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        futures = []
-        for i in range(count):
-            proxy = get_proxy()
-            futures.append(executor.submit(fetch_video_page, video_id, proxy))
-            if i % 5 == 0:
-                time.sleep(0.1)
-        
-        for f in futures:
-            if f.result():
-                success += 1
-            else:
-                failed += 1
-            time.sleep(random.uniform(0.05, 0.2))
-    
-    global view_stats
-    view_stats["total"] += count
-    view_stats["success"] += success
-    view_stats["failed"] += failed
-    
-    with proxy_lock:
-        alive_count = len(PROXY_LIST)
-    
-    return success, f"Success: {success}/{count} | Proxy alive: {alive_count}"
+    return gui
 
 # ===== WEB SERVER =====
 async def handle_health(request):
     stats = {
         "status": "running",
         "pid": os.getpid(),
-        "proxy_alive": len(PROXY_LIST),
-        "proxy_master": len(PROXY_MASTER),
-        "proxy_dead": len(DEAD_PROXIES),
-        "uptime": int(time.time() - start_time),
-        "view_stats": view_stats,
+        "proxy_alive": len(state.proxy_list),
+        "proxy_master": len(state.proxy_master),
+        "proxy_dead": len(state.dead_proxies),
+        "uptime": int(time.time() - state.start_time),
+        "view_stats": {
+            "total": state.view_stats["total"],
+            "success": state.view_stats["success"],
+            "failed": state.view_stats["failed"],
+            "queued": state.view_stats["queued"],
+        },
         "timestamp": datetime.now().isoformat()
     }
     return web.json_response(stats)
 
+async def handle_stats_html(request):
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>YouTube View Bot Dashboard</title>
+        <meta charset="UTF-8">
+        <meta http-equiv="refresh" content="10">
+        <style>
+            * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+            body {{ font-family: 'Segoe UI', Arial, sans-serif; background: #0f0f0f; color: #fff; padding: 20px; min-height: 100vh; }}
+            .container {{ max-width: 900px; margin: 0 auto; }}
+            .header {{ text-align: center; padding: 30px 0; border-bottom: 1px solid #333; margin-bottom: 30px; }}
+            .header h1 {{ font-size: 2.5em; color: #ff0000; }}
+            .header p {{ color: #888; margin-top: 10px; }}
+            .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 30px; }}
+            .card {{ background: #1a1a1a; padding: 20px; border-radius: 12px; border: 1px solid #333; text-align: center; }}
+            .card .value {{ font-size: 2em; font-weight: bold; margin: 10px 0; }}
+            .card .label {{ color: #888; font-size: 0.9em; text-transform: uppercase; }}
+            .green {{ color: #0f0; }}
+            .red {{ color: #f00; }}
+            .yellow {{ color: #ff0; }}
+            .blue {{ color: #00f; }}
+            .proxy-list {{ background: #1a1a1a; border-radius: 12px; padding: 20px; border: 1px solid #333; }}
+            .proxy-list h3 {{ margin-bottom: 15px; color: #888; }}
+            .proxy-item {{ padding: 5px 0; border-bottom: 1px solid #222; font-size: 0.9em; color: #aaa; }}
+            .status-dot {{ display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 10px; }}
+            .status-dot.online {{ background: #0f0; }}
+            .status-dot.offline {{ background: #f00; }}
+            .footer {{ text-align: center; margin-top: 30px; padding-top: 20px; border-top: 1px solid #333; color: #555; font-size: 0.8em; }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <h1>🎬 YouTube View Bot</h1>
+                <p>🟢 Status: <span style="color:#0f0;">Running</span> | PID: {os.getpid()} | Uptime: {int(time.time() - state.start_time)}s</p>
+            </div>
+            
+            <div class="grid">
+                <div class="card">
+                    <div class="value green">{state.view_stats['total']}</div>
+                    <div class="label">Total Views</div>
+                </div>
+                <div class="card">
+                    <div class="value green">{state.view_stats['success']}</div>
+                    <div class="label">Success</div>
+                </div>
+                <div class="card">
+                    <div class="value red">{state.view_stats['failed']}</div>
+                    <div class="label">Failed</div>
+                </div>
+                <div class="card">
+                    <div class="value green">{len(state.proxy_list)}</div>
+                    <div class="label">Proxy Alive</div>
+                </div>
+                <div class="card">
+                    <div class="value red">{len(state.dead_proxies)}</div>
+                    <div class="label">Proxy Dead</div>
+                </div>
+                <div class="card">
+                    <div class="value yellow">{len(state.proxy_master)}</div>
+                    <div class="label">Proxy Master</div>
+                </div>
+            </div>
+            
+            <div class="proxy-list">
+                <h3>🌐 Proxy Alive ({len(state.proxy_list)})</h3>
+                {''.join([f'<div class="proxy-item"><span class="status-dot online"></span>{p[:60]}</div>' for p in list(state.proxy_list)[:10]])}
+                {f'<div class="proxy-item" style="color:#555;">... và {len(state.proxy_list)-10} proxy khác</div>' if len(state.proxy_list) > 10 else ''}
+            </div>
+            
+            <div class="footer">
+                YouTube View Bot v3.0 | Web Server: {config.WEB_HOST}:{config.WEB_PORT} | {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+    return web.Response(text=html, content_type="text/html")
+
 async def start_web_server():
     app = web.Application()
-    app.router.add_get("/", lambda r: web.Response(text=f"YouTube View Bot - PID: {os.getpid()}"))
+    app.router.add_get("/", handle_stats_html)
     app.router.add_get("/health", handle_health)
+    app.router.add_get("/stats", handle_stats_html)
     runner = web.AppRunner(app)
     await runner.setup()
-    site = web.TCPSite(runner, WEB_HOST, WEB_PORT)
+    site = web.TCPSite(runner, config.WEB_HOST, config.WEB_PORT)
     await site.start()
-    log_message(f"Web server: http://{WEB_HOST}:{WEB_PORT}")
+    logger.info(f"Web server: http://{config.WEB_HOST}:{config.WEB_PORT}")
 
 # ===== TELEGRAM BOT =====
-app_bot = Client("view_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+app_bot = Client("view_bot", api_id=config.API_ID, api_hash=config.API_HASH, bot_token=config.BOT_TOKEN)
 
+# ===== BACKGROUND TASKS =====
 async def periodic_reload():
-    global bot_running
-    while bot_running:
-        await asyncio.sleep(PROXY_RELOAD_INTERVAL)
-        if bot_running:
+    while state.running:
+        await asyncio.sleep(config.PROXY_RELOAD_INTERVAL)
+        if state.running:
             alive, added = await asyncio.to_thread(reload_proxies)
-            log_message(f"Auto reload: {alive} alive, {added} added")
+            logger.info(f"Auto reload: {alive} alive, {added} added")
 
 async def periodic_check_proxy():
-    global bot_running
-    while bot_running:
-        await asyncio.sleep(PROXY_CHECK_INTERVAL)
-        if bot_running:
+    while state.running:
+        await asyncio.sleep(config.PROXY_CHECK_INTERVAL)
+        if state.running:
             dead = await asyncio.to_thread(scan_dead_proxies)
-            log_message(f"Proxy check: {dead} dead removed")
+            logger.info(f"Proxy check: {dead} dead removed")
 
-# ===== COMMANDS =====
+async def periodic_save_stats():
+    while state.running:
+        await asyncio.sleep(config.HEARTBEAT_INTERVAL)
+        if state.running:
+            await asyncio.to_thread(save_stats)
+            logger.debug(f"Stats saved: total={state.view_stats['total']}")
+
+async def heartbeat():
+    while state.running:
+        await asyncio.sleep(config.HEARTBEAT_INTERVAL)
+        if state.running:
+            with state.proxy_lock:
+                alive = len(state.proxy_list)
+                master = len(state.proxy_master)
+                dead = len(state.dead_proxies)
+            logger.info(f"Heartbeat: alive={alive}, master={master}, dead={dead}, views={state.view_stats['total']}")
+
+# ===== TELEGRAM COMMANDS =====
 @app_bot.on_message(filters.command("start"))
 async def start_cmd(client, message: Message):
-    with proxy_lock:
-        alive = len(PROXY_LIST)
-        master = len(PROXY_MASTER)
-        dead = len(DEAD_PROXIES)
+    with state.proxy_lock:
+        alive = len(state.proxy_list)
+        master = len(state.proxy_master)
+        dead = len(state.dead_proxies)
+    
     await message.reply_text(
-        f"🎬 **YouTube View Bot**\n\n"
+        f"🎬 **YouTube View Bot v3.0**\n\n"
         f"📌 **LỆNH:**\n"
-        f"├ `/view VIDEO_ID SỐ_LƯỢNG` - Cày view\n"
+        f"├ `/view VIDEO_ID SỐ_LƯỢNG` - Cày view (1-500)\n"
+        f"├ `/view_gui VIDEO_ID SỐ_LƯỢNG` - Cày view với GUI\n"
+        f"├ `/player VIDEO_ID` - Trình phát mô phỏng\n"
+        f"├ `/gui` - Menu GUI chính\n"
         f"├ `/upload` - Upload file .txt (proxy)\n"
+        f"├ `/reload` - Tải lại proxy\n"
         f"├ `/proxy` - Xem proxy sống\n"
         f"├ `/dead` - Xem proxy chết\n"
         f"├ `/check` - Quét proxy chết\n"
+        f"├ `/addproxy PROXY` - Thêm proxy\n"
         f"├ `/stats` - Thống kê\n"
-        f"└ `/ping` - Kiểm tra bot\n\n"
+        f"├ `/ping` - Kiểm tra bot\n"
+        f"└ `/settings` - Cài đặt\n\n"
         f"📂 **Proxy sống:** {alive}\n"
         f"📂 **Proxy master:** {master}\n"
-        f"💀 **Proxy chết:** {dead}"
+        f"💀 **Proxy chết:** {dead}\n"
+        f"👁 **Tổng view:** {state.view_stats['total']}"
     )
 
 @app_bot.on_message(filters.command("view"))
 async def view_cmd(client, message: Message):
     parts = message.text.split()
     if len(parts) < 3:
-        await message.reply_text("❌ **Cách dùng:** `/view VIDEO_ID SỐ_LƯỢNG` (1-500)")
+        await message.reply_text("❌ **Cách dùng:** `/view VIDEO_ID SỐ_LƯỢNG`\nSố lượng: 1-500")
         return
+    
+    video_id = parts[1].strip()
+    if len(video_id) != 11:
+        await message.reply_text("❌ Video ID phải có 11 ký tự")
+        return
+    
+    try:
+        count = int(parts[2])
+        if count < 1 or count > 500:
+            await message.reply_text("❌ Số lượng phải từ 1-500")
+            return
+    except ValueError:
+        await message.reply_text("❌ Số lượng phải là số nguyên")
+        return
+
+    with state.proxy_lock:
+        if not state.proxy_list:
+            await message.reply_text("❌ Không có proxy sống. Upload file .txt")
+            return
+
+    msg = await message.reply_text(f"⏳ Đang cày {count} view cho video...")
+    
+    try:
+        success, info = await asyncio.to_thread(run_view_task, video_id, count)
+        await msg.edit_text(
+            f"✅ **{info}**\n"
+            f"🎯 https://youtu.be/{video_id}\n"
+            f"📊 Tổng: {state.view_stats['total']} views\n"
+            f"📈 Tỷ lệ: {int((state.view_stats['success'] / max(1, state.view_stats['total'])) * 100)}%"
+        )
+    except Exception as e:
+        await msg.edit_text(f"❌ Lỗi: {str(e)}")
+
+@app_bot.on_message(filters.command("view_gui"))
+async def view_gui_cmd(client, message: Message):
+    parts = message.text.split()
+    if len(parts) < 3:
+        await message.reply_text("❌ **Cách dùng:** `/view_gui VIDEO_ID SỐ_LƯỢNG`")
+        return
+    
     video_id = parts[1].strip()
     try:
         count = int(parts[2])
@@ -369,24 +253,131 @@ async def view_cmd(client, message: Message):
         await message.reply_text("❌ Số lượng phải là số nguyên")
         return
 
-    with proxy_lock:
-        if not PROXY_LIST:
-            await message.reply_text("❌ Không có proxy sống. Upload file .txt")
+    with state.proxy_lock:
+        if not state.proxy_list:
+            await message.reply_text("❌ Không có proxy sống")
             return
 
-    msg = await message.reply_text(f"⏳ Đang cày {count} view...")
+    gui_text = create_video_gui(video_id, count)
+    await message.reply_text(
+        gui_text,
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("⏸ Tạm dừng", callback_data="pause"),
+             InlineKeyboardButton("⏭ Tiếp theo", callback_data="next")],
+            [InlineKeyboardButton("🔄 Làm mới", callback_data="refresh"),
+             InlineKeyboardButton("📊 Stats", callback_data="show_stats")]
+        ])
+    )
+
+    await message.reply_text(f"⏳ Đang cày {count} view...")
     success, info = await asyncio.to_thread(run_view_task, video_id, count)
-    await msg.edit_text(
+    await message.reply_text(
         f"✅ **{info}**\n"
-        f"🎯 https://youtu.be/{video_id}\n"
-        f"📊 Tổng: {view_stats['total']} views"
+        f"🎯 https://youtu.be/{video_id}"
+    )
+
+@app_bot.on_message(filters.command("player"))
+async def player_cmd(client, message: Message):
+    parts = message.text.split()
+    video_id = parts[1] if len(parts) > 1 else "dQw4w9WgXcQ"
+    video_info = VIDEO_DB.get(video_id, {"title": f"Video {video_id}", "duration": random.randint(180, 420)})
+    
+    player_text = f"""
+🎬 **YOUTUBE PLAYER PRO**
+━━━━━━━━━━━━━━━━━━━━━
+
+📹 **Đang phát:**
+└ {video_info['title']}
+
+🖼 **Thumbnail:** https://img.youtube.com/vi/{video_id}/hqdefault.jpg
+
+━━━━━━━━━━━━━━━━━━━━━
+▶️ **TRẠNG THÁI:**
+├ 🟢 Đang phát
+├ ⏱ 00:42 / {video_info['duration']//60}:{video_info['duration']%60:02d}
+├ 📹 1080p60
+└ 🔊 {random.randint(60, 95)}%
+
+━━━━━━━━━━━━━━━━━━━━━
+⚡ **THÔNG TIN:**
+├ 👁 {random.randint(100000, 9999999):,} lượt xem
+├ 👍 {random.randint(1000, 99999):,} lượt thích
+├ 💬 {random.randint(100, 9999):,} bình luận
+└ 📅 Đăng tải: {datetime.now().strftime('%d/%m/%Y')}
+
+━━━━━━━━━━━━━━━━━━━━━
+🎯 **HÀNH ĐỘNG:**
+├ 🔄 Chia sẻ
+├ 💾 Lưu vào danh sách phát
+└ 📌 Báo cáo
+"""
+    await message.reply_text(
+        player_text,
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("▶ Phát", callback_data="play"),
+             InlineKeyboardButton("⏸ Tạm dừng", callback_data="pause")],
+            [InlineKeyboardButton("🔊 Tăng âm", callback_data="vol_up"),
+             InlineKeyboardButton("🔉 Giảm âm", callback_data="vol_down")],
+            [InlineKeyboardButton("📥 Tải video", callback_data="download")]
+        ])
+    )
+
+@app_bot.on_message(filters.command("gui"))
+async def gui_cmd(client, message: Message):
+    gui_menu = f"""
+🎮 **BOT GUI CONTROLLER v3.0**
+━━━━━━━━━━━━━━━━━━━━━
+
+📌 **MENU CHÍNH:**
+
+1️⃣ **📹 Xem video**
+   └ `/view_gui VIDEO_ID SỐ_LƯỢNG`
+
+2️⃣ **🎬 Trình phát**
+   └ `/player VIDEO_ID`
+
+3️⃣ **📊 Thống kê**
+   └ `/stats`
+
+4️⃣ **🌐 Proxy Manager**
+   └ `/proxy` - Xem proxy sống
+   └ `/dead` - Xem proxy chết
+   └ `/check` - Quét proxy chết
+   └ `/upload` - Upload file .txt
+   └ `/addproxy PROXY` - Thêm proxy
+
+5️⃣ **⚙️ Cài đặt**
+   └ `/settings`
+
+━━━━━━━━━━━━━━━━━━━━━
+🟢 **Trạng thái:** Đang chạy
+🔄 **Proxy sống:** {len(state.proxy_list)}
+💀 **Proxy chết:** {len(state.dead_proxies)}
+📂 **Proxy master:** {len(state.proxy_master)}
+👁 **Tổng view:** {state.view_stats['total']}
+📈 **Tỷ lệ:** {int((state.view_stats['success'] / max(1, state.view_stats['total'])) * 100)}%
+"""
+    await message.reply_text(
+        gui_menu,
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("📹 Xem video", callback_data="view_video"),
+             InlineKeyboardButton("🎬 Player", callback_data="player")],
+            [InlineKeyboardButton("📊 Stats", callback_data="show_stats"),
+             InlineKeyboardButton("🌐 Proxy", callback_data="show_proxy")],
+            [InlineKeyboardButton("🔄 Refresh", callback_data="refresh_gui")]
+        ])
     )
 
 @app_bot.on_message(filters.command("upload"))
 async def upload_cmd(client, message: Message):
     await message.reply_text(
         "📤 **Gửi file .txt** bất kỳ (đính kèm)\n"
-        "Bot sẽ đọc proxy từ file và merge vào danh sách"
+        "Bot sẽ đọc proxy từ file và merge vào danh sách\n\n"
+        "✅ **Định dạng proxy:**\n"
+        "├ http://user:pass@ip:port\n"
+        "├ https://user:pass@ip:port\n"
+        "├ socks4://user:pass@ip:port\n"
+        "└ socks5://user:pass@ip:port"
     )
 
 @app_bot.on_message(filters.document)
@@ -396,7 +387,7 @@ async def handle_document(client, message: Message):
         await message.reply_text("⚠️ Chỉ chấp nhận file .txt")
         return
     
-    msg = await message.reply_text(f"⏳ Đang xử lý: {doc.file_name}...")
+    msg = await message.reply_text(f"⏳ Đang xử lý: `{doc.file_name}`...")
     file_path = await client.download_media(message)
     
     if not file_path:
@@ -404,21 +395,21 @@ async def handle_document(client, message: Message):
         return
     
     try:
-        # Đếm số proxy trước khi merge
+        # Đếm proxy
         with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
             lines = [line.strip() for line in f if line.strip() and not line.startswith("#")]
             total_in_file = len(lines)
         
-        # Merge proxy vào master
+        # Merge
         added, alive = await asyncio.to_thread(merge_proxies_from_file, file_path)
         
         await msg.edit_text(
             f"✅ **Đã xử lý: {doc.file_name}**\n"
             f"├ Tổng proxy trong file: {total_in_file}\n"
             f"├ Đã thêm mới: {added}\n"
-            f"├ Proxy sống hiện tại: {alive}\n"
-            f"├ Proxy master: {len(PROXY_MASTER)}\n"
-            f"└ Proxy chết: {len(DEAD_PROXIES)}"
+            f"├ Proxy sống: {alive}\n"
+            f"├ Proxy master: {len(state.proxy_master)}\n"
+            f"└ Proxy chết: {len(state.dead_proxies)}"
         )
     except Exception as e:
         await msg.edit_text(f"❌ Lỗi: {str(e)}")
@@ -426,106 +417,279 @@ async def handle_document(client, message: Message):
         if os.path.exists(file_path):
             os.remove(file_path)
 
+@app_bot.on_message(filters.command("reload"))
+async def reload_cmd(client, message: Message):
+    alive, added = await asyncio.to_thread(reload_proxies)
+    with state.proxy_lock:
+        master = len(state.proxy_master)
+        dead = len(state.dead_proxies)
+    await message.reply_text(
+        f"🔄 **Đã reload proxy**\n"
+        f"├ Thêm mới: {added}\n"
+        f"├ Proxy sống: {alive}\n"
+        f"├ Proxy master: {master}\n"
+        f"└ Proxy chết: {dead}"
+    )
+
 @app_bot.on_message(filters.command("proxy"))
 async def proxy_cmd(client, message: Message):
-    with proxy_lock:
-        if PROXY_LIST:
-            sample = PROXY_LIST[:5]
-            await message.reply_text(
-                f"📋 **Proxy SỐNG:** {len(PROXY_LIST)}\n"
-                f"🔹 Mẫu: {', '.join(sample)}{'...' if len(PROXY_LIST)>5 else ''}"
-            )
+    with state.proxy_lock:
+        if state.proxy_list:
+            sample = state.proxy_list[:10]
+            text = f"📋 **Proxy SỐNG:** {len(state.proxy_list)}\n"
+            for i, p in enumerate(sample, 1):
+                text += f"├ {i}. {p}\n"
+            if len(state.proxy_list) > 10:
+                text += f"└ ... và {len(state.proxy_list)-10} proxy khác"
+            await message.reply_text(text)
         else:
             await message.reply_text("❌ Không có proxy sống. Upload file .txt")
 
 @app_bot.on_message(filters.command("dead"))
 async def dead_cmd(client, message: Message):
-    with proxy_lock:
-        dead_list = list(DEAD_PROXIES)
+    with state.proxy_lock:
+        dead_list = list(state.dead_proxies)
         if dead_list:
-            sample = dead_list[:5]
-            await message.reply_text(
-                f"💀 **Proxy CHẾT:** {len(dead_list)}\n"
-                f"🔹 Mẫu: {', '.join(sample)}{'...' if len(dead_list)>5 else ''}"
-            )
+            sample = dead_list[:10]
+            text = f"💀 **Proxy CHẾT:** {len(dead_list)}\n"
+            for i, p in enumerate(sample, 1):
+                text += f"├ {i}. {p}\n"
+            if len(dead_list) > 10:
+                text += f"└ ... và {len(dead_list)-10} proxy khác"
+            await message.reply_text(text)
         else:
             await message.reply_text("✅ Chưa có proxy chết nào")
+
+@app_bot.on_message(filters.command("addproxy"))
+async def addproxy_cmd(client, message: Message):
+    parts = message.text.split(maxsplit=1)
+    if len(parts) < 2:
+        await message.reply_text(
+            "❌ **Cách dùng:** `/addproxy PROXY`\n\n"
+            "✅ **Ví dụ:**\n"
+            "├ /addproxy http://user:pass@1.2.3.4:8080\n"
+            "└ /addproxy socks5://user:pass@1.2.3.4:1080"
+        )
+        return
+    
+    new_proxy = parts[1].strip()
+    
+    # Kiểm tra định dạng
+    if not re.match(r'^(\w+://)?[\w\.\-]+:\d+(@[\w\.\-]+:\d+)?$', new_proxy):
+        if ':' not in new_proxy:
+            await message.reply_text("❌ Định dạng proxy không hợp lệ")
+            return
+    
+    if new_proxy in state.proxy_master:
+        await message.reply_text("⚠️ Proxy đã tồn tại trong master")
+        return
+    
+    # Thêm vào file và master
+    with open(config.PROXY_FILE, "a", encoding="utf-8") as f:
+        f.write(new_proxy + "\n")
+    
+    with state.proxy_lock:
+        state.proxy_master.add(new_proxy)
+        state.proxy_stats[new_proxy] = {"fail": 0, "success": 0, "last_used": 0}
+        state.proxy_list.append(new_proxy)
+    
+    await message.reply_text(
+        f"✅ **Đã thêm proxy:** {new_proxy}\n"
+        f"├ Proxy sống: {len(state.proxy_list)}\n"
+        f"└ Proxy master: {len(state.proxy_master)}"
+    )
 
 @app_bot.on_message(filters.command("check"))
 async def check_cmd(client, message: Message):
     msg = await message.reply_text("⏳ Đang quét proxy chết...")
     dead = await asyncio.to_thread(scan_dead_proxies)
-    with proxy_lock:
-        alive = len(PROXY_LIST)
+    with state.proxy_lock:
+        alive = len(state.proxy_list)
     await msg.edit_text(
         f"✅ **Quét hoàn tất**\n"
         f"├ Proxy chết đã loại: {dead}\n"
         f"├ Proxy sống còn: {alive}\n"
-        f"└ Tổng proxy đã chết: {len(DEAD_PROXIES)}"
+        f"└ Tổng proxy đã chết: {len(state.dead_proxies)}"
     )
 
 @app_bot.on_message(filters.command("stats"))
 async def stats_cmd(client, message: Message):
-    uptime = int(time.time() - start_time)
-    with proxy_lock:
-        alive = len(PROXY_LIST)
-        master = len(PROXY_MASTER)
-        dead = len(DEAD_PROXIES)
+    uptime = int(time.time() - state.start_time)
+    with state.proxy_lock:
+        alive = len(state.proxy_list)
+        master = len(state.proxy_master)
+        dead = len(state.dead_proxies)
+    
+    hours = uptime // 3600
+    minutes = (uptime % 3600) // 60
+    seconds = uptime % 60
+    
     await message.reply_text(
-        f"📊 **THỐNG KÊ**\n"
-        f"├ Tổng view: {view_stats['total']}\n"
-        f"├ Thành công: {view_stats['success']}\n"
-        f"├ Thất bại: {view_stats['failed']}\n"
-        f"├ Proxy sống: {alive}\n"
-        f"├ Proxy master: {master}\n"
-        f"├ Proxy chết: {dead}\n"
-        f"├ PID: {os.getpid()}\n"
-        f"└ Uptime: {uptime}s"
+        f"📊 **THỐNG KÊ CHI TIẾT**\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
+        f"👁 **Tổng view:** {state.view_stats['total']:,}\n"
+        f"✅ **Thành công:** {state.view_stats['success']:,}\n"
+        f"❌ **Thất bại:** {state.view_stats['failed']:,}\n"
+        f"📈 **Tỷ lệ:** {int((state.view_stats['success'] / max(1, state.view_stats['total'])) * 100)}%\n"
+        f"\n"
+        f"🌐 **Proxy sống:** {alive}\n"
+        f"📂 **Proxy master:** {master}\n"
+        f"💀 **Proxy chết:** {dead}\n"
+        f"\n"
+        f"⏱ **Uptime:** {hours}h {minutes}m {seconds}s\n"
+        f"🕒 **Bắt đầu:** {datetime.fromtimestamp(state.start_time).strftime('%d/%m/%Y %H:%M:%S')}\n"
+        f"📊 **PID:** {os.getpid()}\n"
+        f"🌐 **Web:** http://{config.WEB_HOST}:{config.WEB_PORT}"
     )
 
 @app_bot.on_message(filters.command("ping"))
 async def ping_cmd(client, message: Message):
-    await message.reply_text(f"🏓 **Pong!** PID: {os.getpid()}")
+    await message.reply_text(
+        f"🏓 **Pong!**\n"
+        f"├ PID: {os.getpid()}\n"
+        f"├ Proxy: {len(state.proxy_list)} sống\n"
+        f"└ Views: {state.view_stats['total']}"
+    )
 
-# ===== SIGNAL =====
+@app_bot.on_message(filters.command("settings"))
+async def settings_cmd(client, message: Message):
+    settings_text = f"""
+⚙️ **CÀI ĐẶT BOT v3.0**
+━━━━━━━━━━━━━━━━━━━━━
+
+🎯 **Cấu hình cày view:**
+├ 🔢 Max workers: {config.MAX_WORKERS}
+├ ⏱ Thời gian xem: {config.MIN_WATCH_TIME}-{config.MAX_WATCH_TIME}s
+├ 🔄 Retry: {config.VIEW_RETRY} lần
+└ 📦 Batch size: {config.VIEW_BATCH_SIZE}
+
+🌐 **Proxy settings:**
+├ 📂 File: {config.PROXY_FILE}
+├ 💀 Dead: {config.DEAD_PROXY_FILE}
+├ 🔄 Auto reload: {config.PROXY_RELOAD_INTERVAL//60} phút
+├ 🔍 Auto check: {config.PROXY_CHECK_INTERVAL//60} phút
+└ ✅ Hỗ trợ: HTTP, HTTPS, SOCKS4, SOCKS5
+
+🔒 **Security:**
+├ 🔑 API ID: {config.API_ID}
+└ 📱 Bot: {config.BOT_TOKEN[:15]}...
+
+📊 **Thống kê:**
+├ 👁 View: {state.view_stats['total']:,}
+├ ✅ Success: {int((state.view_stats['success'] / max(1, state.view_stats['total'])) * 100)}%
+└ 🕒 Uptime: {int(time.time() - state.start_time)}s
+
+💾 **Backup:** {'✅ Bật' if config.AUTO_BACKUP else '❌ Tắt'}
+"""
+    await message.reply_text(settings_text)
+
+# ===== CALLBACK HANDLER =====
+@app_bot.on_callback_query()
+async def handle_callback(client, callback_query):
+    data = callback_query.data
+    
+    if data == "pause":
+        await callback_query.answer("⏸ Đã tạm dừng")
+    elif data == "play":
+        await callback_query.answer("▶ Tiếp tục phát")
+    elif data == "next":
+        await callback_query.answer("⏭ Video tiếp theo")
+    elif data == "refresh":
+        await callback_query.answer("🔄 Đã làm mới")
+    elif data == "vol_up":
+        await callback_query.answer("🔊 Tăng âm lượng")
+    elif data == "vol_down":
+        await callback_query.answer("🔉 Giảm âm lượng")
+    elif data == "download":
+        await callback_query.answer("📥 Đang tải xuống...")
+    elif data == "show_stats":
+        await callback_query.answer("📊 Đang lấy thống kê")
+        uptime = int(time.time() - state.start_time)
+        await callback_query.message.reply_text(
+            f"📊 **THỐNG KÊ**\n"
+            f"├ 👁 Views: {state.view_stats['total']:,}\n"
+            f"├ ✅ Success: {state.view_stats['success']:,}\n"
+            f"├ ❌ Failed: {state.view_stats['failed']:,}\n"
+            f"├ 📈 Rate: {int((state.view_stats['success'] / max(1, state.view_stats['total'])) * 100)}%\n"
+            f"├ 🌐 Proxy: {len(state.proxy_list)} sống\n"
+            f"└ ⏱ Uptime: {uptime}s"
+        )
+    elif data == "show_proxy":
+        with state.proxy_lock:
+            if state.proxy_list:
+                sample = state.proxy_list[:5]
+                text = f"🌐 **Proxy sống:** {len(state.proxy_list)}\n"
+                for p in sample:
+                    text += f"├ {p}\n"
+                await callback_query.message.reply_text(text)
+            else:
+                await callback_query.message.reply_text("❌ Không có proxy sống")
+    elif data == "refresh_gui":
+        await callback_query.answer("🔄 Đã làm mới GUI")
+    elif data == "view_video":
+        await callback_query.message.reply_text(
+            "📹 **Xem video mới**\n"
+            "Dùng lệnh: `/view_gui VIDEO_ID SỐ_LƯỢNG`"
+        )
+    elif data == "player":
+        await callback_query.message.reply_text(
+            "🎬 **Trình phát**\n"
+            "Dùng lệnh: `/player VIDEO_ID`"
+        )
+
+# ===== SIGNAL HANDLER =====
 def signal_handler(sig, frame):
-    global bot_running
-    log_message(f"Signal {sig}, shutting down...")
-    bot_running = False
+    logger.info(f"Signal {sig}, shutting down...")
+    state.running = False
+    save_stats()
     remove_pid()
     sys.exit(0)
 
 # ===== MAIN =====
 async def main():
-    global bot_running, start_time, app_bot
+    global app_bot
     
     if check_already_running():
-        log_message("Bot đã chạy, thoát.")
+        logger.info("Bot đã chạy, thoát.")
         sys.exit(1)
     
     write_pid()
-    log_message(f"Khởi động bot, PID: {os.getpid()}")
+    logger.info(f"Khởi động bot v3.0, PID: {os.getpid()}")
     
-    # Load proxy từ file chính nếu có
-    merge_proxies_from_file(MAIN_PROXY_FILE)
-    log_message(f"Loaded: alive={len(PROXY_LIST)}, master={len(PROXY_MASTER)}")
+    # Load stats
+    load_stats()
     
+    # Load proxy
+    merge_proxies_from_file(config.PROXY_FILE)
+    logger.info(f"Loaded: alive={len(state.proxy_list)}, master={len(state.proxy_master)}")
+    
+    # Backup lần đầu
+    if config.AUTO_BACKUP:
+        backup_proxies()
+    
+    # Start web server
     await start_web_server()
+    
+    # Start background tasks
     asyncio.create_task(periodic_reload())
     asyncio.create_task(periodic_check_proxy())
+    asyncio.create_task(periodic_save_stats())
+    asyncio.create_task(heartbeat())
     
     try:
         await app_bot.start()
-        log_message("Bot Telegram đã kết nối")
-        while bot_running:
+        logger.info("Bot Telegram đã kết nối")
+        
+        while state.running:
             await asyncio.sleep(1)
     except Exception as e:
-        log_message(f"Lỗi bot: {e}")
+        logger.error(f"Lỗi bot: {e}")
     finally:
         if app_bot:
             await app_bot.stop()
+        save_stats()
         remove_pid()
-        log_message("Bot đã dừng")
+        logger.info("Bot đã dừng")
 
 if __name__ == "__main__":
     signal.signal(signal.SIGINT, signal_handler)
@@ -538,8 +702,8 @@ if __name__ == "__main__":
             asyncio.set_event_loop(loop)
         loop.run_until_complete(main())
     except KeyboardInterrupt:
-        log_message("Keyboard interrupt")
+        logger.info("Keyboard interrupt")
         remove_pid()
     except Exception as e:
-        log_message(f"Lỗi fatal: {e}")
+        logger.error(f"Lỗi fatal: {e}")
         remove_pid()
