@@ -25,7 +25,8 @@ else:
         pass
 
 from pyrogram import Client, filters
-from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
+from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from pyrogram.enums import ParseMode
 
 # ===== CONFIG =====
 API_ID = 27657608
@@ -39,6 +40,10 @@ WEB_HOST = "0.0.0.0"
 WEB_PORT = 8080
 
 YOUTUBE_WATCH_URL = "https://www.youtube.com/watch?v={video_id}"
+YOUTUBE_EMBED_URL = "https://www.youtube.com/embed/{video_id}"
+YOUTUBE_THUMBNAIL = "https://img.youtube.com/vi/{video_id}/hqdefault.jpg"
+YOUTUBE_MAXRES = "https://img.youtube.com/vi/{video_id}/maxresdefault.jpg"
+
 MAX_WORKERS = 30
 VIEW_RETRY = 3
 MIN_WATCH_TIME = 120
@@ -50,12 +55,21 @@ USER_AGENTS = [
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/121.0.0.0 Safari/537.36",
     "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15",
     "Mozilla/5.0 (Android 14; Mobile) AppleWebKit/537.36 Chrome/121.0.0.0",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0",
 ]
 
+# ===== VIDEO DATABASE =====
 VIDEO_DB = {
-    "dQw4w9WgXcQ": {"title": "Rick Astley - Never Gonna Give You Up", "duration": 212},
-    "9bZkp7q19f0": {"title": "PSY - GANGNAM STYLE", "duration": 252},
-    "kJQP7kiw5Fk": {"title": "Luis Fonsi - Despacito", "duration": 288},
+    "dQw4w9WgXcQ": {"title": "Rick Astley - Never Gonna Give You Up", "duration": 212, "views": "1.2B", "channel": "Rick Astley"},
+    "9bZkp7q19f0": {"title": "PSY - GANGNAM STYLE", "duration": 252, "views": "4.5B", "channel": "PSY"},
+    "kJQP7kiw5Fk": {"title": "Luis Fonsi - Despacito", "duration": 288, "views": "8.1B", "channel": "Luis Fonsi"},
+    "fJ9rUzIMcZQ": {"title": "Queen - Bohemian Rhapsody", "duration": 355, "views": "1.8B", "channel": "Queen"},
+    "hTWKbfoikeg": {"title": "Nirvana - Smells Like Teen Spirit", "duration": 302, "views": "1.5B", "channel": "Nirvana"},
+    "uHgtviGm1DM": {"title": "Eminem - Lose Yourself", "duration": 326, "views": "1.1B", "channel": "Eminem"},
+    "VYOjWnS4cMY": {"title": "Coldplay - Yellow", "duration": 267, "views": "890M", "channel": "Coldplay"},
+    "OPf0YbXqDm0": {"title": "Maroon 5 - Sugar", "duration": 255, "views": "3.2B", "channel": "Maroon 5"},
+    "XbGs_qK2PQA": {"title": "Ed Sheeran - Shape of You", "duration": 233, "views": "6.2B", "channel": "Ed Sheeran"},
+    "RgKAFK5djSk": {"title": "Wiz Khalifa - See You Again", "duration": 250, "views": "5.8B", "channel": "Wiz Khalifa"},
 }
 
 PROXY_LIST = []
@@ -116,7 +130,7 @@ def load_proxies_from_file(filename):
         with open(filename, "r", encoding="utf-8", errors="ignore") as f:
             for line in f:
                 line = line.strip()
-                if line and not line.startswith("#"):
+                if line and not line.startswith("#") and not line.startswith("//"):
                     proxies.add(line)
     return proxies
 
@@ -132,7 +146,7 @@ def merge_proxies_from_file(filename):
                 f.write(p + "\n")
     with proxy_lock:
         PROXY_LIST = [p for p in PROXY_MASTER if p not in DEAD_PROXIES]
-    log_message(f"Merge: them {added}, master={len(PROXY_MASTER)}, song={len(PROXY_LIST)}")
+    log_message(f"Merge: added {added}, master={len(PROXY_MASTER)}, alive={len(PROXY_LIST)}")
     return added, len(PROXY_LIST)
 
 def reload_proxies():
@@ -172,18 +186,22 @@ def scan_dead_proxies():
             dead_found.append(proxy)
             save_dead_proxy(proxy)
     if dead_found:
-        log_message(f"Da loai {len(dead_found)} proxy chet, con {len(PROXY_LIST)} song")
+        log_message(f"Removed {len(dead_found)} dead proxies, alive={len(PROXY_LIST)}")
     return len(dead_found)
 
 def fetch_video_page(video_id, proxy_str=None, retry=VIEW_RETRY):
     url = YOUTUBE_WATCH_URL.format(video_id=video_id)
     headers = {
         "User-Agent": random.choice(USER_AGENTS),
-        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Language": random.choice(["en-US,en;q=0.9", "vi,en;q=0.9", "en;q=0.9"]),
         "Cache-Control": "no-cache",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Connection": "keep-alive",
         "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
     }
     proxies = parse_proxy(proxy_str) if proxy_str else None
     
@@ -269,6 +287,7 @@ def run_view_task(video_id, count):
     
     return success, f"Success: {success}/{count} | Proxy alive: {alive_count}"
 
+# ===== WEB SERVER =====
 async def handle_health(request):
     stats = {
         "status": "running",
@@ -282,9 +301,43 @@ async def handle_health(request):
     }
     return web.json_response(stats)
 
+async def handle_index(request):
+    html = f"""
+    <html>
+    <head><title>YouTube View Bot</title>
+    <style>
+        body {{ font-family: Arial; background: #0f0f0f; color: #fff; padding: 20px; }}
+        .card {{ background: #1a1a1a; padding: 15px; border-radius: 10px; margin: 10px 0; }}
+        .green {{ color: #0f0; }}
+        .red {{ color: #f00; }}
+        .yellow {{ color: #ff0; }}
+    </style>
+    </head>
+    <body>
+    <h1> YouTube View Bot</h1>
+    <div class="card">
+        <p>Status: <span class="green">RUNNING</span></p>
+        <p>PID: {os.getpid()}</p>
+        <p>Uptime: {int(time.time() - start_time)}s</p>
+    </div>
+    <div class="card">
+        <p>Total Views: <span class="green">{view_stats['total']}</span></p>
+        <p>Success: <span class="green">{view_stats['success']}</span></p>
+        <p>Failed: <span class="red">{view_stats['failed']}</span></p>
+    </div>
+    <div class="card">
+        <p>Proxy Alive: <span class="green">{len(PROXY_LIST)}</span></p>
+        <p>Proxy Master: <span class="yellow">{len(PROXY_MASTER)}</span></p>
+        <p>Proxy Dead: <span class="red">{len(DEAD_PROXIES)}</span></p>
+    </div>
+    </body>
+    </html>
+    """
+    return web.Response(text=html, content_type="text/html")
+
 async def start_web_server():
     app = web.Application()
-    app.router.add_get("/", lambda r: web.Response(text=f"YouTube View Bot - PID: {os.getpid()}"))
+    app.router.add_get("/", handle_index)
     app.router.add_get("/health", handle_health)
     runner = web.AppRunner(app)
     await runner.setup()
@@ -292,6 +345,7 @@ async def start_web_server():
     await site.start()
     log_message(f"Web server: http://{WEB_HOST}:{WEB_PORT}")
 
+# ===== TELEGRAM BOT =====
 app_bot = Client("view_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
 async def periodic_reload():
@@ -310,33 +364,180 @@ async def periodic_check_proxy():
             dead = await asyncio.to_thread(scan_dead_proxies)
             log_message(f"Proxy check: {dead} dead removed")
 
-@app_bot.on_message(filters.command("start"))
-async def start_cmd(client, message):
+# ===== VIDEO PLAYER FUNCTIONS =====
+def get_video_info(video_id):
+    if video_id in VIDEO_DB:
+        return VIDEO_DB[video_id]
+    return {"title": f"Video {video_id}", "duration": 180, "views": "0", "channel": "Unknown"}
+
+def create_video_message(video_id, status="playing"):
+    """Tạo nội dung tin nhắn video với thumbnail"""
+    info = get_video_info(video_id)
+    thumbnail = YOUTUBE_THUMBNAIL.format(video_id=video_id)
+    
     with proxy_lock:
         alive = len(PROXY_LIST)
-        master = len(PROXY_MASTER)
         dead = len(DEAD_PROXIES)
+    
+    progress = random.randint(5, 45)
+    bar = '█' * int(progress / 5) + '░' * (20 - int(progress / 5))
+    
+    msg = f"""
+🎬 **{info['title']}**
+
+━━━━━━━━━━━━━━━━━━━━━━━
+▶️ **STATUS:** {"🟢 PLAYING" if status == "playing" else "⏸ PAUSED"}
+├ ⏱ {random.randint(10, 80)}s / {info['duration']}s
+├ 📊 1080p60
+├ 🔊 {random.randint(60, 95)}%
+└ 🔄 Auto-play: ON
+
+━━━━━━━━━━━━━━━━━━━━━━━
+📊 **PROGRESS:**
+`[{bar}] {progress}%`
+
+━━━━━━━━━━━━━━━━━━━━━━━
+👁 **Views:** {info['views']}
+📺 **Channel:** {info['channel']}
+🆔 **ID:** `{video_id}`
+
+━━━━━━━━━━━━━━━━━━━━━━━
+🌐 **Proxy:** {alive} alive | {dead} dead
+📈 **Total Views:** {view_stats['total']:,}
+✅ **Success:** {view_stats['success']:,}
+❌ **Failed:** {view_stats['failed']:,}
+
+🔗 https://youtu.be/{video_id}
+"""
+    return msg, thumbnail
+
+def create_demo_table():
+    table = "📋 **DEMO VIDEOS**\n"
+    table += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+    table += "| STT | ID       | TITLE                    |\n"
+    table += "|-----|----------|--------------------------|\n"
+    
+    idx = 1
+    for vid, info in list(VIDEO_DB.items())[:10]:
+        title = info['title'][:22] + "..." if len(info['title']) > 22 else info['title']
+        table += f"| {idx:2}  | `{vid}` | {title:24} |\n"
+        idx += 1
+    
+    table += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+    table += f"Tong: {len(VIDEO_DB)} video\n"
+    table += "Su dung: /play VIDEO_ID"
+    return table
+
+# ===== TELEGRAM COMMANDS =====
+@app_bot.on_message(filters.command("start"))
+async def start_cmd(client, message):
     await message.reply_text(
-        f"YouTube View Bot\n\n"
-        f"Commands:\n"
-        f"/view VIDEO_ID COUNT - Start viewing (1-500)\n"
-        f"/upload - Upload proxy .txt file\n"
-        f"/proxy - Show alive proxies\n"
-        f"/dead - Show dead proxies\n"
-        f"/check - Scan dead proxies\n"
-        f"/stats - Statistics\n"
-        f"/ping - Ping bot\n\n"
-        f"Proxy alive: {alive}\n"
-        f"Proxy master: {master}\n"
-        f"Proxy dead: {dead}"
+        "🤖 **YouTube View Bot**\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "Auto view YouTube with proxy rotation\n\n"
+        "📌 **Commands:**\n"
+        "├ /play VIDEO_ID - Play video on Telegram\n"
+        "├ /demo - Show video list\n"
+        "├ /view VIDEO_ID COUNT - Start viewing\n"
+        "├ /upload - Upload proxy .txt file\n"
+        "├ /stats - Show statistics\n"
+        "├ /proxy - Show proxy list\n"
+        "└ /help - Show all commands\n"
+        f"\n🟢 Proxy alive: {len(PROXY_LIST)}"
     )
+
+@app_bot.on_message(filters.command("help"))
+async def help_cmd(client, message):
+    help_text = """
+📖 **HELP - YOUTUBE VIEW BOT**
+━━━━━━━━━━━━━━━━━━━━━━━
+
+📌 **COMMANDS:**
+
+| Command | Description |
+|---------|-------------|
+| `/start` | Show bot info |
+| `/demo` | Show video list |
+| `/play VIDEO_ID` | Play video on Telegram |
+| `/view VIDEO_ID COUNT` | Start viewing (1-500) |
+| `/view_gui VIDEO_ID COUNT` | View with GUI |
+| `/proxy` | Show proxy list |
+| `/dead` | Show dead proxies |
+| `/check` | Scan dead proxies |
+| `/upload` | Upload .txt proxy file |
+| `/addproxy PROXY` | Add single proxy |
+| `/stats` | Show statistics |
+| `/reload` | Reload proxies |
+| `/ping` | Ping bot |
+| `/help` | Show this help |
+
+━━━━━━━━━━━━━━━━━━━━━━━
+📤 **Upload .txt file with proxies**
+Format: http://user:pass@ip:port
+"""
+    await message.reply_text(help_text)
+
+@app_bot.on_message(filters.command("demo"))
+async def demo_cmd(client, message):
+    table = create_demo_table()
+    await message.reply_text(
+        table,
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("▶ Play Random", callback_data="play_random")],
+            [InlineKeyboardButton("📊 Stats", callback_data="show_stats")],
+            [InlineKeyboardButton("🌐 Proxy", callback_data="show_proxy")]
+        ])
+    )
+
+@app_bot.on_message(filters.command("play"))
+async def play_cmd(client, message):
+    """Phát video lên Telegram với thumbnail"""
+    parts = message.text.split()
+    if len(parts) < 2:
+        await message.reply_text("Usage: /play VIDEO_ID\nUse /demo to see video list")
+        return
+    
+    video_id = parts[1].strip()
+    
+    if video_id not in VIDEO_DB:
+        await message.reply_text(f"Video {video_id} not found. Use /demo to see list")
+        return
+    
+    # Tạo tin nhắn video
+    msg_text, thumbnail_url = create_video_message(video_id)
+    
+    # Gửi thumbnail + text
+    try:
+        await message.reply_photo(
+            photo=thumbnail_url,
+            caption=msg_text,
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("▶ Play", callback_data=f"play_{video_id}"),
+                 InlineKeyboardButton("⏸ Pause", callback_data="pause")],
+                [InlineKeyboardButton("🎯 View 100", callback_data=f"view_{video_id}_100"),
+                 InlineKeyboardButton("🎯 View 500", callback_data=f"view_{video_id}_500")],
+                [InlineKeyboardButton("🔄 Refresh", callback_data=f"refresh_{video_id}"),
+                 InlineKeyboardButton("📥 Watch on YouTube", url=f"https://youtu.be/{video_id}")]
+            ])
+        )
+    except Exception as e:
+        # Fallback nếu không gửi được ảnh
+        await message.reply_text(
+            msg_text,
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("▶ Play", callback_data=f"play_{video_id}"),
+                 InlineKeyboardButton("🎯 View 100", callback_data=f"view_{video_id}_100")],
+                [InlineKeyboardButton("🔗 YouTube", url=f"https://youtu.be/{video_id}")]
+            ])
+        )
 
 @app_bot.on_message(filters.command("view"))
 async def view_cmd(client, message):
     parts = message.text.split()
     if len(parts) < 3:
-        await message.reply_text("Usage: /view VIDEO_ID COUNT (1-500)")
+        await message.reply_text("Usage: /view VIDEO_ID COUNT (1-500)\nUse /demo to see video list")
         return
+    
     video_id = parts[1].strip()
     try:
         count = int(parts[2])
@@ -349,20 +550,177 @@ async def view_cmd(client, message):
 
     with proxy_lock:
         if not PROXY_LIST:
-            await message.reply_text("No alive proxy. Upload .txt file")
+            await message.reply_text("No alive proxy. Upload .txt file with /upload")
             return
 
-    msg = await message.reply_text(f"Processing {count} views...")
+    msg = await message.reply_text(f"⏳ Processing {count} views for {video_id}...")
     success, info = await asyncio.to_thread(run_view_task, video_id, count)
+    
     await msg.edit_text(
-        f"[OK] {info}\n"
-        f"https://youtu.be/{video_id}\n"
-        f"Total: {view_stats['total']} views"
+        f"✅ {info}\n"
+        f"🎯 https://youtu.be/{video_id}\n"
+        f"📊 Total: {view_stats['total']} views\n"
+        f"📈 Rate: {int((view_stats['success'] / max(1, view_stats['total'])) * 100)}%"
+    )
+
+@app_bot.on_message(filters.command("view_gui"))
+async def view_gui_cmd(client, message):
+    parts = message.text.split()
+    if len(parts) < 3:
+        await message.reply_text("Usage: /view_gui VIDEO_ID COUNT")
+        return
+    
+    video_id = parts[1].strip()
+    try:
+        count = int(parts[2])
+        if count < 1 or count > 500:
+            await message.reply_text("Count must be 1-500")
+            return
+    except ValueError:
+        await message.reply_text("Count must be integer")
+        return
+
+    with proxy_lock:
+        if not PROXY_LIST:
+            await message.reply_text("No alive proxy")
+            return
+
+    msg_text, thumbnail = create_video_message(video_id)
+    
+    await message.reply_photo(
+        photo=thumbnail,
+        caption=msg_text,
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("▶ Play", callback_data=f"play_{video_id}"),
+             InlineKeyboardButton("🎯 Start View", callback_data=f"view_{video_id}_{count}")],
+            [InlineKeyboardButton("🔄 Refresh", callback_data=f"refresh_{video_id}")]
+        ])
+    )
+
+@app_bot.on_message(filters.command("proxy"))
+async def proxy_cmd(client, message):
+    with proxy_lock:
+        alive = PROXY_LIST[:10]
+    
+    text = "🌐 **PROXY LIST**\n"
+    text += "━━━━━━━━━━━━━━━━━━━━━━━\n"
+    text += f"🟢 Alive: {len(PROXY_LIST)}\n"
+    for i, p in enumerate(alive, 1):
+        text += f"  {i}. `{p}`\n"
+    if len(PROXY_LIST) > 10:
+        text += f"  ... and {len(PROXY_LIST)-10} more\n"
+    text += f"\n🔴 Dead: {len(DEAD_PROXIES)}\n"
+    text += f"📂 Master: {len(PROXY_MASTER)}"
+    await message.reply_text(text)
+
+@app_bot.on_message(filters.command("dead"))
+async def dead_cmd(client, message):
+    with proxy_lock:
+        dead_list = list(DEAD_PROXIES)
+        if dead_list:
+            text = f"🔴 **DEAD PROXIES:** {len(dead_list)}\n"
+            text += "━━━━━━━━━━━━━━━━━━━━━━━\n"
+            for i, p in enumerate(dead_list[:20], 1):
+                text += f"{i}. `{p}`\n"
+            if len(dead_list) > 20:
+                text += f"... and {len(dead_list)-20} more"
+            await message.reply_text(text)
+        else:
+            await message.reply_text("✅ No dead proxies")
+
+@app_bot.on_message(filters.command("stats"))
+async def stats_cmd(client, message):
+    uptime = int(time.time() - start_time)
+    hours = uptime // 3600
+    minutes = (uptime % 3600) // 60
+    seconds = uptime % 60
+    
+    with proxy_lock:
+        alive = len(PROXY_LIST)
+        master = len(PROXY_MASTER)
+        dead = len(DEAD_PROXIES)
+    
+    rate = int((view_stats['success'] / max(1, view_stats['total'])) * 100)
+    
+    text = f"""
+📊 **STATISTICS**
+━━━━━━━━━━━━━━━━━━━━━━━
+👁 **Total Views:** {view_stats['total']:,}
+✅ **Success:** {view_stats['success']:,}
+❌ **Failed:** {view_stats['failed']:,}
+📈 **Success Rate:** {rate}%
+
+━━━━━━━━━━━━━━━━━━━━━━━
+🟢 **Proxy Alive:** {alive}
+📂 **Proxy Master:** {master}
+🔴 **Proxy Dead:** {dead}
+
+━━━━━━━━━━━━━━━━━━━━━━━
+⏱ **Uptime:** {hours}h {minutes}m {seconds}s
+🕒 **Started:** {datetime.fromtimestamp(start_time).strftime('%d/%m/%Y %H:%M:%S')}
+📊 **PID:** {os.getpid()}
+🌐 **Web:** http://{WEB_HOST}:{WEB_PORT}
+"""
+    await message.reply_text(text)
+
+@app_bot.on_message(filters.command("reload"))
+async def reload_cmd(client, message):
+    alive, added = await asyncio.to_thread(reload_proxies)
+    await message.reply_text(
+        f"🔄 **Reload complete**\n"
+        f"Added: {added}\n"
+        f"Alive: {alive}\n"
+        f"Master: {len(PROXY_MASTER)}\n"
+        f"Dead: {len(DEAD_PROXIES)}"
+    )
+
+@app_bot.on_message(filters.command("addproxy"))
+async def addproxy_cmd(client, message):
+    parts = message.text.split(maxsplit=1)
+    if len(parts) < 2:
+        await message.reply_text(
+            "Usage: /addproxy PROXY\n"
+            "Example: /addproxy http://user:pass@1.2.3.4:8080"
+        )
+        return
+    
+    new_proxy = parts[1].strip()
+    
+    if new_proxy in PROXY_MASTER:
+        await message.reply_text("Proxy already exists")
+        return
+    
+    with open(PROXY_FILE, "a", encoding="utf-8") as f:
+        f.write(new_proxy + "\n")
+    
+    with proxy_lock:
+        PROXY_MASTER.add(new_proxy)
+        PROXY_LIST.append(new_proxy)
+    
+    await message.reply_text(
+        f"✅ **Added:** {new_proxy}\n"
+        f"Alive: {len(PROXY_LIST)}\n"
+        f"Master: {len(PROXY_MASTER)}"
     )
 
 @app_bot.on_message(filters.command("upload"))
 async def upload_cmd(client, message):
-    await message.reply_text("Send .txt file with proxies")
+    await message.reply_text(
+        "📤 **Send .txt file with proxies**\n\n"
+        "Format:\n"
+        "`http://user:pass@ip:port`\n"
+        "`socks5://user:pass@ip:port`\n\n"
+        "Bot will auto merge new proxies"
+    )
+
+@app_bot.on_message(filters.command("ping"))
+async def ping_cmd(client, message):
+    await message.reply_text(
+        f"🏓 **Pong!**\n"
+        f"PID: {os.getpid()}\n"
+        f"Proxy: {len(PROXY_LIST)} alive\n"
+        f"Views: {view_stats['total']}"
+    )
 
 @app_bot.on_message(filters.document)
 async def handle_document(client, message):
@@ -371,7 +729,7 @@ async def handle_document(client, message):
         await message.reply_text("Only .txt files accepted")
         return
     
-    msg = await message.reply_text(f"Processing: {doc.file_name}...")
+    msg = await message.reply_text(f"⏳ Processing: {doc.file_name}...")
     file_path = await client.download_media(message)
     
     if not file_path:
@@ -381,17 +739,17 @@ async def handle_document(client, message):
     try:
         with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
             lines = [line.strip() for line in f if line.strip() and not line.startswith("#")]
-            total_in_file = len(lines)
+            total = len(lines)
         
         added, alive = await asyncio.to_thread(merge_proxies_from_file, file_path)
         
         await msg.edit_text(
-            f"[OK] Processed: {doc.file_name}\n"
-            f"Total in file: {total_in_file}\n"
-            f"New proxies: {added}\n"
-            f"Alive proxies: {alive}\n"
-            f"Master: {len(PROXY_MASTER)}\n"
-            f"Dead: {len(DEAD_PROXIES)}"
+            f"✅ **Processed:** {doc.file_name}\n"
+            f"├ Total: {total}\n"
+            f"├ New: {added}\n"
+            f"├ Alive: {alive}\n"
+            f"├ Master: {len(PROXY_MASTER)}\n"
+            f"└ Dead: {len(DEAD_PROXIES)}"
         )
     except Exception as e:
         await msg.edit_text(f"Error: {str(e)}")
@@ -399,67 +757,118 @@ async def handle_document(client, message):
         if os.path.exists(file_path):
             os.remove(file_path)
 
-@app_bot.on_message(filters.command("proxy"))
-async def proxy_cmd(client, message):
-    with proxy_lock:
-        if PROXY_LIST:
-            sample = PROXY_LIST[:5]
-            text = f"Alive proxies: {len(PROXY_LIST)}\n"
-            for p in sample:
-                text += f"- {p}\n"
-            await message.reply_text(text)
-        else:
-            await message.reply_text("No alive proxies")
+# ===== CALLBACK HANDLER =====
+@app_bot.on_callback_query()
+async def handle_callback(client, query: CallbackQuery):
+    data = query.data
+    
+    if data == "play_random":
+        video_id = random.choice(list(VIDEO_DB.keys()))
+        msg_text, thumbnail = create_video_message(video_id)
+        await query.message.edit_text("🔄 Loading...")
+        await query.message.delete()
+        await query.message.reply_photo(
+            photo=thumbnail,
+            caption=msg_text,
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("▶ Play", callback_data=f"play_{video_id}"),
+                 InlineKeyboardButton("⏸ Pause", callback_data="pause")],
+                [InlineKeyboardButton("🎯 View 100", callback_data=f"view_{video_id}_100"),
+                 InlineKeyboardButton("🎯 View 500", callback_data=f"view_{video_id}_500")],
+                [InlineKeyboardButton("🔄 Refresh", callback_data=f"refresh_{video_id}"),
+                 InlineKeyboardButton("🔗 YouTube", url=f"https://youtu.be/{video_id}")]
+            ])
+        )
+        await query.answer("Playing random video")
+    
+    elif data == "show_stats":
+        uptime = int(time.time() - start_time)
+        hours = uptime // 3600
+        minutes = (uptime % 3600) // 60
+        seconds = uptime % 60
+        rate = int((view_stats['success'] / max(1, view_stats['total'])) * 100)
+        
+        text = f"""
+📊 **STATISTICS**
+━━━━━━━━━━━━━━━━━━━━━━━
+👁 Total Views: {view_stats['total']:,}
+✅ Success: {view_stats['success']:,}
+❌ Failed: {view_stats['failed']:,}
+📈 Rate: {rate}%
 
-@app_bot.on_message(filters.command("dead"))
-async def dead_cmd(client, message):
-    with proxy_lock:
-        dead_list = list(DEAD_PROXIES)
-        if dead_list:
-            sample = dead_list[:5]
-            text = f"Dead proxies: {len(dead_list)}\n"
-            for p in sample:
-                text += f"- {p}\n"
-            await message.reply_text(text)
-        else:
-            await message.reply_text("No dead proxies")
+🟢 Proxy: {len(PROXY_LIST)} alive
+🔴 Dead: {len(DEAD_PROXIES)}
 
-@app_bot.on_message(filters.command("check"))
-async def check_cmd(client, message):
-    msg = await message.reply_text("Scanning dead proxies...")
-    dead = await asyncio.to_thread(scan_dead_proxies)
-    with proxy_lock:
-        alive = len(PROXY_LIST)
-    await msg.edit_text(
-        f"[OK] Scan complete\n"
-        f"Dead removed: {dead}\n"
-        f"Alive remaining: {alive}\n"
-        f"Total dead: {len(DEAD_PROXIES)}"
-    )
+⏱ Uptime: {hours}h {minutes}m {seconds}s
+"""
+        await query.message.reply_text(text)
+        await query.answer()
+    
+    elif data == "show_proxy":
+        with proxy_lock:
+            alive = PROXY_LIST[:10]
+        text = f"🌐 **Proxy Alive:** {len(PROXY_LIST)}\n"
+        for i, p in enumerate(alive, 1):
+            text += f"  {i}. `{p}`\n"
+        if len(PROXY_LIST) > 10:
+            text += f"  ... and {len(PROXY_LIST)-10} more"
+        await query.message.reply_text(text)
+        await query.answer()
+    
+    elif data.startswith("play_"):
+        video_id = data.replace("play_", "")
+        if video_id in VIDEO_DB:
+            msg_text, thumbnail = create_video_message(video_id)
+            await query.message.edit_caption(
+                caption=msg_text,
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("⏸ Pause", callback_data="pause"),
+                     InlineKeyboardButton("🎯 View 100", callback_data=f"view_{video_id}_100")],
+                    [InlineKeyboardButton("🔄 Refresh", callback_data=f"refresh_{video_id}"),
+                     InlineKeyboardButton("🔗 YouTube", url=f"https://youtu.be/{video_id}")]
+                ])
+            )
+        await query.answer("▶ Playing")
+    
+    elif data == "pause":
+        await query.answer("⏸ Paused")
+    
+    elif data.startswith("view_"):
+        parts = data.split("_")
+        if len(parts) >= 3:
+            video_id = parts[1]
+            count = int(parts[2])
+            
+            with proxy_lock:
+                if not PROXY_LIST:
+                    await query.answer("No proxy alive")
+                    return
+            
+            await query.answer(f"Starting {count} views...")
+            await query.message.reply_text(f"⏳ Processing {count} views for {video_id}...")
+            
+            success, info = await asyncio.to_thread(run_view_task, video_id, count)
+            await query.message.reply_text(
+                f"✅ {info}\n"
+                f"🎯 https://youtu.be/{video_id}"
+            )
+    
+    elif data.startswith("refresh_"):
+        video_id = data.replace("refresh_", "")
+        if video_id in VIDEO_DB:
+            msg_text, thumbnail = create_video_message(video_id)
+            await query.message.edit_caption(
+                caption=msg_text,
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("▶ Play", callback_data=f"play_{video_id}"),
+                     InlineKeyboardButton("🎯 View 100", callback_data=f"view_{video_id}_100")],
+                    [InlineKeyboardButton("🔄 Refresh", callback_data=f"refresh_{video_id}"),
+                     InlineKeyboardButton("🔗 YouTube", url=f"https://youtu.be/{video_id}")]
+                ])
+            )
+        await query.answer("🔄 Refreshed")
 
-@app_bot.on_message(filters.command("stats"))
-async def stats_cmd(client, message):
-    uptime = int(time.time() - start_time)
-    with proxy_lock:
-        alive = len(PROXY_LIST)
-        master = len(PROXY_MASTER)
-        dead = len(DEAD_PROXIES)
-    await message.reply_text(
-        f"STATISTICS\n"
-        f"Total views: {view_stats['total']}\n"
-        f"Success: {view_stats['success']}\n"
-        f"Failed: {view_stats['failed']}\n"
-        f"Alive proxies: {alive}\n"
-        f"Master proxies: {master}\n"
-        f"Dead proxies: {dead}\n"
-        f"PID: {os.getpid()}\n"
-        f"Uptime: {uptime}s"
-    )
-
-@app_bot.on_message(filters.command("ping"))
-async def ping_cmd(client, message):
-    await message.reply_text(f"Pong! PID: {os.getpid()}")
-
+# ===== SIGNAL HANDLER =====
 def signal_handler(sig, frame):
     global bot_running
     log_message(f"Signal {sig}, shutting down...")
@@ -467,6 +876,7 @@ def signal_handler(sig, frame):
     remove_pid()
     sys.exit(0)
 
+# ===== MAIN =====
 async def main():
     global bot_running, start_time, app_bot
     
