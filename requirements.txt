@@ -6,3 +6,4 @@ h2
 hyperframe
 hpack
 psutil
+aiohttp
