@@ -17,8 +17,8 @@ from cryptography.hazmat.backends import default_backend
 from cryptography.fernet import Fernet
 
 # ==================== CHỈ SỬA 2 DÒNG ====================
-BOT_TOKEN = "PASTE_BOT_TOKEN_HERE"
-ADMIN_IDS = [123456789]
+BOT_TOKEN = "8515267798:AAEUWB-9qZFcW2ZcDwbaLg8Vi0CtrrUO4gE"
+ADMIN_IDS = [5736655322,8782842024]
 API_PORT  = 8443
 # =======================================================
 
