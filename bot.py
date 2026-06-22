@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # =====================================================================
-# bot.py - RENDER READY - ĐÃ CẤU HÌNH BOT TOKEN & ADMIN
+# bot.py - RENDER FIX - Database & Keys trong /opt/render/project/data/
 # =====================================================================
 import os, sqlite3, json, base64, datetime, hashlib, secrets, logging
 import threading, time, uuid, string, random
@@ -23,17 +23,17 @@ RENDER_EXTERNAL_URL = os.environ.get("RENDER_EXTERNAL_URL", "")
 if RENDER_EXTERNAL_URL:
     SERVER_URL = RENDER_EXTERNAL_URL
 else:
-    import socket, urllib.request
-    try:
-        ip = urllib.request.urlopen("https://api.ipify.org", timeout=5).read().decode().strip()
-        SERVER_URL = f"http://{ip}:{API_PORT}"
-    except:
-        SERVER_URL = f"http://localhost:{API_PORT}"
+    SERVER_URL = f"http://localhost:{API_PORT}"
 
-DB_PATH   = "/opt/render/project/data/license.db" if os.path.exists("/opt/render/project") else "license.db"
-PRIV_PATH = "private_key.pem"
-PUB_PATH  = "public_key.pem"
-FER_PATH  = "fernet.key"
+# === FIX: Dùng Render Disk ===
+RENDER_DATA_DIR = "/opt/render/project/data"
+if not os.path.exists(RENDER_DATA_DIR):
+    os.makedirs(RENDER_DATA_DIR, exist_ok=True)
+
+DB_PATH   = os.path.join(RENDER_DATA_DIR, "license.db")
+PRIV_PATH = os.path.join(RENDER_DATA_DIR, "private_key.pem")
+PUB_PATH  = os.path.join(RENDER_DATA_DIR, "public_key.pem")
+FER_PATH  = os.path.join(RENDER_DATA_DIR, "fernet.key")
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 log = logging.getLogger("RENDER")
@@ -128,7 +128,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def root():
-    return jsonify({'status':'running','server':SERVER_URL,'prefix':PREFIX,'endpoints':['/api/activate','/api/verify','/api/heartbeat','/api/ios/config','/api/health','/api/status']})
+    return jsonify({'status':'running','server':SERVER_URL,'prefix':PREFIX})
 
 @app.route('/api/health')
 def health(): return jsonify({'status':'ok','server':SERVER_URL,'prefix':PREFIX})
