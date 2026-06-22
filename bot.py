@@ -1,681 +1,416 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
+# =====================================================================
+# bot.py — LỆNH DỄ TẠO KEY + KEY HIỂN THỊ RANDOM THEO SERVER
+# Sửa BOT_TOKEN, ADMIN_IDS → chạy python3 bot.py
+# Lệnh: /key, /keyd, /keyh, /keyvip → tạo key nhanh, hiển thị đẹp
+# =====================================================================
+import os, sqlite3, json, base64, datetime, hashlib, secrets, logging
+import threading, time, uuid, socket, urllib.request, random, string
+from functools import wraps
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.constants import ParseMode
+from flask import Flask, request, jsonify
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding, rsa
+from cryptography.hazmat.backends import default_backend
+from cryptography.fernet import Fernet
 
-import asyncio
-import sys
-import os
-import random
-import time
-import requests
-import signal
-import json
-import re
-from datetime import datetime
-from concurrent.futures import ThreadPoolExecutor
-from threading import Lock
-from aiohttp import web
+# ==================== CHỈ SỬA 2 DÒNG ====================
+BOT_TOKEN = "PASTE_BOT_TOKEN_HERE"
+ADMIN_IDS = [123456789]
+API_PORT  = 8443
+# =======================================================
 
-if sys.platform == 'win32':
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-else:
-    try:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-    except Exception:
-        pass
-
-from pyrogram import Client, filters
-from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
-
-# ===== CONFIG =====
-API_ID = 27657608
-API_HASH = "3b6e52a3713b44ad5adaa2bcf579de66"
-BOT_TOKEN = "6320148381:AAG8gj3AkesAySvvuJ-upX5Ov48azxUrYRA"
-PROXY_FILE = "proxy.txt"
-DEAD_PROXY_FILE = "dead_proxy.txt"
-LOG_FILE = "bot_log.txt"
-PID_FILE = "bot.pid"
-WEB_HOST = "0.0.0.0"
-WEB_PORT = 8080
-
-YOUTUBE_THUMBNAIL = "https://img.youtube.com/vi/{video_id}/hqdefault.jpg"
-MAX_WORKERS = 30
-VIEW_RETRY = 3
-MIN_WATCH_TIME = 120
-MAX_WATCH_TIME = 180
-
-USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/121.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/121.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/121.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15",
-    "Mozilla/5.0 (Android 14; Mobile) AppleWebKit/537.36 Chrome/121.0.0.0",
-]
-
-PROXY_LIST = []
-PROXY_MASTER = set()
-DEAD_PROXIES = set()
-proxy_lock = Lock()
-bot_running = True
-view_stats = {"total": 0, "success": 0, "failed": 0}
-start_time = time.time()
-app_bot = None
-
-# Cache video info
-video_cache = {}
-
-def log_message(msg):
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    log_line = f"[{timestamp}] {msg}"
-    print(log_line)
-    try:
-        with open(LOG_FILE, "a", encoding="utf-8") as f:
-            f.write(log_line + "\n")
+def get_ip():
+    try: return urllib.request.urlopen("https://api.ipify.org", timeout=5).read().decode().strip()
     except:
-        pass
+        try: return urllib.request.urlopen("https://icanhazip.com", timeout=5).read().decode().strip()
+        except: return socket.gethostbyname(socket.gethostname())
 
-def write_pid():
-    with open(PID_FILE, "w") as f:
-        f.write(str(os.getpid()))
+SERVER_IP   = get_ip()
+SERVER_URL  = f"http://{SERVER_IP}:{API_PORT}"
+DB_PATH     = "license.db"
+PRIV_PATH   = "private_key.pem"
+PUB_PATH    = "public_key.pem"
+FER_PATH    = "fernet.key"
 
-def remove_pid():
-    if os.path.exists(PID_FILE):
-        os.remove(PID_FILE)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+log = logging.getLogger("KEYGEN")
 
-def check_already_running():
-    if os.path.exists(PID_FILE):
-        try:
-            with open(PID_FILE, "r") as f:
-                pid = int(f.read().strip())
-            try:
-                os.kill(pid, 0)
-                return True
-            except OSError:
-                os.remove(PID_FILE)
-                return False
+# ==================== DATABASE ====================
+def db(): conn = sqlite3.connect(DB_PATH); conn.row_factory = sqlite3.Row; return conn
+def init_db():
+    c = db()
+    c.executescript('''
+        CREATE TABLE IF NOT EXISTS keys(id INTEGER PRIMARY KEY AUTOINCREMENT, key_full TEXT, key_short TEXT, product TEXT, type TEXT, expiry TEXT, quantity INTEGER, features TEXT, created_by INTEGER, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
+        CREATE TABLE IF NOT EXISTS activated(id INTEGER PRIMARY KEY AUTOINCREMENT, key_hash TEXT UNIQUE, key_short TEXT, user_id INTEGER, username TEXT, udid TEXT, product TEXT, expiry TEXT, features TEXT, source TEXT, ip TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
+        CREATE TABLE IF NOT EXISTS revoked(id INTEGER PRIMARY KEY AUTOINCREMENT, key_short TEXT UNIQUE, key_hash TEXT, revoked_by INTEGER, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
+        CREATE TABLE IF NOT EXISTS tokens(id INTEGER PRIMARY KEY AUTOINCREMENT, token TEXT UNIQUE, token_hash TEXT UNIQUE, user_id INTEGER, username TEXT, is_active INTEGER DEFAULT 1, device_limit INTEGER DEFAULT 5, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
+        CREATE TABLE IF NOT EXISTS devices(id INTEGER PRIMARY KEY AUTOINCREMENT, token_id INTEGER, udid TEXT UNIQUE, name TEXT, model TEXT, ios TEXT, app TEXT, key_short TEXT, is_active INTEGER DEFAULT 1, last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
+    ''')
+    c.commit(); c.close()
+
+# ==================== RSA + FERNET ====================
+def load_keys():
+    if not os.path.exists(PRIV_PATH):
+        priv = rsa.generate_private_key(65537, 2048, default_backend())
+        pub  = priv.public_key()
+        with open(PRIV_PATH, "wb") as f: f.write(priv.private_bytes(encoding=serialization.Encoding.PEM, format=serialization.PrivateFormat.PKCS8, encryption_algorithm=serialization.NoEncryption()))
+        with open(PUB_PATH, "wb") as f: f.write(pub.public_bytes(encoding=serialization.Encoding.PEM, format=serialization.PublicFormat.SubjectPublicKeyInfo))
+    with open(PRIV_PATH, "rb") as f: priv = serialization.load_pem_private_key(f.read(), password=None, backend=default_backend())
+    with open(PUB_PATH, "rb") as f: pub = serialization.load_pem_public_key(f.read(), backend=default_backend())
+    return priv, pub
+PRIV, PUB = load_keys()
+
+def load_fernet():
+    if not os.path.exists(FER_PATH):
+        with open(FER_PATH, "wb") as f: f.write(Fernet.generate_key())
+    with open(FER_PATH, "rb") as f: return Fernet(f.read())
+FER = load_fernet()
+
+# ==================== RANDOM KEY PREFIX (theo server) ====================
+def random_prefix():
+    """Tạo prefix random 6 ký tự dựa trên public key fingerprint"""
+    der = PUB.public_bytes(encoding=serialization.Encoding.DER, format=serialization.PublicFormat.SubjectPublicKeyInfo)
+    fp = hashlib.sha256(der).hexdigest()
+    chars = string.ascii_uppercase + string.digits
+    random.seed(int(fp[:8], 16))
+    return ''.join(random.choice(chars) for _ in range(6))
+
+PREFIX = random_prefix()
+
+def format_key_display(key):
+    """Hiển thị key dạng đẹp: XXXX-XXXX-XXXX-XXXX"""
+    k = key[:32] if len(key) >= 32 else key
+    return '-'.join([k[i:i+4] for i in range(0, len(k), 4)])
+
+# ==================== KEYGEN ====================
+def gen_license(product, days, features, quantity=0):
+    """Tạo key ngày (quantity=0 = không giới hạn)"""
+    exp = (datetime.date.today() + datetime.timedelta(days=days)).strftime('%Y-%m-%d')
+    payload = {'product': product, 'expiry': exp, 'duration_days': days, 'features': features,
+               'quantity': quantity if quantity > 0 else None, 'prefix': PREFIX,
+               'generated_at': datetime.datetime.now().isoformat(), 'key_id': str(uuid.uuid4())[:8]}
+    data = json.dumps(payload).encode()
+    sig = PRIV.sign(data, padding.PSS(mgf=padding.MGF1(hashes.SHA256()), salt_length=padding.PSS.MAX_LENGTH), hashes.SHA256())
+    packed = len(data).to_bytes(4, 'big') + data + sig
+    return base64.urlsafe_b64encode(packed).decode().rstrip('=')
+
+def gen_license_hours(product, hours, features, quantity=0):
+    """Tạo key giờ"""
+    exp = (datetime.datetime.now() + datetime.timedelta(hours=hours)).strftime('%Y-%m-%d %H:%M:%S')
+    payload = {'product': product, 'expiry': exp, 'duration_hours': hours, 'features': features,
+               'quantity': quantity if quantity > 0 else None, 'prefix': PREFIX,
+               'generated_at': datetime.datetime.now().isoformat(), 'key_id': str(uuid.uuid4())[:8]}
+    data = json.dumps(payload).encode()
+    sig = PRIV.sign(data, padding.PSS(mgf=padding.MGF1(hashes.SHA256()), salt_length=padding.PSS.MAX_LENGTH), hashes.SHA256())
+    packed = len(data).to_bytes(4, 'big') + data + sig
+    return base64.urlsafe_b64encode(packed).decode().rstrip('=')
+
+def verify_license(key, user_id=None, udid=None):
+    try:
+        key += '=' * (4 - len(key) % 4) if len(key) % 4 else ''
+        decoded = base64.urlsafe_b64decode(key)
+        plen = int.from_bytes(decoded[:4], 'big')
+        pdata, sig = decoded[4:4+plen], decoded[4+plen:]
+        PUB.verify(sig, pdata, padding.PSS(mgf=padding.MGF1(hashes.SHA256()), salt_length=padding.PSS.MAX_LENGTH), hashes.SHA256())
+        payload = json.loads(pdata)
+        try: exp_dt = datetime.datetime.strptime(payload['expiry'], '%Y-%m-%d %H:%M:%S')
         except:
-            return False
-    return False
+            exp_dt = datetime.datetime.strptime(payload['expiry'], '%Y-%m-%d')
+            exp_dt = datetime.datetime.combine(exp_dt, datetime.time.max)
+        if datetime.datetime.now() > exp_dt: return False, "⏰ KEY HẾT HẠN", None, None
+        khash = hashlib.sha256(key.encode()).hexdigest(); kshort = key[:30]
+        c = db()
+        if c.execute("SELECT 1 FROM activated WHERE key_hash=?", (khash,)).fetchone(): c.close(); return False, "⚠️ KEY ĐÃ KÍCH HOẠT", None, None
+        qty = payload.get('quantity')
+        if qty:
+            cnt = c.execute("SELECT COUNT(*) FROM activated WHERE key_hash=?", (khash,)).fetchone()[0]
+            if cnt >= qty: c.close(); return False, f"📱 ĐÃ ĐỦ {qty} THIẾT BỊ", None, None
+        if c.execute("SELECT 1 FROM revoked WHERE key_short=?", (kshort,)).fetchone(): c.close(); return False, "🚫 KEY ĐÃ BỊ THU HỒI", None, None
+        c.close()
+        return True, f"✅ HỢP LỆ: {payload['product']}", payload, payload.get('key_id')
+    except Exception as e: return False, f"❌ LỖI: {str(e)[:60]}", None, None
 
-def parse_proxy(proxy_str):
-    if proxy_str.startswith("http://"):
-        return {"http": proxy_str, "https": proxy_str}
-    elif proxy_str.startswith("socks5://"):
-        return {"http": proxy_str, "https": proxy_str}
-    elif proxy_str.startswith("socks4://"):
-        return {"http": proxy_str, "https": proxy_str}
+# ==================== FLASK API ====================
+app = Flask(__name__)
+
+@app.route('/api/health')
+def health(): return jsonify({'status':'ok','server':SERVER_URL,'prefix':PREFIX})
+
+@app.route('/api/activate', methods=['POST'])
+def activate():
+    token = request.headers.get('X-API-Token','')
+    if not token: return jsonify({'status':'error','message':'Thiếu token'}), 401
+    c = db()
+    row = c.execute("SELECT * FROM tokens WHERE token_hash=? AND is_active=1", (hashlib.sha256(token.encode()).hexdigest(),)).fetchone()
+    if not row: c.close(); return jsonify({'status':'error','message':'Token sai'}), 401
+    data = request.get_json(silent=True) or {}
+    key, udid = data.get('license_key',''), data.get('udid','')
+    if not key or not udid: c.close(); return jsonify({'status':'error','message':'Thiếu key/udid'}), 400
+    if c.execute("SELECT COUNT(*) FROM devices WHERE token_id=? AND is_active=1 AND udid!=?", (row['id'], udid)).fetchone()[0] >= row['device_limit']:
+        c.close(); return jsonify({'status':'error','message':f'Giới hạn {row["device_limit"]} máy'}), 403
+    ok, msg, payload, kid = verify_license(key, row['user_id'], udid)
+    if ok and payload:
+        khash, kshort = hashlib.sha256(key.encode()).hexdigest(), key[:30]
+        c.execute("INSERT OR IGNORE INTO activated(key_hash,key_short,user_id,username,udid,product,expiry,features,source,ip) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (khash,kshort,row['user_id'],row['username'],udid,payload['product'],payload['expiry'],json.dumps(payload.get('features',[])),'ios',request.remote_addr))
+        c.execute("INSERT OR REPLACE INTO devices(token_id,udid,name,model,ios,app,key_short,last_seen) VALUES (?,?,?,?,?,?,?,CURRENT_TIMESTAMP)",
+            (row['id'],udid,data.get('device_name',''),data.get('device_model',''),data.get('ios_version',''),data.get('app_version','1.0'),kshort))
+        c.commit(); c.close()
+        return jsonify({'status':'success','message':msg,'data':{'product':payload['product'],'expiry':payload['expiry'],'features':payload.get('features',[]),'key_id':kid,'server':SERVER_URL}})
+    c.close(); return jsonify({'status':'error','message':msg}), 403
+
+@app.route('/api/verify', methods=['POST'])
+def verify():
+    token = request.headers.get('X-API-Token','')
+    if not token: return jsonify({'status':'error'}), 401
+    c = db()
+    if not c.execute("SELECT 1 FROM tokens WHERE token_hash=? AND is_active=1", (hashlib.sha256(token.encode()).hexdigest(),)).fetchone(): c.close(); return jsonify({'status':'error'}), 401
+    c.close()
+    data = request.get_json(silent=True) or {}
+    ok, msg, payload, kid = verify_license(data.get('license_key',''))
+    r = {'status':'valid' if ok else 'invalid','message':msg,'server':SERVER_URL}
+    if payload: r['data'] = {'product':payload['product'],'expiry':payload['expiry'],'features':payload.get('features',[]),'key_id':kid}
+    return jsonify(r)
+
+@app.route('/api/heartbeat', methods=['POST'])
+def heartbeat():
+    token = request.headers.get('X-API-Token','')
+    if not token: return jsonify({'status':'error'}), 401
+    c = db()
+    row = c.execute("SELECT id FROM tokens WHERE token_hash=? AND is_active=1", (hashlib.sha256(token.encode()).hexdigest(),)).fetchone()
+    if not row: c.close(); return jsonify({'status':'error'}), 401
+    data = request.get_json(silent=True) or {}
+    if data.get('udid'): c.execute("UPDATE devices SET last_seen=CURRENT_TIMESTAMP WHERE udid=? AND token_id=?", (data['udid'], row[0])); c.commit()
+    c.close()
+    return jsonify({'status':'ok','server':SERVER_URL})
+
+@app.route('/api/ios/config')
+def ios_config():
+    token = request.headers.get('X-API-Token','')
+    if not token: return jsonify({'status':'error'}), 401
+    c = db()
+    row = c.execute("SELECT * FROM tokens WHERE token_hash=? AND is_active=1", (hashlib.sha256(token.encode()).hexdigest(),)).fetchone()
+    if not row: c.close(); return jsonify({'status':'error'}), 401
+    c.close()
+    cfg = {'server_url':SERVER_URL,'prefix':PREFIX,'endpoints':{'activate':f"{SERVER_URL}/api/activate",'verify':f"{SERVER_URL}/api/verify",'heartbeat':f"{SERVER_URL}/api/heartbeat"}}
+    return jsonify({'encrypted_config': base64.b64encode(FER.encrypt(json.dumps(cfg).encode())).decode()})
+
+# ==================== TELEGRAM BOT ====================
+def admin_only(f):
+    @wraps(f)
+    async def w(update, context, *a, **kw):
+        if update.effective_user.id not in ADMIN_IDS: await update.message.reply_text("⛔ Admin only"); return
+        return await f(update, context, *a, **kw)
+    return w
+
+async def start(update, context):
+    await update.message.reply_text(f"""
+╔══════════════════════════════════╗
+║   🔐 LICENSE KEY SYSTEM        ║
+║   🌐 {SERVER_URL[:30]}... ║
+╚══════════════════════════════════╝
+
+👤 {update.effective_user.first_name}
+
+📋 LỆNH USER:
+  /activate <key> — Kích hoạt key
+  /mykeys — Key của bạn
+
+⚡ LỆNH TẠO KEY NHANH (Admin):
+  /key <tên> <ngày> — Key ngày, ko giới hạn
+  /keyd <tên> <ngày> <số_lượng> — Key ngày + giới hạn máy
+  /keyh <tên> <giờ> — Key giờ
+  /keyvip <tên> <ngày> <số_lượng> <tính_năng> — Key VIP
+
+📌 PREFIX KEY: `{PREFIX}-...`
+""", parse_mode=ParseMode.MARKDOWN)
+
+# ==================== LỆNH TẠO KEY SIÊU DỄ ====================
+
+@admin_only
+async def cmd_key(update, context):
+    """/key <tên> <ngày> — Tạo key ngày, không giới hạn thiết bị"""
+    a = update.message.text.split()
+    if len(a) < 3:
+        await update.message.reply_text("⚠️ `/key <tên_sản_phẩm> <số_ngày>`\nVí dụ: `/key ProApp 365`", parse_mode=ParseMode.MARKDOWN)
+        return
+    prod, days = a[1], int(a[2])
+    key = gen_license(prod, days, ['basic'], 0)
+    exp = (datetime.date.today() + datetime.timedelta(days=days)).strftime('%d/%m/%Y')
+    db().execute("INSERT INTO keys(key_full,key_short,product,type,expiry,quantity,features,created_by) VALUES (?,?,?,?,?,?,?,?)",
+        (key, key[:30], prod, 'days', exp, 0, '["basic"]', update.effective_user.id)).connection.commit()
+    await update.message.reply_text(
+        f"✅ **KEY ĐÃ TẠO**\n\n"
+        f"📦 Sản phẩm: `{prod}`\n"
+        f"⏰ Hết hạn: `{exp}` ({days} ngày)\n"
+        f"📱 Giới hạn: Không giới hạn\n"
+        f"🏷 Prefix: `{PREFIX}`\n\n"
+        f"🔑 **KEY:**\n`{key}`\n\n"
+        f"📋 Format:\n`{format_key_display(key)}`",
+        parse_mode=ParseMode.MARKDOWN)
+
+@admin_only
+async def cmd_keyd(update, context):
+    """/keyd <tên> <ngày> <số_lượng> — Key ngày + giới hạn thiết bị"""
+    a = update.message.text.split()
+    if len(a) < 4:
+        await update.message.reply_text("⚠️ `/keyd <tên> <ngày> <số_lượng_máy>`\nVí dụ: `/keyd ProApp 365 5`", parse_mode=ParseMode.MARKDOWN)
+        return
+    prod, days, qty = a[1], int(a[2]), int(a[3])
+    key = gen_license(prod, days, ['basic'], qty)
+    exp = (datetime.date.today() + datetime.timedelta(days=days)).strftime('%d/%m/%Y')
+    db().execute("INSERT INTO keys(key_full,key_short,product,type,expiry,quantity,features,created_by) VALUES (?,?,?,?,?,?,?,?)",
+        (key, key[:30], prod, 'days_qty', exp, qty, '["basic"]', update.effective_user.id)).connection.commit()
+    await update.message.reply_text(
+        f"✅ **KEY ĐÃ TẠO**\n\n"
+        f"📦 Sản phẩm: `{prod}`\n"
+        f"⏰ Hết hạn: `{exp}` ({days} ngày)\n"
+        f"📱 Giới hạn: `{qty}` thiết bị\n"
+        f"🏷 Prefix: `{PREFIX}`\n\n"
+        f"🔑 **KEY:**\n`{key}`",
+        parse_mode=ParseMode.MARKDOWN)
+
+@admin_only
+async def cmd_keyh(update, context):
+    """/keyh <tên> <giờ> — Key theo giờ"""
+    a = update.message.text.split()
+    if len(a) < 3:
+        await update.message.reply_text("⚠️ `/keyh <tên> <số_giờ>`\nVí dụ: `/keyh Trial 72`", parse_mode=ParseMode.MARKDOWN)
+        return
+    prod, hours = a[1], int(a[2])
+    key = gen_license_hours(prod, hours, ['trial'], 1)
+    exp = (datetime.datetime.now() + datetime.timedelta(hours=hours)).strftime('%d/%m/%Y %H:%M')
+    db().execute("INSERT INTO keys(key_full,key_short,product,type,expiry,quantity,features,created_by) VALUES (?,?,?,?,?,?,?,?)",
+        (key, key[:30], prod, 'hours', exp, 1, '["trial"]', update.effective_user.id)).connection.commit()
+    await update.message.reply_text(
+        f"✅ **KEY GIỜ ĐÃ TẠO**\n\n"
+        f"📦 Sản phẩm: `{prod}`\n"
+        f"⏰ Hết hạn: `{exp}` ({hours} giờ)\n"
+        f"📱 Giới hạn: 1 máy\n"
+        f"🏷 Prefix: `{PREFIX}`\n\n"
+        f"🔑 **KEY:**\n`{key}`",
+        parse_mode=ParseMode.MARKDOWN)
+
+@admin_only
+async def cmd_keyvip(update, context):
+    """/keyvip <tên> <ngày> <số_lượng> <tính_năng> — Key VIP đầy đủ"""
+    a = update.message.text.split(maxsplit=4)
+    if len(a) < 5:
+        await update.message.reply_text("⚠️ `/keyvip <tên> <ngày> <số_lượng> <tính_năng>`\nVí dụ: `/keyvip Ultra 365 10 premium,api,cloud`", parse_mode=ParseMode.MARKDOWN)
+        return
+    prod, days, qty = a[1], int(a[2]), int(a[3])
+    feats = [x.strip() for x in a[4].split(',')]
+    key = gen_license(prod, days, feats, qty)
+    exp = (datetime.date.today() + datetime.timedelta(days=days)).strftime('%d/%m/%Y')
+    db().execute("INSERT INTO keys(key_full,key_short,product,type,expiry,quantity,features,created_by) VALUES (?,?,?,?,?,?,?,?)",
+        (key, key[:30], prod, 'vip', exp, qty, json.dumps(feats), update.effective_user.id)).connection.commit()
+    await update.message.reply_text(
+        f"💎 **KEY VIP ĐÃ TẠO**\n\n"
+        f"📦 Sản phẩm: `{prod}`\n"
+        f"⏰ Hết hạn: `{exp}` ({days} ngày)\n"
+        f"📱 Giới hạn: `{qty}` thiết bị\n"
+        f"🛠 Tính năng: `{', '.join(feats)}`\n"
+        f"🏷 Prefix: `{PREFIX}`\n\n"
+        f"🔑 **KEY:**\n`{key}`",
+        parse_mode=ParseMode.MARKDOWN)
+
+# ==================== LỆNH USER ====================
+async def cmd_activate(update, context):
+    u = update.effective_user; t = update.message.text.strip()
+    if t.startswith('/activate'):
+        p = t.split(maxsplit=1)
+        if len(p) < 2: await update.message.reply_text("⚠️ `/activate <key>`", parse_mode=ParseMode.MARKDOWN); return
+        key = p[1].strip()
     else:
-        return {"http": "http://" + proxy_str, "https": "http://" + proxy_str}
+        if len(t) < 50: return
+        key = t
+    m = await update.message.reply_text("⏳ Đang kiểm tra key...")
+    ok, msg, payload, kid = verify_license(key, u.id)
+    if ok and payload:
+        kh = hashlib.sha256(key.encode()).hexdigest()
+        c = db()
+        c.execute("INSERT OR IGNORE INTO activated(key_hash,key_short,user_id,username,product,expiry,features,source) VALUES (?,?,?,?,?,?,?,?)",
+            (kh, key[:30], u.id, u.username or u.full_name, payload['product'], payload['expiry'], json.dumps(payload.get('features',[])), 'telegram'))
+        c.commit(); c.close()
+    icon = "✅" if ok else "❌"
+    r = f"{icon} {msg}"
+    if payload: r += f"\n📦 {payload['product']}\n⏰ {payload['expiry']}"
+    await m.edit_text(r)
 
-def load_proxies_from_file(filename):
-    proxies = set()
-    if os.path.exists(filename):
-        with open(filename, "r", encoding="utf-8", errors="ignore") as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith("#") and not line.startswith("//"):
-                    proxies.add(line)
-    return proxies
+async def cmd_mykeys(update, context):
+    rows = db().execute("SELECT product,expiry,features,created_at FROM activated WHERE user_id=? ORDER BY created_at DESC", (update.effective_user.id,)).fetchall()
+    if not rows: await update.message.reply_text("📭 Bạn chưa có key nào."); return
+    t = "🔑 **KEY CỦA BẠN:**\n\n"
+    for i, r in enumerate(rows, 1):
+        f = json.loads(r['features']) if r['features'] else []
+        t += f"{i}. 📦 `{r['product']}`\n   ⏰ `{r['expiry']}`\n   🛠 {', '.join(f)}\n   📅 {r['created_at'][:10]}\n\n"
+    await update.message.reply_text(t, parse_mode=ParseMode.MARKDOWN)
 
-def merge_proxies_from_file(filename):
-    global PROXY_MASTER, PROXY_LIST, DEAD_PROXIES
-    new_proxies = load_proxies_from_file(filename)
-    added = 0
-    for p in new_proxies:
-        if p not in PROXY_MASTER:
-            PROXY_MASTER.add(p)
-            added += 1
-            with open(PROXY_FILE, "a", encoding="utf-8") as f:
-                f.write(p + "\n")
-    with proxy_lock:
-        PROXY_LIST = [p for p in PROXY_MASTER if p not in DEAD_PROXIES]
-    log_message(f"Merge: added {added}, master={len(PROXY_MASTER)}, alive={len(PROXY_LIST)}")
-    return added, len(PROXY_LIST)
+# ==================== ADMIN KHÁC ====================
+@admin_only
+async def cmd_token(update, context):
+    a = update.message.text.split()
+    if len(a) < 3: await update.message.reply_text("⚠️ `/token <user_id> [limit]`", parse_mode=ParseMode.MARKDOWN); return
+    uid, lim = int(a[1]), int(a[2]) if len(a) > 2 else 5
+    try: ch = await context.bot.get_chat(uid); un = ch.username or ch.full_name
+    except: un = f"user_{uid}"
+    tok = secrets.token_hex(32); th = hashlib.sha256(tok.encode()).hexdigest()
+    db().execute("INSERT INTO tokens(token,token_hash,user_id,username,device_limit) VALUES (?,?,?,?,?)", (tok, th, uid, un, lim)).connection.commit()
+    await update.message.reply_text(f"✅ Token: `{tok}`\n👤 {un} | 📱 {lim} máy\n🌐 {SERVER_URL}", parse_mode=ParseMode.MARKDOWN)
 
-def reload_proxies():
-    added = merge_proxies_from_file(PROXY_FILE)
-    return len(PROXY_LIST), added
+@admin_only
+async def cmd_revoke(update, context):
+    a = update.message.text.split(maxsplit=1)
+    if len(a) < 2: await update.message.reply_text("⚠️ `/revoke <key>`", parse_mode=ParseMode.MARKDOWN); return
+    key = a[1].strip(); kh = hashlib.sha256(key.encode()).hexdigest(); ks = key[:30]
+    c = db()
+    c.execute("INSERT OR IGNORE INTO revoked(key_short,key_hash,revoked_by) VALUES (?,?,?)", (ks, kh, update.effective_user.id))
+    c.execute("DELETE FROM activated WHERE key_hash=?", (kh,)); c.commit(); c.close()
+    await update.message.reply_text(f"🚫 Đã thu hồi: `{ks}...`", parse_mode=ParseMode.MARKDOWN)
 
-def save_dead_proxy(proxy):
-    DEAD_PROXIES.add(proxy)
-    with open(DEAD_PROXY_FILE, "a", encoding="utf-8") as f:
-        f.write(f"{proxy}  # {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-    with proxy_lock:
-        if proxy in PROXY_LIST:
-            PROXY_LIST.remove(proxy)
+@admin_only
+async def cmd_status(update, context):
+    c = db()
+    ak = c.execute("SELECT COUNT(*) FROM activated").fetchone()[0]
+    gk = c.execute("SELECT COUNT(*) FROM keys").fetchone()[0]
+    rk = c.execute("SELECT COUNT(*) FROM revoked").fetchone()[0]
+    dev = c.execute("SELECT COUNT(*) FROM devices WHERE is_active=1").fetchone()[0]
+    tok = c.execute("SELECT COUNT(*) FROM tokens WHERE is_active=1").fetchone()[0]
+    c.close()
+    await update.message.reply_text(f"📊 **STATUS**\n🌐 {SERVER_URL}\n🏷 Prefix: `{PREFIX}`\n🔑 Generated: {gk}\n✅ Activated: {ak}\n🚫 Revoked: {rk}\n📱 Devices: {dev}\n🔗 Tokens: {tok}")
 
-def get_proxy():
-    with proxy_lock:
-        if PROXY_LIST:
-            return random.choice(PROXY_LIST)
-    return None
+@admin_only
+async def cmd_keys(update, context):
+    rows = db().execute("SELECT * FROM keys ORDER BY created_at DESC LIMIT 20").fetchall()
+    if not rows: await update.message.reply_text("📭 Chưa có key."); return
+    t = "📋 **DANH SÁCH KEY GẦN ĐÂY:**\n\n"
+    for r in rows:
+        t += f"🆔 `{r['id']}` | 📦 `{r['product']}` | {r['type']}\n   ⏰ `{r['expiry']}` | 📱 Qty: {r['quantity'] or '∞'}\n   🔑 `{r['key_short']}...`\n\n"
+    await update.message.reply_text(t, parse_mode=ParseMode.MARKDOWN)
 
-def check_proxy_alive(proxy_str, timeout=15):
-    test_url = "https://www.youtube.com"
-    headers = {"User-Agent": random.choice(USER_AGENTS)}
-    try:
-        proxies = parse_proxy(proxy_str)
-        resp = requests.get(test_url, headers=headers, proxies=proxies, timeout=timeout)
-        return resp.status_code == 200
-    except:
-        return False
+async def handle_msg(update, context):
+    t = update.message.text.strip()
+    if len(t) > 50 and not t.startswith('/'): await cmd_activate(update, context)
 
-def scan_dead_proxies():
-    dead_found = []
-    with proxy_lock:
-        current_list = PROXY_LIST.copy()
-    for proxy in current_list:
-        if not check_proxy_alive(proxy):
-            dead_found.append(proxy)
-            save_dead_proxy(proxy)
-    if dead_found:
-        log_message(f"Removed {len(dead_found)} dead proxies, alive={len(PROXY_LIST)}")
-    return len(dead_found)
+# ==================== MAIN ====================
+def run_flask(): app.run(host="0.0.0.0", port=API_PORT, debug=False, use_reloader=False)
 
-def fetch_youtube_info(video_id):
-    """Lấy thông tin video từ YouTube oembed"""
-    if video_id in video_cache:
-        return video_cache[video_id]
-    
-    try:
-        url = f"https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v={video_id}&format=json"
-        resp = requests.get(url, timeout=10)
-        if resp.status_code == 200:
-            data = resp.json()
-            info = {
-                "title": data.get("title", f"Video {video_id}"),
-                "channel": data.get("author_name", "Unknown"),
-                "thumbnail": YOUTUBE_THUMBNAIL.format(video_id=video_id)
-            }
-            video_cache[video_id] = info
-            return info
-    except:
-        pass
-    
-    return {
-        "title": f"Video {video_id}",
-        "channel": "Unknown",
-        "thumbnail": YOUTUBE_THUMBNAIL.format(video_id=video_id)
-    }
-
-def get_video_info(video_id):
-    info = fetch_youtube_info(video_id)
-    return {
-        "title": info.get("title", f"Video {video_id}"),
-        "duration": random.randint(180, 420),
-        "views": f"{random.randint(100, 999)}K",
-        "channel": info.get("channel", "Unknown")
-    }
-
-def create_video_message(video_id, status="playing"):
-    info = get_video_info(video_id)
-    thumbnail = YOUTUBE_THUMBNAIL.format(video_id=video_id)
-    
-    with proxy_lock:
-        alive = len(PROXY_LIST)
-        dead = len(DEAD_PROXIES)
-    
-    progress = random.randint(5, 45)
-    bar = '█' * int(progress / 5) + '░' * (20 - int(progress / 5))
-    
-    msg = f"""
-🎬 **{info['title']}**
-
-━━━━━━━━━━━━━━━━━━━━━━━
-▶️ **STATUS:** {"🟢 PLAYING" if status == "playing" else "⏸ PAUSED"}
-├ ⏱ {random.randint(10, 80)}s / {info['duration']}s
-├ 📊 1080p60
-├ 🔊 {random.randint(60, 95)}%
-└ 🔄 Auto-play: ON
-
-━━━━━━━━━━━━━━━━━━━━━━━
-📊 **PROGRESS:**
-`[{bar}] {progress}%`
-
-━━━━━━━━━━━━━━━━━━━━━━━
-👁 **Views:** {info['views']}
-📺 **Channel:** {info['channel']}
-🆔 **ID:** `{video_id}`
-
-━━━━━━━━━━━━━━━━━━━━━━━
-🌐 **Proxy:** {alive} alive | {dead} dead
-📈 **Total Views:** {view_stats['total']:,}
-✅ **Success:** {view_stats['success']:,}
-❌ **Failed:** {view_stats['failed']:,}
-
-🔗 https://youtu.be/{video_id}
-"""
-    return msg, thumbnail
-
-def fetch_video_page(video_id, proxy_str=None, retry=VIEW_RETRY):
-    url = f"https://www.youtube.com/watch?v={video_id}"
-    headers = {
-        "User-Agent": random.choice(USER_AGENTS),
-        "Accept-Language": random.choice(["en-US,en;q=0.9", "vi,en;q=0.9"]),
-        "Cache-Control": "no-cache",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Connection": "keep-alive",
-        "Upgrade-Insecure-Requests": "1",
-    }
-    proxies = parse_proxy(proxy_str) if proxy_str else None
-    
-    for attempt in range(retry):
-        try:
-            session = requests.Session()
-            resp = session.get(url, headers=headers, proxies=proxies, timeout=20)
-            if resp.status_code != 200:
-                session.close()
-                time.sleep(random.uniform(1.0, 3.0) * (attempt + 1))
-                continue
-            
-            watch_time = random.randint(MIN_WATCH_TIME, MAX_WATCH_TIME)
-            segments = random.randint(4, 8)
-            segment_time = watch_time // segments
-            
-            for seg in range(segments):
-                time.sleep(segment_time + random.uniform(0.5, 2.0))
-                if seg < segments - 1:
-                    try:
-                        session.get(
-                            url + "&t=" + str(int(segment_time * seg)),
-                            headers=headers,
-                            proxies=proxies,
-                            timeout=5
-                        )
-                    except:
-                        pass
-            
-            session.get(
-                url + "&t=" + str(random.randint(watch_time - 10, watch_time + 10)),
-                headers=headers,
-                proxies=proxies,
-                timeout=5
-            )
-            time.sleep(random.uniform(1.0, 3.0))
-            session.get(
-                f"https://www.youtube.com/embed/{video_id}?autoplay=1",
-                headers=headers,
-                proxies=proxies,
-                timeout=5
-            )
-            session.close()
-            return True
-        except Exception:
-            if attempt == retry - 1:
-                if proxy_str:
-                    save_dead_proxy(proxy_str)
-            else:
-                time.sleep(random.uniform(1.0, 3.0) * (attempt + 1))
-    return False
-
-def run_view_task(video_id, count):
-    with proxy_lock:
-        if not PROXY_LIST:
-            return 0, "Khong co proxy song"
-    
-    success = 0
-    failed = 0
-    
-    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        futures = []
-        for i in range(count):
-            proxy = get_proxy()
-            futures.append(executor.submit(fetch_video_page, video_id, proxy))
-            if i % 5 == 0:
-                time.sleep(0.1)
-        
-        for f in futures:
-            if f.result():
-                success += 1
-            else:
-                failed += 1
-            time.sleep(random.uniform(0.05, 0.2))
-    
-    global view_stats
-    view_stats["total"] += count
-    view_stats["success"] += success
-    view_stats["failed"] += failed
-    
-    with proxy_lock:
-        alive_count = len(PROXY_LIST)
-    
-    return success, f"Success: {success}/{count} | Proxy alive: {alive_count}"
-
-# ===== WEB SERVER =====
-async def handle_health(request):
-    stats = {
-        "status": "running",
-        "pid": os.getpid(),
-        "proxy_alive": len(PROXY_LIST),
-        "proxy_master": len(PROXY_MASTER),
-        "proxy_dead": len(DEAD_PROXIES),
-        "uptime": int(time.time() - start_time),
-        "view_stats": view_stats,
-        "timestamp": datetime.now().isoformat()
-    }
-    return web.json_response(stats)
-
-async def start_web_server():
-    app = web.Application()
-    app.router.add_get("/", lambda r: web.Response(text=f"YouTube View Bot - PID: {os.getpid()}"))
-    app.router.add_get("/health", handle_health)
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, WEB_HOST, WEB_PORT)
-    await site.start()
-    log_message(f"Web server: http://{WEB_HOST}:{WEB_PORT}")
-
-# ===== TELEGRAM BOT =====
-app_bot = Client("view_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
-
-async def periodic_reload():
-    global bot_running
-    while bot_running:
-        await asyncio.sleep(1800)
-        if bot_running:
-            alive, added = await asyncio.to_thread(reload_proxies)
-            log_message(f"Auto reload: {alive} alive, {added} added")
-
-async def periodic_check_proxy():
-    global bot_running
-    while bot_running:
-        await asyncio.sleep(900)
-        if bot_running:
-            dead = await asyncio.to_thread(scan_dead_proxies)
-            log_message(f"Proxy check: {dead} dead removed")
-
-# ===== COMMANDS =====
-@app_bot.on_message(filters.command("start"))
-async def start_cmd(client, message):
-    await message.reply_text(
-        "🎬 **YouTube View Bot**\n\n"
-        "📌 **Commands:**\n"
-        "├ /play VIDEO_ID - Play your video\n"
-        "├ /view VIDEO_ID COUNT - Start viewing\n"
-        "├ /upload - Upload proxy .txt\n"
-        "├ /stats - Statistics\n"
-        "└ /help - Help\n"
-        f"\n🟢 Proxy alive: {len(PROXY_LIST)}"
-    )
-
-@app_bot.on_message(filters.command("help"))
-async def help_cmd(client, message):
-    await message.reply_text(
-        "📖 **HELP**\n"
-        "━━━━━━━━━━━━━━━━━━\n"
-        "/play VIDEO_ID - Play video\n"
-        "/view VIDEO_ID COUNT - View (1-500)\n"
-        "/upload - Upload proxy .txt\n"
-        "/proxy - Show proxies\n"
-        "/stats - Statistics\n"
-        "/ping - Ping\n\n"
-        "📤 Upload .txt with proxies"
-    )
-
-@app_bot.on_message(filters.command("play"))
-async def play_cmd(client, message):
-    """Phát video chỉ định - BỎ HẾT DEMO"""
-    parts = message.text.split(maxsplit=1)
-    
-    if len(parts) < 2:
-        await message.reply_text(
-            "❌ **Usage:** /play VIDEO_ID\n\n"
-            "Example: /play dQw4w9WgXcQ"
-        )
-        return
-    
-    video_id = parts[1].strip()
-    
-    # Validate video ID format
-    if not re.match(r'^[a-zA-Z0-9_-]{11}$', video_id):
-        await message.reply_text(
-            f"❌ **Invalid Video ID:** {video_id}\n\n"
-            "Video ID must be 11 characters.\n"
-            "Example: dQw4w9WgXcQ"
-        )
-        return
-    
-    # Lấy thông tin video
-    info = get_video_info(video_id)
-    msg_text, thumbnail = create_video_message(video_id)
-    
-    try:
-        await message.reply_photo(
-            photo=thumbnail,
-            caption=msg_text,
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("▶ Play", callback_data=f"play_{video_id}"),
-                 InlineKeyboardButton("⏸ Pause", callback_data="pause")],
-                [InlineKeyboardButton("🎯 View 100", callback_data=f"view_{video_id}_100"),
-                 InlineKeyboardButton("🎯 View 500", callback_data=f"view_{video_id}_500")],
-                [InlineKeyboardButton("🔄 Refresh", callback_data=f"refresh_{video_id}"),
-                 InlineKeyboardButton("🔗 YouTube", url=f"https://youtu.be/{video_id}")]
-            ])
-        )
-    except Exception as e:
-        await message.reply_text(
-            msg_text,
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔗 YouTube", url=f"https://youtu.be/{video_id}")]
-            ])
-        )
-
-@app_bot.on_message(filters.command("view"))
-async def view_cmd(client, message):
-    parts = message.text.split()
-    if len(parts) < 3:
-        await message.reply_text("Usage: /view VIDEO_ID COUNT (1-500)")
-        return
-    
-    video_id = parts[1].strip()
-    try:
-        count = int(parts[2])
-        if count < 1 or count > 500:
-            await message.reply_text("Count must be 1-500")
-            return
-    except ValueError:
-        await message.reply_text("Count must be integer")
-        return
-
-    with proxy_lock:
-        if not PROXY_LIST:
-            await message.reply_text("No alive proxy. Upload .txt with /upload")
-            return
-
-    msg = await message.reply_text(f"⏳ Processing {count} views for {video_id}...")
-    success, info = await asyncio.to_thread(run_view_task, video_id, count)
-    
-    await msg.edit_text(
-        f"✅ {info}\n"
-        f"🎯 https://youtu.be/{video_id}\n"
-        f"📊 Total: {view_stats['total']} views"
-    )
-
-@app_bot.on_message(filters.command("proxy"))
-async def proxy_cmd(client, message):
-    with proxy_lock:
-        alive = PROXY_LIST[:10]
-    
-    text = f"🌐 **Proxy Alive:** {len(PROXY_LIST)}\n"
-    for i, p in enumerate(alive, 1):
-        text += f"  {i}. `{p}`\n"
-    if len(PROXY_LIST) > 10:
-        text += f"  ... and {len(PROXY_LIST)-10} more"
-    text += f"\n\n🔴 Dead: {len(DEAD_PROXIES)}"
-    await message.reply_text(text)
-
-@app_bot.on_message(filters.command("stats"))
-async def stats_cmd(client, message):
-    uptime = int(time.time() - start_time)
-    rate = int((view_stats['success'] / max(1, view_stats['total'])) * 100)
-    
-    text = f"""
-📊 **STATISTICS**
-━━━━━━━━━━━━━━━━━━
-👁 Total Views: {view_stats['total']:,}
-✅ Success: {view_stats['success']:,}
-❌ Failed: {view_stats['failed']:,}
-📈 Rate: {rate}%
-
-🟢 Proxy: {len(PROXY_LIST)} alive
-🔴 Dead: {len(DEAD_PROXIES)}
-
-⏱ Uptime: {uptime}s
-"""
-    await message.reply_text(text)
-
-@app_bot.on_message(filters.command("upload"))
-async def upload_cmd(client, message):
-    await message.reply_text(
-        "📤 **Send .txt file with proxies**\n\n"
-        "Format:\n"
-        "http://user:pass@ip:port\n"
-        "socks5://user:pass@ip:port"
-    )
-
-@app_bot.on_message(filters.command("ping"))
-async def ping_cmd(client, message):
-    await message.reply_text(f"🏓 Pong! PID: {os.getpid()}")
-
-@app_bot.on_message(filters.document)
-async def handle_document(client, message):
-    doc = message.document
-    if not doc.file_name.endswith(".txt"):
-        await message.reply_text("Only .txt files")
-        return
-    
-    msg = await message.reply_text(f"⏳ Processing: {doc.file_name}...")
-    file_path = await client.download_media(message)
-    
-    if not file_path:
-        await msg.edit_text("Failed to download")
-        return
-    
-    try:
-        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-            lines = [line.strip() for line in f if line.strip() and not line.startswith("#")]
-            total = len(lines)
-        
-        added, alive = await asyncio.to_thread(merge_proxies_from_file, file_path)
-        
-        await msg.edit_text(
-            f"✅ Processed: {doc.file_name}\n"
-            f"Total: {total}\n"
-            f"New: {added}\n"
-            f"Alive: {alive}\n"
-            f"Master: {len(PROXY_MASTER)}"
-        )
-    except Exception as e:
-        await msg.edit_text(f"Error: {str(e)}")
-    finally:
-        if os.path.exists(file_path):
-            os.remove(file_path)
-
-# ===== CALLBACK =====
-@app_bot.on_callback_query()
-async def handle_callback(client, query: CallbackQuery):
-    data = query.data
-    
-    if data == "pause":
-        await query.answer("⏸ Paused")
-    
-    elif data.startswith("play_"):
-        video_id = data.replace("play_", "")
-        msg_text, thumbnail = create_video_message(video_id)
-        await query.message.edit_caption(
-            caption=msg_text,
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("⏸ Pause", callback_data="pause"),
-                 InlineKeyboardButton("🎯 View 100", callback_data=f"view_{video_id}_100")],
-                [InlineKeyboardButton("🔄 Refresh", callback_data=f"refresh_{video_id}"),
-                 InlineKeyboardButton("🔗 YouTube", url=f"https://youtu.be/{video_id}")]
-            ])
-        )
-        await query.answer("▶ Playing")
-    
-    elif data.startswith("view_"):
-        parts = data.split("_")
-        if len(parts) >= 3:
-            video_id = parts[1]
-            count = int(parts[2])
-            
-            with proxy_lock:
-                if not PROXY_LIST:
-                    await query.answer("No proxy")
-                    return
-            
-            await query.answer(f"Starting {count} views...")
-            await query.message.reply_text(f"⏳ Processing {count} views for {video_id}...")
-            
-            success, info = await asyncio.to_thread(run_view_task, video_id, count)
-            await query.message.reply_text(f"✅ {info}\n🎯 https://youtu.be/{video_id}")
-    
-    elif data.startswith("refresh_"):
-        video_id = data.replace("refresh_", "")
-        msg_text, thumbnail = create_video_message(video_id)
-        await query.message.edit_caption(
-            caption=msg_text,
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("▶ Play", callback_data=f"play_{video_id}"),
-                 InlineKeyboardButton("🎯 View 100", callback_data=f"view_{video_id}_100")],
-                [InlineKeyboardButton("🔄 Refresh", callback_data=f"refresh_{video_id}"),
-                 InlineKeyboardButton("🔗 YouTube", url=f"https://youtu.be/{video_id}")]
-            ])
-        )
-        await query.answer("🔄 Refreshed")
-
-# ===== SIGNAL =====
-def signal_handler(sig, frame):
-    global bot_running
-    log_message(f"Signal {sig}, shutting down...")
-    bot_running = False
-    remove_pid()
-    sys.exit(0)
-
-# ===== MAIN =====
-async def main():
-    global bot_running, start_time, app_bot
-    
-    if check_already_running():
-        log_message("Bot already running, exit.")
-        sys.exit(1)
-    
-    write_pid()
-    log_message(f"Starting bot, PID: {os.getpid()}")
-    
-    merge_proxies_from_file(PROXY_FILE)
-    log_message(f"Loaded: alive={len(PROXY_LIST)}, master={len(PROXY_MASTER)}")
-    
-    await start_web_server()
-    asyncio.create_task(periodic_reload())
-    asyncio.create_task(periodic_check_proxy())
-    
-    try:
-        await app_bot.start()
-        log_message("Telegram bot connected")
-        while bot_running:
-            await asyncio.sleep(1)
-    except Exception as e:
-        log_message(f"Bot error: {e}")
-    finally:
-        if app_bot:
-            await app_bot.stop()
-        remove_pid()
-        log_message("Bot stopped")
+def main():
+    init_db()
+    threading.Thread(target=run_flask, daemon=True).start()
+    log.info(f"🌐 SERVER: {SERVER_URL} | 🏷 PREFIX: {PREFIX}")
+    bot = Application.builder().token(BOT_TOKEN).build()
+    for cmd, fn in [
+        ("start", start), ("activate", cmd_activate), ("mykeys", cmd_mykeys),
+        ("key", cmd_key), ("keyd", cmd_keyd), ("keyh", cmd_keyh), ("keyvip", cmd_keyvip),
+        ("token", cmd_token), ("revoke", cmd_revoke), ("status", cmd_status), ("keys", cmd_keys)
+    ]: bot.add_handler(CommandHandler(cmd, fn))
+    bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_msg))
+    log.info("🤖 Bot started!")
+    bot.run_polling(all_updates=True)
 
 if __name__ == "__main__":
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-    
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_closed():
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-        loop.run_until_complete(main())
-    except KeyboardInterrupt:
-        log_message("Keyboard interrupt")
-        remove_pid()
-    except Exception as e:
-        log_message(f"Fatal error: {e}")
-        remove_pid()
+    main()
