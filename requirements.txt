@@ -1,6 +1,6 @@
-cd ~/baohuy && cat > requirements.txt << 'EOF'
+cd ~/baohuy && cat > requirements.txt << 'ENDOFFILE'
 flask==2.3.3
 pyTelegramBotAPI==4.14.0
 gunicorn==21.2.0
-EOF
-echo "requirements.txt da san sang"
+ENDOFFILE
+cat requirements.txt
