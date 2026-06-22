@@ -42,7 +42,6 @@ def stats():
 # ========== API ENDPOINTS ==========
 @app.route('/api/genuid', methods=['GET'])
 def api_genuid():
-    """Generate random UID for client"""
     new_uid = secrets.token_hex(16)
     return jsonify({
         "status": "success",
@@ -64,31 +63,20 @@ def api_check():
     
     if not uid or not key:
         return jsonify({
-            "status": "error",
-            "message": "Missing uid or key",
-            "code": 1001,
-            "server_time": now_str,
-            "timestamp": int(time.time())
+            "status": "error", "message": "Missing uid or key", "code": 1001,
+            "server_time": now_str, "timestamp": int(time.time())
         }), 400
     
-    # Check banned
     if is_banned(uid, ip, device):
         return jsonify({
-            "status": "banned",
-            "message": "UID/IP/Device banned",
-            "code": 1002,
-            "server_time": now_str,
-            "timestamp": int(time.time())
+            "status": "banned", "message": "UID/IP/Device banned", "code": 1002,
+            "server_time": now_str, "timestamp": int(time.time())
         }), 200
     
-    # Check key exists
     if "keys" not in db or key not in db["keys"]:
         return jsonify({
-            "status": "invalid",
-            "message": "Key not found",
-            "code": 1003,
-            "server_time": now_str,
-            "timestamp": int(time.time())
+            "status": "invalid", "message": "Key not found", "code": 1003,
+            "server_time": now_str, "timestamp": int(time.time())
         }), 200
     
     k = db["keys"][key]
@@ -96,94 +84,66 @@ def api_check():
     # Check key used on other device
     if k.get("used", False) and k.get("udid") and k.get("udid") != uid:
         return jsonify({
-            "status": "used_other",
-            "message": "Key used on another device",
-            "code": 1004,
+            "status": "used_other", "message": "Key used on another device", "code": 1004,
             "registered_device": k.get("device", "Unknown"),
             "registered_at": k.get("activated_at", "Unknown"),
-            "server_time": now_str,
-            "timestamp": int(time.time())
+            "server_time": now_str, "timestamp": int(time.time())
         }), 200
     
     # Check max activations
     if k.get("activations", 0) >= k.get("max_activations", 1):
         return jsonify({
-            "status": "limit",
-            "message": "Max activations reached",
-            "code": 1005,
-            "activations": k.get("activations", 0),
-            "max": k.get("max_activations", 1),
-            "server_time": now_str,
-            "timestamp": int(time.time())
+            "status": "limit", "message": "Max activations reached", "code": 1005,
+            "activations": k.get("activations", 0), "max": k.get("max_activations", 1),
+            "server_time": now_str, "timestamp": int(time.time())
         }), 200
     
-    # Check expiry
-    try:
-        exp = datetime.strptime(k["expires"], "%Y-%m-%d %H:%M:%S")
-        if now > exp:
-            # Tính số ngày đã hết hạn
-            days_expired = (now - exp).days
-            return jsonify({
-                "status": "expired",
-                "message": "Key expired",
-                "code": 1006,
-                "expired_at": k["expires"],
-                "expired_date": exp.strftime("%d/%m/%Y"),
-                "expired_time": exp.strftime("%H:%M:%S"),
-                "days_expired": days_expired,
-                "server_time": now_str,
-                "timestamp": int(time.time())
-            }), 200
-        else:
-            # Tính số ngày còn lại
-            days_remaining = (exp - now).days
-            hours_remaining = (exp - now).seconds // 3600
-            minutes_remaining = ((exp - now).seconds % 3600) // 60
-            return jsonify({
-                "status": "valid",
-                "message": "Key valid",
-                "code": 0,
-                "type": k.get("type", "unknown"),
-                "prefix": k.get("prefix", "unknown"),
-                "created": k.get("created"),
-                "expires": k.get("expires"),
-                "expiry_date": exp.strftime("%d/%m/%Y"),
-                "expiry_time": exp.strftime("%H:%M:%S"),
-                "days_remaining": days_remaining,
-                "hours_remaining": hours_remaining,
-                "minutes_remaining": minutes_remaining,
-                "total_hours_remaining": int((exp - now).total_seconds() // 3600),
-                "activations": k.get("activations", 0),
-                "max": k.get("max_activations", 1),
-                "used": k.get("used", False),
-                "device": k.get("device"),
-                "first_activation": k.get("activated_at"),
-                "last_check": now_str,
-                "server_time": now_str,
-                "timestamp": int(time.time())
-            }), 200
-    except Exception as e:
+    # Check expiry - CHỈ TÍNH GIỜ KHI KEY ĐÃ KÍCH HOẠT
+    if k.get("used", False):
+        # Key đã kích hoạt -> kiểm tra hết hạn
+        try:
+            exp = datetime.strptime(k["expires"], "%Y-%m-%d %H:%M:%S")
+            if now > exp:
+                days_expired = (now - exp).days
+                return jsonify({
+                    "status": "expired", "message": "Key expired", "code": 1006,
+                    "expired_at": k["expires"], "expired_date": exp.strftime("%d/%m/%Y"),
+                    "expired_time": exp.strftime("%H:%M:%S"), "days_expired": days_expired,
+                    "server_time": now_str, "timestamp": int(time.time())
+                }), 200
+            else:
+                days_remaining = (exp - now).days
+                hours_remaining = (exp - now).seconds // 3600
+                minutes_remaining = ((exp - now).seconds % 3600) // 60
+                return jsonify({
+                    "status": "valid", "message": "Key valid", "code": 0,
+                    "type": k.get("type", "unknown"), "prefix": k.get("prefix", "unknown"),
+                    "created": k.get("created"), "expires": k.get("expires"),
+                    "expiry_date": exp.strftime("%d/%m/%Y"), "expiry_time": exp.strftime("%H:%M:%S"),
+                    "days_remaining": days_remaining, "hours_remaining": hours_remaining,
+                    "minutes_remaining": minutes_remaining,
+                    "total_hours_remaining": int((exp - now).total_seconds() // 3600),
+                    "activations": k.get("activations", 0), "max": k.get("max_activations", 1),
+                    "used": True, "device": k.get("device"), "first_activation": k.get("activated_at"),
+                    "last_check": now_str, "server_time": now_str, "timestamp": int(time.time())
+                }), 200
+        except:
+            pass
+    else:
+        # Key chưa kích hoạt -> không tính giờ, trả về thông tin cơ bản
         return jsonify({
-            "status": "valid",
-            "message": "Key valid (expiry parse error)",
-            "code": 0,
-            "type": k.get("type", "unknown"),
-            "expires": k.get("expires"),
-            "activations": k.get("activations", 0),
-            "max": k.get("max_activations", 1),
-            "used": k.get("used", False),
-            "server_time": now_str,
-            "timestamp": int(time.time())
+            "status": "valid", "message": "Key valid but not activated", "code": 0,
+            "type": k.get("type", "unknown"), "prefix": k.get("prefix", "unknown"),
+            "created": k.get("created"), "expires": k.get("expires"),
+            "used": False, "activations": 0, "max": k.get("max_activations", 1),
+            "note": "Key chua kich hoat - chua tinh gio",
+            "server_time": now_str, "timestamp": int(time.time())
         }), 200
     
-    # Check maintenance
     if config.get("maintenance", False):
         return jsonify({
-            "status": "maintenance",
-            "message": "Server maintenance",
-            "code": 1007,
-            "server_time": now_str,
-            "timestamp": int(time.time())
+            "status": "maintenance", "message": "Server maintenance", "code": 1007,
+            "server_time": now_str, "timestamp": int(time.time())
         }), 200
 
 @app.route('/api/activate', methods=['POST'])
@@ -198,100 +158,69 @@ def api_activate():
     
     if not uid or not key:
         return jsonify({
-            "status": "error",
-            "message": "Missing uid or key",
-            "code": 2001,
-            "server_time": now_str,
-            "timestamp": int(time.time())
+            "status": "error", "message": "Missing uid or key", "code": 2001,
+            "server_time": now_str, "timestamp": int(time.time())
         }), 400
     
-    # Check banned
     if is_banned(uid, ip, device):
         return jsonify({
-            "status": "banned",
-            "message": "UID/IP/Device banned",
-            "code": 2002,
-            "server_time": now_str,
-            "timestamp": int(time.time())
+            "status": "banned", "message": "UID/IP/Device banned", "code": 2002,
+            "server_time": now_str, "timestamp": int(time.time())
         }), 200
     
-    # Check key exists
     if "keys" not in db or key not in db["keys"]:
         return jsonify({
-            "status": "invalid",
-            "message": "Key not found",
-            "code": 2003,
-            "server_time": now_str,
-            "timestamp": int(time.time())
+            "status": "invalid", "message": "Key not found", "code": 2003,
+            "server_time": now_str, "timestamp": int(time.time())
         }), 200
     
     k = db["keys"][key]
     
-    # Check key used on other device
     if k.get("used", False) and k.get("udid") and k.get("udid") != uid:
         return jsonify({
-            "status": "used_other",
-            "message": "Key used on another device",
-            "code": 2004,
+            "status": "used_other", "message": "Key used on another device", "code": 2004,
             "registered_device": k.get("device", "Unknown"),
             "registered_at": k.get("activated_at", "Unknown"),
-            "server_time": now_str,
-            "timestamp": int(time.time())
+            "server_time": now_str, "timestamp": int(time.time())
         }), 200
     
-    # Check max activations
     if k.get("activations", 0) >= k.get("max_activations", 1):
         return jsonify({
-            "status": "limit",
-            "message": "Max activations reached",
-            "code": 2005,
-            "server_time": now_str,
-            "timestamp": int(time.time())
+            "status": "limit", "message": "Max activations reached", "code": 2005,
+            "server_time": now_str, "timestamp": int(time.time())
         }), 200
     
-    # Check expiry
-    try:
-        exp = datetime.strptime(k["expires"], "%Y-%m-%d %H:%M:%S")
-        if now > exp:
-            days_expired = (now - exp).days
-            return jsonify({
-                "status": "expired",
-                "message": "Key expired",
-                "code": 2006,
-                "expired_at": k["expires"],
-                "expired_date": exp.strftime("%d/%m/%Y"),
-                "expired_time": exp.strftime("%H:%M:%S"),
-                "days_expired": days_expired,
-                "server_time": now_str,
-                "timestamp": int(time.time())
-            }), 200
-    except:
-        pass
+    # Check expiry - CHỈ TÍNH GIỜ KHI KEY ĐÃ KÍCH HOẠT
+    if k.get("used", False):
+        try:
+            exp = datetime.strptime(k["expires"], "%Y-%m-%d %H:%M:%S")
+            if now > exp:
+                days_expired = (now - exp).days
+                return jsonify({
+                    "status": "expired", "message": "Key expired", "code": 2006,
+                    "expired_at": k["expires"], "expired_date": exp.strftime("%d/%m/%Y"),
+                    "expired_time": exp.strftime("%H:%M:%S"), "days_expired": days_expired,
+                    "server_time": now_str, "timestamp": int(time.time())
+                }), 200
+        except:
+            pass
     
-    # Check maintenance
     if config.get("maintenance", False):
         return jsonify({
-            "status": "maintenance",
-            "message": "Server maintenance",
-            "code": 2007,
-            "server_time": now_str,
-            "timestamp": int(time.time())
+            "status": "maintenance", "message": "Server maintenance", "code": 2007,
+            "server_time": now_str, "timestamp": int(time.time())
         }), 200
     
     # Already activated by this UID
     if k.get("used", False) and k.get("udid") == uid:
         return jsonify({
-            "status": "already_active",
-            "message": "Key already activated on this device",
-            "code": 2008,
-            "expires": k.get("expires"),
-            "activated_at": k.get("activated_at"),
+            "status": "already_active", "message": "Key already activated on this device", "code": 2008,
+            "expires": k.get("expires"), "activated_at": k.get("activated_at"),
             "activation_date": datetime.strptime(k.get("activated_at", now_str), "%Y-%m-%d %H:%M:%S").strftime("%d/%m/%Y") if k.get("activated_at") else None,
-            "server_time": now_str,
-            "timestamp": int(time.time())
+            "server_time": now_str, "timestamp": int(time.time())
         }), 200
     
-    # Activate key
+    # Activate key - BẮT ĐẦU TÍNH GIỜ TỪ ĐÂY
     k["used"] = True
     k["udid"] = uid
     k["device"] = device
@@ -323,9 +252,7 @@ def api_activate():
         days_remaining = None
     
     return jsonify({
-        "status": "success",
-        "message": "Key activated",
-        "code": 0,
+        "status": "success", "message": "Key activated", "code": 0,
         "expires": k.get("expires"),
         "expiry_date": exp.strftime("%d/%m/%Y") if 'exp' in locals() else None,
         "expiry_time": exp.strftime("%H:%M:%S") if 'exp' in locals() else None,
@@ -335,8 +262,7 @@ def api_activate():
         "activated_at": k.get("activated_at"),
         "activation_date": now.strftime("%d/%m/%Y"),
         "activation_time": now.strftime("%H:%M:%S"),
-        "server_time": now_str,
-        "timestamp": int(time.time())
+        "server_time": now_str, "timestamp": int(time.time())
     }), 200
 
 @app.route('/api/verify', methods=['POST'])
@@ -349,31 +275,20 @@ def api_verify():
     
     if not uid:
         return jsonify({
-            "status": "error",
-            "message": "Missing uid",
-            "code": 3001,
-            "server_time": now_str,
-            "timestamp": int(time.time())
+            "status": "error", "message": "Missing uid", "code": 3001,
+            "server_time": now_str, "timestamp": int(time.time())
         }), 400
     
-    # Check banned
     if is_banned(uid):
         return jsonify({
-            "status": "banned",
-            "message": "UID banned",
-            "code": 3002,
-            "server_time": now_str,
-            "timestamp": int(time.time())
+            "status": "banned", "message": "UID banned", "code": 3002,
+            "server_time": now_str, "timestamp": int(time.time())
         }), 200
     
-    # Check approved
     if "approved" not in db or uid not in db["approved"]:
         return jsonify({
-            "status": "unapproved",
-            "message": "UID not approved",
-            "code": 3003,
-            "server_time": now_str,
-            "timestamp": int(time.time())
+            "status": "unapproved", "message": "UID not approved", "code": 3003,
+            "server_time": now_str, "timestamp": int(time.time())
         }), 200
     
     info = db["approved"][uid]
@@ -381,41 +296,35 @@ def api_verify():
     # Check key if provided
     if key and "keys" in db and key in db["keys"]:
         k = db["keys"][key]
-        try:
-            exp = datetime.strptime(k["expires"], "%Y-%m-%d %H:%M:%S")
-            if now > exp:
-                days_expired = (now - exp).days
-                return jsonify({
-                    "status": "expired",
-                    "message": "Key expired",
-                    "code": 3004,
-                    "expired_at": k["expires"],
-                    "expired_date": exp.strftime("%d/%m/%Y"),
-                    "expired_time": exp.strftime("%H:%M:%S"),
-                    "days_expired": days_expired,
-                    "server_time": now_str,
-                    "timestamp": int(time.time())
-                }), 200
-            else:
-                days_remaining = (exp - now).days
-        except:
+        # CHỈ TÍNH GIỜ KHI KEY ĐÃ KÍCH HOẠT
+        if k.get("used", False):
+            try:
+                exp = datetime.strptime(k["expires"], "%Y-%m-%d %H:%M:%S")
+                if now > exp:
+                    days_expired = (now - exp).days
+                    return jsonify({
+                        "status": "expired", "message": "Key expired", "code": 3004,
+                        "expired_at": k["expires"], "expired_date": exp.strftime("%d/%m/%Y"),
+                        "expired_time": exp.strftime("%H:%M:%S"), "days_expired": days_expired,
+                        "server_time": now_str, "timestamp": int(time.time())
+                    }), 200
+                else:
+                    days_remaining = (exp - now).days
+            except:
+                days_remaining = None
+        else:
             days_remaining = None
     else:
         days_remaining = None
     
     return jsonify({
-        "status": "approved",
-        "message": "UID approved",
-        "code": 0,
+        "status": "approved", "message": "UID approved", "code": 0,
         "time": info.get("time"),
         "approved_date": datetime.strptime(info.get("time", now_str), "%Y-%m-%d %H:%M:%S").strftime("%d/%m/%Y") if info.get("time") else None,
         "approved_time": datetime.strptime(info.get("time", now_str), "%Y-%m-%d %H:%M:%S").strftime("%H:%M:%S") if info.get("time") else None,
-        "by": info.get("approved_by"),
-        "key": info.get("key"),
-        "device": info.get("device"),
-        "days_remaining": days_remaining,
-        "server_time": now_str,
-        "timestamp": int(time.time())
+        "by": info.get("approved_by"), "key": info.get("key"),
+        "device": info.get("device"), "days_remaining": days_remaining,
+        "server_time": now_str, "timestamp": int(time.time())
     }), 200
 
 @app.route('/api/heartbeat', methods=['POST'])
@@ -429,81 +338,172 @@ def api_heartbeat():
     
     if not uid or not key:
         return jsonify({
-            "status": "error",
-            "message": "Missing uid or key",
-            "code": 6001,
-            "server_time": now_str,
-            "timestamp": int(time.time())
+            "status": "error", "message": "Missing uid or key", "code": 6001,
+            "server_time": now_str, "timestamp": int(time.time())
         }), 400
     
     if "keys" not in db or key not in db["keys"]:
         return jsonify({
-            "status": "invalid",
-            "message": "Key not found",
-            "code": 6002,
-            "server_time": now_str,
-            "timestamp": int(time.time())
+            "status": "invalid", "message": "Key not found", "code": 6002,
+            "server_time": now_str, "timestamp": int(time.time())
         }), 200
     
     k = db["keys"][key]
     
     if k.get("udid") != uid:
         return jsonify({
-            "status": "mismatch",
-            "message": "UID does not match key owner",
-            "code": 6003,
-            "server_time": now_str,
-            "timestamp": int(time.time())
+            "status": "mismatch", "message": "UID does not match key owner", "code": 6003,
+            "server_time": now_str, "timestamp": int(time.time())
         }), 200
     
-    try:
-        exp = datetime.strptime(k["expires"], "%Y-%m-%d %H:%M:%S")
-        if now > exp:
-            days_expired = (now - exp).days
-            return jsonify({
-                "status": "expired",
-                "message": "Key expired",
-                "code": 6004,
-                "expired_at": k["expires"],
-                "expired_date": exp.strftime("%d/%m/%Y"),
-                "expired_time": exp.strftime("%H:%M:%S"),
-                "days_expired": days_expired,
-                "server_time": now_str,
-                "timestamp": int(time.time())
-            }), 200
-        else:
-            days_remaining = (exp - now).days
-            hours_remaining = (exp - now).seconds // 3600
-            minutes_remaining = ((exp - now).seconds % 3600) // 60
-            time_remaining = str(exp - now)
-    except:
+    # CHỈ TÍNH GIỜ KHI KEY ĐÃ KÍCH HOẠT
+    if k.get("used", False):
+        try:
+            exp = datetime.strptime(k["expires"], "%Y-%m-%d %H:%M:%S")
+            if now > exp:
+                days_expired = (now - exp).days
+                return jsonify({
+                    "status": "expired", "message": "Key expired", "code": 6004,
+                    "expired_at": k["expires"], "expired_date": exp.strftime("%d/%m/%Y"),
+                    "expired_time": exp.strftime("%H:%M:%S"), "days_expired": days_expired,
+                    "server_time": now_str, "timestamp": int(time.time())
+                }), 200
+            else:
+                days_remaining = (exp - now).days
+                hours_remaining = (exp - now).seconds // 3600
+                minutes_remaining = ((exp - now).seconds % 3600) // 60
+                time_remaining = str(exp - now)
+        except:
+            days_remaining = None
+            hours_remaining = None
+            minutes_remaining = None
+            time_remaining = "Unknown"
+    else:
         days_remaining = None
         hours_remaining = None
         minutes_remaining = None
-        time_remaining = "Unknown"
+        time_remaining = "Key chua kich hoat"
     
-    # Update last seen
     k["last_seen"] = now_str
     k["last_device"] = device
     k["last_check"] = now_str
     save_db()
     
     return jsonify({
-        "status": "alive",
-        "message": "Heartbeat received",
-        "code": 0,
+        "status": "alive", "message": "Heartbeat received", "code": 0,
         "expires": k.get("expires"),
         "expiry_date": exp.strftime("%d/%m/%Y") if 'exp' in locals() and 'exp' in vars() else None,
         "expiry_time": exp.strftime("%H:%M:%S") if 'exp' in locals() and 'exp' in vars() else None,
-        "days_remaining": days_remaining,
-        "hours_remaining": hours_remaining,
-        "minutes_remaining": minutes_remaining,
-        "time_remaining": time_remaining,
-        "last_seen": now_str,
-        "last_seen_date": now.strftime("%d/%m/%Y"),
+        "days_remaining": days_remaining, "hours_remaining": hours_remaining,
+        "minutes_remaining": minutes_remaining, "time_remaining": time_remaining,
+        "last_seen": now_str, "last_seen_date": now.strftime("%d/%m/%Y"),
         "last_seen_time": now.strftime("%H:%M:%S"),
-        "server_time": now_str,
-        "timestamp": int(time.time())
+        "server_time": now_str, "timestamp": int(time.time())
+    }), 200
+
+@app.route('/api/deletekey', methods=['POST'])
+def api_deletekey():
+    data = request.get_json() or {}
+    key = data.get('key', '')
+    admin_key = data.get('admin_key', '')
+    now = datetime.now()
+    now_str = now.strftime("%Y-%m-%d %H:%M:%S")
+    
+    if admin_key != str(BOT_TOKEN.split(':')[0]):
+        return jsonify({
+            "status": "error", "message": "Invalid admin key", "code": 9001,
+            "server_time": now_str, "timestamp": int(time.time())
+        }), 403
+    
+    if not key:
+        return jsonify({
+            "status": "error", "message": "Missing key", "code": 7001,
+            "server_time": now_str, "timestamp": int(time.time())
+        }), 400
+    
+    if "keys" not in db or key not in db["keys"]:
+        return jsonify({
+            "status": "not_found", "message": "Key not found", "code": 7002,
+            "server_time": now_str, "timestamp": int(time.time())
+        }), 200
+    
+    # Xóa key
+    deleted_key = db["keys"].pop(key)
+    
+    # Xóa khỏi approved nếu có
+    if "approved" in db:
+        uids_to_remove = [uid for uid, info in db["approved"].items() if info.get("key") == key]
+        for uid in uids_to_remove:
+            db["approved"].pop(uid, None)
+    
+    log(f"API DELETE KEY: {key} | Time: {now_str}")
+    save_db()
+    
+    return jsonify({
+        "status": "success", "message": f"Key {key} deleted", "code": 0,
+        "deleted_at": now_str, "deleted_date": now.strftime("%d/%m/%Y"),
+        "deleted_time": now.strftime("%H:%M:%S"),
+        "key_type": deleted_key.get("type"),
+        "was_used": deleted_key.get("used", False),
+        "server_time": now_str, "timestamp": int(time.time())
+    }), 200
+
+@app.route('/api/deletekeybulk', methods=['POST'])
+def api_deletekeybulk():
+    data = request.get_json() or {}
+    prefix = data.get('prefix', '')
+    ktype = data.get('type', '')
+    admin_key = data.get('admin_key', '')
+    now = datetime.now()
+    now_str = now.strftime("%Y-%m-%d %H:%M:%S")
+    
+    if admin_key != str(BOT_TOKEN.split(':')[0]):
+        return jsonify({
+            "status": "error", "message": "Invalid admin key", "code": 9001,
+            "server_time": now_str, "timestamp": int(time.time())
+        }), 403
+    
+    if not prefix and not ktype:
+        return jsonify({
+            "status": "error", "message": "Missing prefix or type", "code": 7003,
+            "server_time": now_str, "timestamp": int(time.time())
+        }), 400
+    
+    if "keys" not in db:
+        return jsonify({
+            "status": "not_found", "message": "No keys found", "code": 7004,
+            "server_time": now_str, "timestamp": int(time.time())
+        }), 200
+    
+    keys_to_delete = []
+    for k, v in list(db["keys"].items()):
+        match = False
+        if prefix and k.startswith(prefix + "-"):
+            match = True
+        if ktype and v.get("type") == ktype:
+            match = True
+        if match:
+            keys_to_delete.append(k)
+    
+    deleted_count = 0
+    for key in keys_to_delete:
+        db["keys"].pop(key)
+        deleted_count += 1
+    
+    # Clean up approved
+    if "approved" in db:
+        uids_to_remove = [uid for uid, info in db["approved"].items() if info.get("key") in keys_to_delete]
+        for uid in uids_to_remove:
+            db["approved"].pop(uid, None)
+    
+    log(f"API DELETE BULK: {deleted_count} keys | Prefix: {prefix} | Type: {ktype} | Time: {now_str}")
+    save_db()
+    
+    return jsonify({
+        "status": "success", "message": f"{deleted_count} keys deleted", "code": 0,
+        "deleted_count": deleted_count, "deleted_at": now_str,
+        "deleted_date": now.strftime("%d/%m/%Y"), "deleted_time": now.strftime("%H:%M:%S"),
+        "server_time": now_str, "timestamp": int(time.time())
     }), 200
 
 @app.route('/api/kick', methods=['POST'])
@@ -516,20 +516,14 @@ def api_kick():
     
     if admin_key != str(BOT_TOKEN.split(':')[0]):
         return jsonify({
-            "status": "error",
-            "message": "Invalid admin key",
-            "code": 9001,
-            "server_time": now_str,
-            "timestamp": int(time.time())
+            "status": "error", "message": "Invalid admin key", "code": 9001,
+            "server_time": now_str, "timestamp": int(time.time())
         }), 403
     
     if not uid:
         return jsonify({
-            "status": "error",
-            "message": "Missing uid",
-            "code": 9002,
-            "server_time": now_str,
-            "timestamp": int(time.time())
+            "status": "error", "message": "Missing uid", "code": 9002,
+            "server_time": now_str, "timestamp": int(time.time())
         }), 400
     
     if "kicked" not in db:
@@ -538,9 +532,7 @@ def api_kick():
         db["stats"] = {"total_keys": 0, "total_approved": 0, "total_kicked": 0}
     
     db["kicked"][uid] = {
-        "time": now_str,
-        "by": "api",
-        "reason": "API kick"
+        "time": now_str, "by": "api", "reason": "API kick"
     }
     if "approved" in db:
         db["approved"].pop(uid, None)
@@ -550,14 +542,10 @@ def api_kick():
     save_db()
     
     return jsonify({
-        "status": "success",
-        "message": f"UID {uid} kicked",
-        "code": 0,
-        "kicked_at": now_str,
-        "kicked_date": now.strftime("%d/%m/%Y"),
+        "status": "success", "message": f"UID {uid} kicked", "code": 0,
+        "kicked_at": now_str, "kicked_date": now.strftime("%d/%m/%Y"),
         "kicked_time": now.strftime("%H:%M:%S"),
-        "server_time": now_str,
-        "timestamp": int(time.time())
+        "server_time": now_str, "timestamp": int(time.time())
     }), 200
 
 @app.route('/api/ban', methods=['POST'])
@@ -571,45 +559,31 @@ def api_ban():
     
     if admin_key != str(BOT_TOKEN.split(':')[0]):
         return jsonify({
-            "status": "error",
-            "message": "Invalid admin key",
-            "code": 9001,
-            "server_time": now_str,
-            "timestamp": int(time.time())
+            "status": "error", "message": "Invalid admin key", "code": 9001,
+            "server_time": now_str, "timestamp": int(time.time())
         }), 403
     
     if not target:
         return jsonify({
-            "status": "error",
-            "message": "Missing target",
-            "code": 9002,
-            "server_time": now_str,
-            "timestamp": int(time.time())
+            "status": "error", "message": "Missing target", "code": 9002,
+            "server_time": now_str, "timestamp": int(time.time())
         }), 400
     
     if "banned_uids" not in bans:
         bans["banned_uids"] = []
     
     bans["banned_uids"].append({
-        "uid": target,
-        "reason": reason,
-        "time": now_str,
-        "banned_date": now.strftime("%d/%m/%Y"),
-        "banned_time": now.strftime("%H:%M:%S")
+        "uid": target, "reason": reason, "time": now_str,
+        "banned_date": now.strftime("%d/%m/%Y"), "banned_time": now.strftime("%H:%M:%S")
     })
     save_bans()
     log(f"API BAN: {target} | Reason: {reason} | Time: {now_str}")
     
     return jsonify({
-        "status": "success",
-        "message": f"Target {target} banned",
-        "code": 0,
-        "banned_at": now_str,
-        "banned_date": now.strftime("%d/%m/%Y"),
-        "banned_time": now.strftime("%H:%M:%S"),
-        "reason": reason,
-        "server_time": now_str,
-        "timestamp": int(time.time())
+        "status": "success", "message": f"Target {target} banned", "code": 0,
+        "banned_at": now_str, "banned_date": now.strftime("%d/%m/%Y"),
+        "banned_time": now.strftime("%H:%M:%S"), "reason": reason,
+        "server_time": now_str, "timestamp": int(time.time())
     }), 200
 
 @app.route('/api/unban', methods=['POST'])
@@ -622,20 +596,14 @@ def api_unban():
     
     if admin_key != str(BOT_TOKEN.split(':')[0]):
         return jsonify({
-            "status": "error",
-            "message": "Invalid admin key",
-            "code": 9001,
-            "server_time": now_str,
-            "timestamp": int(time.time())
+            "status": "error", "message": "Invalid admin key", "code": 9001,
+            "server_time": now_str, "timestamp": int(time.time())
         }), 403
     
     if not target:
         return jsonify({
-            "status": "error",
-            "message": "Missing target",
-            "code": 9002,
-            "server_time": now_str,
-            "timestamp": int(time.time())
+            "status": "error", "message": "Missing target", "code": 9002,
+            "server_time": now_str, "timestamp": int(time.time())
         }), 400
     
     if "banned_uids" not in bans:
@@ -645,14 +613,10 @@ def api_unban():
     log(f"API UNBAN: {target} | Time: {now_str}")
     
     return jsonify({
-        "status": "success",
-        "message": f"Target {target} unbanned",
-        "code": 0,
-        "unbanned_at": now_str,
-        "unbanned_date": now.strftime("%d/%m/%Y"),
+        "status": "success", "message": f"Target {target} unbanned", "code": 0,
+        "unbanned_at": now_str, "unbanned_date": now.strftime("%d/%m/%Y"),
         "unbanned_time": now.strftime("%H:%M:%S"),
-        "server_time": now_str,
-        "timestamp": int(time.time())
+        "server_time": now_str, "timestamp": int(time.time())
     }), 200
 
 @app.route('/api/list', methods=['GET'])
@@ -663,23 +627,16 @@ def api_list():
     
     if admin_key != str(BOT_TOKEN.split(':')[0]):
         return jsonify({
-            "status": "error",
-            "message": "Invalid admin key",
-            "code": 9001,
-            "server_time": now_str,
-            "timestamp": int(time.time())
+            "status": "error", "message": "Invalid admin key", "code": 9001,
+            "server_time": now_str, "timestamp": int(time.time())
         }), 403
     
-    # Enrich keys with time info
     keys_info = []
     for k, v in list(db.get("keys", {}).items())[-50:]:
         key_info = {
-            "key": k[:20] + "...",
-            "type": v.get("type"),
-            "used": v.get("used", False),
-            "expires": v.get("expires"),
-            "activations": v.get("activations", 0),
-            "max": v.get("max_activations", 1)
+            "key": k[:20] + "...", "type": v.get("type"),
+            "used": v.get("used", False), "expires": v.get("expires"),
+            "activations": v.get("activations", 0), "max": v.get("max_activations", 1)
         }
         if v.get("expires"):
             try:
@@ -695,10 +652,8 @@ def api_list():
         keys_info.append(key_info)
     
     return jsonify({
-        "status": "success",
-        "code": 0,
-        "server_time": now_str,
-        "timestamp": int(time.time()),
+        "status": "success", "code": 0,
+        "server_time": now_str, "timestamp": int(time.time()),
         "keys_count": len(db.get("keys", {})),
         "approved_count": len(db.get("approved", {})),
         "kicked_count": len(db.get("kicked", {})),
@@ -718,34 +673,24 @@ def api_keyinfo():
     
     if admin_key != str(BOT_TOKEN.split(':')[0]):
         return jsonify({
-            "status": "error",
-            "message": "Invalid admin key",
-            "code": 9001,
-            "server_time": now_str,
-            "timestamp": int(time.time())
+            "status": "error", "message": "Invalid admin key", "code": 9001,
+            "server_time": now_str, "timestamp": int(time.time())
         }), 403
     
     if not key:
         return jsonify({
-            "status": "error",
-            "message": "Missing key",
-            "code": 4001,
-            "server_time": now_str,
-            "timestamp": int(time.time())
+            "status": "error", "message": "Missing key", "code": 4001,
+            "server_time": now_str, "timestamp": int(time.time())
         }), 400
     
     if "keys" not in db or key not in db["keys"]:
         return jsonify({
-            "status": "not_found",
-            "message": "Key not found",
-            "code": 4002,
-            "server_time": now_str,
-            "timestamp": int(time.time())
+            "status": "not_found", "message": "Key not found", "code": 4002,
+            "server_time": now_str, "timestamp": int(time.time())
         }), 200
     
     k = db["keys"][key]
     
-    # Calculate time info
     time_info = {}
     if k.get("created"):
         time_info["created"] = k["created"]
@@ -793,17 +738,11 @@ def api_keyinfo():
             pass
     
     return jsonify({
-        "status": "success",
-        "code": 0,
-        "server_time": now_str,
-        "timestamp": int(time.time()),
-        "key": key,
-        "type": k.get("type"),
-        "prefix": k.get("prefix"),
-        "used": k.get("used", False),
-        "udid": k.get("udid"),
-        "device": k.get("device"),
-        "ip": k.get("ip"),
+        "status": "success", "code": 0,
+        "server_time": now_str, "timestamp": int(time.time()),
+        "key": key, "type": k.get("type"), "prefix": k.get("prefix"),
+        "used": k.get("used", False), "udid": k.get("udid"),
+        "device": k.get("device"), "ip": k.get("ip"),
         "activations": k.get("activations", 0),
         "max_activations": k.get("max_activations", 1),
         "time_info": time_info
@@ -819,29 +758,20 @@ def api_revoke():
     
     if admin_key != str(BOT_TOKEN.split(':')[0]):
         return jsonify({
-            "status": "error",
-            "message": "Invalid admin key",
-            "code": 9001,
-            "server_time": now_str,
-            "timestamp": int(time.time())
+            "status": "error", "message": "Invalid admin key", "code": 9001,
+            "server_time": now_str, "timestamp": int(time.time())
         }), 403
     
     if not key:
         return jsonify({
-            "status": "error",
-            "message": "Missing key",
-            "code": 5001,
-            "server_time": now_str,
-            "timestamp": int(time.time())
+            "status": "error", "message": "Missing key", "code": 5001,
+            "server_time": now_str, "timestamp": int(time.time())
         }), 400
     
     if "keys" not in db or key not in db["keys"]:
         return jsonify({
-            "status": "not_found",
-            "message": "Key not found",
-            "code": 5002,
-            "server_time": now_str,
-            "timestamp": int(time.time())
+            "status": "not_found", "message": "Key not found", "code": 5002,
+            "server_time": now_str, "timestamp": int(time.time())
         }), 200
     
     k = db["keys"][key]
@@ -857,14 +787,10 @@ def api_revoke():
     save_db()
     
     return jsonify({
-        "status": "success",
-        "message": f"Key {key} revoked",
-        "code": 0,
-        "revoked_at": now_str,
-        "revoked_date": now.strftime("%d/%m/%Y"),
+        "status": "success", "message": f"Key {key} revoked", "code": 0,
+        "revoked_at": now_str, "revoked_date": now.strftime("%d/%m/%Y"),
         "revoked_time": now.strftime("%H:%M:%S"),
-        "server_time": now_str,
-        "timestamp": int(time.time())
+        "server_time": now_str, "timestamp": int(time.time())
     }), 200
 
 # ========== LOGGING ==========
@@ -893,20 +819,13 @@ def save_json(path, data):
         logger.error(f"Save {path} error: {e}")
 
 db = load_json(DB_FILE, {
-    "keys": {},
-    "approved": {},
-    "kicked": {},
-    "logs": [],
-    "devices": {},
-    "stats": {"total_keys": 0, "total_approved": 0, "total_kicked": 0}
+    "keys": {}, "approved": {}, "kicked": {}, "logs": [],
+    "devices": {}, "stats": {"total_keys": 0, "total_approved": 0, "total_kicked": 0}
 })
 bans = load_json(BAN_FILE, {"banned_ips": [], "banned_uids": [], "banned_devices": []})
 config = load_json(CONFIG_FILE, {
-    "auto_approve": True,
-    "key_expiry_days": 30,
-    "max_devices_per_key": 1,
-    "notify_admin": True,
-    "maintenance": False
+    "auto_approve": True, "key_expiry_days": 30,
+    "max_devices_per_key": 1, "notify_admin": True, "maintenance": False
 })
 
 def save_db():
@@ -946,19 +865,12 @@ def gen_key(prefix, ktype, days=30):
     if "stats" not in db:
         db["stats"] = {"total_keys": 0, "total_approved": 0, "total_kicked": 0}
     db["keys"][k] = {
-        "type": ktype,
-        "prefix": prefix,
+        "type": ktype, "prefix": prefix,
         "created": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "expires": exp,
-        "used": False,
-        "udid": None,
-        "device": None,
-        "ip": None,
-        "activations": 0,
-        "max_activations": config.get("max_devices_per_key", 1),
-        "last_seen": None,
-        "last_device": None,
-        "last_check": None
+        "expires": exp, "used": False,
+        "udid": None, "device": None, "ip": None,
+        "activations": 0, "max_activations": config.get("max_devices_per_key", 1),
+        "last_seen": None, "last_device": None, "last_check": None
     }
     db["stats"]["total_keys"] += 1
     save_db()
@@ -996,7 +908,9 @@ def cmd_help(msg):
         "/broadcast <nội dung> - Gửi mass\n"
         "/backup - Backup DB\n"
         "/restore <timestamp> - Restore DB\n"
-        "/maintenance - Bật/tắt bảo trì"
+        "/maintenance - Bật/tắt bảo trì\n"
+        "/deletekey <key> - Xóa key\n"
+        "/deletekeybulk <prefix> <type> - Xóa hàng loạt"
     )
     bot.reply_to(msg, user_cmds + (admin_cmds if is_adm else ""), parse_mode="Markdown")
 
@@ -1156,6 +1070,69 @@ def cmd_unban(msg):
     save_bans()
     log(f"ADMIN UNBAN: {target}")
     bot.reply_to(msg, f"🔓 Đã gỡ ban: `{target}`", parse_mode="Markdown")
+
+@bot.message_handler(commands=['deletekey'])
+def cmd_deletekey(msg):
+    if not is_admin(msg.from_user.id):
+        bot.reply_to(msg, "❌ Bạn không phải admin!")
+        return
+    parts = msg.text.split()
+    if len(parts) < 2:
+        bot.reply_to(msg, "📌 Cú pháp: /deletekey <key>")
+        return
+    key = parts[1]
+    if "keys" not in db or key not in db["keys"]:
+        bot.reply_to(msg, "❌ Key không tồn tại.")
+        return
+    
+    # Xóa key
+    deleted_key = db["keys"].pop(key)
+    
+    # Xóa khỏi approved
+    if "approved" in db:
+        uids_to_remove = [uid for uid, info in db["approved"].items() if info.get("key") == key]
+        for uid in uids_to_remove:
+            db["approved"].pop(uid, None)
+    
+    log(f"ADMIN DELETE KEY: {key}")
+    save_db()
+    bot.reply_to(msg, f"🗑️ Đã xóa key: `{key}`\nLoại: {deleted_key.get('type')}\nĐã dùng: {deleted_key.get('used', False)}", parse_mode="Markdown")
+
+@bot.message_handler(commands=['deletekeybulk'])
+def cmd_deletekeybulk(msg):
+    if not is_admin(msg.from_user.id):
+        bot.reply_to(msg, "❌ Bạn không phải admin!")
+        return
+    parts = msg.text.split()
+    if len(parts) < 3:
+        bot.reply_to(msg, "📌 Cú pháp: /deletekeybulk <prefix> <type>")
+        return
+    prefix = parts[1]
+    ktype = parts[2]
+    
+    if "keys" not in db:
+        bot.reply_to(msg, "❌ Không có key nào.")
+        return
+    
+    keys_to_delete = []
+    for k, v in list(db["keys"].items()):
+        if k.startswith(prefix + "-") and v.get("type") == ktype:
+            keys_to_delete.append(k)
+    
+    deleted_count = 0
+    for key in keys_to_delete:
+        db["keys"].pop(key)
+        deleted_count += 1
+    
+    # Clean up approved
+    if "approved" in db:
+        uids_to_remove = [uid for uid, info in db["approved"].items() if info.get("key") in keys_to_delete]
+        for uid in uids_to_remove:
+            db["approved"].pop(uid, None)
+    
+    log(f"ADMIN DELETE BULK: {deleted_count} keys | Prefix: {prefix} | Type: {ktype}")
+    save_db()
+    bot.reply_to(msg, f"🗑️ Đã xóa {deleted_count} key với prefix `{prefix}` và loại `{ktype}`", parse_mode="Markdown")
 
 @bot.message_handler(commands=['list'])
 def cmd_list(msg):
