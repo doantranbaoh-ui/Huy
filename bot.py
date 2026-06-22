@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-import json, os, time, uuid, hashlib, logging
+import json, os, time, uuid, hashlib, logging, re
 from datetime import datetime, timedelta
 import telebot
 from telebot import types
+from flask import Flask
 
+# ========== CONFIG ==========
 BOT_TOKEN = "6320148381:AAHKLMaGycWIv8sxdBU6sAmgOPn2XlqTIx0"
 CHAT_ID = "-1003925717296"
 ADMIN_IDS = [5736655322]
@@ -12,6 +14,27 @@ BAN_FILE = "bans.json"
 CONFIG_FILE = "config.json"
 LOG_FILE = "bot.log"
 
+# ========== FLASK APP ==========
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "🤖 Bot UnbndSDK Online - Admin: 5736655322", 200
+
+@app.route('/health')
+def health():
+    return {"status": "ok", "timestamp": time.strftime('%Y-%m-%d %H:%M:%S')}, 200
+
+@app.route('/stats')
+def stats():
+    return {
+        "total_keys": len(db.get("keys", {})),
+        "approved": len(db.get("approved", {})),
+        "kicked": len(db.get("kicked", {})),
+        "maintenance": config.get("maintenance", False)
+    }, 200
+
+# ========== LOGGING ==========
 logging.basicConfig(
     filename=LOG_FILE,
     level=logging.INFO,
@@ -19,6 +42,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# ========== DB FUNCTIONS ==========
 def load_json(path, default):
     try:
         if os.path.exists(path):
@@ -64,6 +88,8 @@ def save_config():
 def log(msg):
     ts = time.strftime('%Y-%m-%d %H:%M:%S')
     entry = f"[{ts}] {msg}"
+    if "logs" not in db:
+        db["logs"] = []
     db["logs"].append(entry)
     db["logs"] = db["logs"][-500:]
     logger.info(msg)
@@ -73,15 +99,19 @@ def is_admin(uid):
     return uid in ADMIN_IDS
 
 def is_banned(uid, ip=None, device=None):
-    banned_uids = [x.get("uid") if isinstance(x, dict) else x for x in bans["banned_uids"]]
-    banned_ips = [x.get("ip") if isinstance(x, dict) else x for x in bans["banned_ips"]]
-    banned_devices = [x.get("device") if isinstance(x, dict) else x for x in bans["banned_devices"]]
+    banned_uids = [x.get("uid") if isinstance(x, dict) else x for x in bans.get("banned_uids", [])]
+    banned_ips = [x.get("ip") if isinstance(x, dict) else x for x in bans.get("banned_ips", [])]
+    banned_devices = [x.get("device") if isinstance(x, dict) else x for x in bans.get("banned_devices", [])]
     return uid in banned_uids or (ip and ip in banned_ips) or (device and device in banned_devices)
 
 def gen_key(prefix, ktype, days=30):
     code = hashlib.sha256(f"{uuid.uuid4()}{time.time()}".encode()).hexdigest()[:24]
     k = f"{prefix}-{ktype}-{code}"
     exp = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+    if "keys" not in db:
+        db["keys"] = {}
+    if "stats" not in db:
+        db["stats"] = {"total_keys": 0, "total_approved": 0, "total_kicked": 0}
     db["keys"][k] = {
         "type": ktype,
         "prefix": prefix,
@@ -92,134 +122,51 @@ def gen_key(prefix, ktype, days=30):
         "device": None,
         "ip": None,
         "activations": 0,
-        "max_activations": config["max_devices_per_key"]
+        "max_activations": config.get("max_devices_per_key", 1)
     }
     db["stats"]["total_keys"] += 1
     save_db()
     return k
 
+# ========== BOT ==========
 bot = telebot.TeleBot(BOT_TOKEN, threaded=False, skip_pending=True)
 
+# ========== HANDLERS ==========
 @bot.message_handler(commands=['start'])
 def cmd_start(msg):
     uid = msg.from_user.id
     bot.reply_to(msg, f"👋 Chào mừng!\n👤 ID của bạn: `{uid}`\nGửi key để kích hoạt hoặc dùng /help để xem lệnh.", parse_mode="Markdown")
 
-@bot.message_handler(func=lambda m: True)
-def handle_all(msg):
-    try:
-        uid = str(msg.from_user.id)
-        text = msg.text.strip() if msg.text else ""
-        
-        if is_banned(uid):
-            bot.reply_to(msg, "⛔ Bạn đã bị cấm sử dụng bot.")
-            return
-        
-        if config["maintenance"] and not is_admin(msg.from_user.id):
-            bot.reply_to(msg, "🔧 Bot đang bảo trì. Vui lòng thử lại sau.")
-            return
-        
-        # Skip commands
-        if text.startswith('/'):
-            return
-        
-        # Dylib auto-approve
-        if "#KichHoat" in text or "#Start" in text or "#YeuCau" in text:
-            device_uid = None
-            for part in text.split():
-                if part.startswith("UID:") or part.startswith("UDID:"):
-                    device_uid = part.split(":", 1)[1]
-            if device_uid:
-                if not config["auto_approve"]:
-                    bot.reply_to(msg, "⏳ Chờ admin duyệt...")
-                    if config["notify_admin"]:
-                        for admin in ADMIN_IDS:
-                            try:
-                                bot.send_message(admin, f"📋 Yêu cầu duyệt:\nUID: `{device_uid}`\nUser: {uid}", parse_mode="Markdown")
-                            except:
-                                pass
-                    return
-                db["approved"][device_uid] = {
-                    "approved_by": "auto",
-                    "time": time.strftime("%Y-%m-%d %H:%M:%S"),
-                    "telegram_uid": uid
-                }
-                log(f"AUTO APPROVE: {device_uid}")
-                save_db()
-                bot.reply_to(msg, f"✅ Đã duyệt UID: `{device_uid}`", parse_mode="Markdown")
-                return
-        
-        # Key activation
-        if '-' in text and len(text) > 10:
-            if text in db.get("kicked", {}):
-                bot.reply_to(msg, "❌ Key đã bị thu hồi.")
-                return
-            
-            if text not in db["keys"]:
-                bot.reply_to(msg, "❌ Key không hợp lệ hoặc không tồn tại.")
-                return
-            
-            key = db["keys"][text]
-            
-            if key["used"]:
-                if key["udid"] and key["udid"] != uid:
-                    bot.reply_to(msg, "❌ Key đã được kích hoạt trên thiết bị khác.")
-                    return
-                bot.reply_to(msg, "ℹ️ Key đã kích hoạt trước đó.")
-                return
-            
-            if key["activations"] >= key["max_activations"]:
-                bot.reply_to(msg, "❌ Key đã đạt giới hạn thiết bị.")
-                return
-            
-            try:
-                exp = datetime.strptime(key["expires"], "%Y-%m-%d %H:%M:%S")
-                if datetime.now() > exp:
-                    bot.reply_to(msg, "❌ Key đã hết hạn.")
-                    return
-            except:
-                pass
-            
-            key["used"] = True
-            key["udid"] = uid
-            key["device"] = "Telegram"
-            key["ip"] = msg.from_user.username or "unknown"
-            key["activations"] += 1
-            key["activated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
-            db["approved"][uid] = {
-                "approved_by": "auto",
-                "time": time.strftime("%Y-%m-%d %H:%M:%S"),
-                "key": text
-            }
-            db["stats"]["total_approved"] += 1
-            log(f"KEY ACTIVE: {text} by {uid}")
-            save_db()
-            
-            bot.reply_to(
-                msg,
-                f"✅ Key kích hoạt thành công!\n"
-                f"📅 Hết hạn: `{key['expires']}`\n"
-                f"🔢 Lượt kích hoạt: {key['activations']}/{key['max_activations']}",
-                parse_mode="Markdown"
-            )
-            return
-        
-        # Unknown message
-        bot.reply_to(msg, "❓ Không hiểu lệnh. Dùng /help để xem hướng dẫn.")
-    
-    except Exception as e:
-        logger.error(f"Handle error: {e}")
-        bot.reply_to(msg, "⚠️ Đã xảy ra lỗi. Vui lòng thử lại.")
-
-# ========== ADMIN COMMANDS ==========
+@bot.message_handler(commands=['help'])
+def cmd_help(msg):
+    is_adm = is_admin(msg.from_user.id)
+    user_cmds = "👤 Lệnh User:\n/start - Khởi động\n/id - Xem ID\n/help - Trợ giúp"
+    admin_cmds = (
+        "\n\n🔧 Admin:\n"
+        "/genkey <số> <loại> [prefix] [ngày] - Tạo key\n"
+        "/genkeybulk <số> <loại> <prefix> [ngày] [file] - Tạo hàng loạt\n"
+        "/approve <UID> [ghi chú] - Duyệt UID\n"
+        "/unapprove <UID> - Hủy duyệt\n"
+        "/kick <UID> [lý do] - Kick\n"
+        "/ban <UID/IP> [lý do] - Ban\n"
+        "/unban <UID/IP> - Gỡ ban\n"
+        "/list - DS gần đây\n"
+        "/listall - Xuất file tất cả\n"
+        "/info <UID/Key> - Chi tiết\n"
+        "/stats - Thống kê\n"
+        "/logs [số] - Xem logs\n"
+        "/clearlogs - Xóa logs\n"
+        "/config <key> <value> - Cấu hình\n"
+        "/broadcast <nội dung> - Gửi mass\n"
+        "/backup - Backup DB\n"
+        "/restore <timestamp> - Restore DB\n"
+        "/maintenance - Bật/tắt bảo trì"
+    )
+    bot.reply_to(msg, user_cmds + (admin_cmds if is_adm else ""), parse_mode="Markdown")
 
 @bot.message_handler(commands=['id'])
 def cmd_id(msg):
-    bot.reply_to(
-        msg,
-        f"👤 User ID: `{msg.from_user.id}`\n💬 Chat ID: `{msg.chat.id}`",
-        parse_mode="Markdown"
-    )
+    bot.reply_to(msg, f"👤 User ID: `{msg.from_user.id}`\n💬 Chat ID: `{msg.chat.id}`", parse_mode="Markdown")
 
 @bot.message_handler(commands=['genkey'])
 def cmd_genkey(msg):
@@ -234,11 +181,12 @@ def cmd_genkey(msg):
         num = int(parts[1])
         ktype = parts[2]
         prefix = parts[3] if len(parts) > 3 else "hake"
-        days = int(parts[4]) if len(parts) > 4 else config["key_expiry_days"]
+        days = int(parts[4]) if len(parts) > 4 else config.get("key_expiry_days", 30)
         keys = [gen_key(prefix, ktype, days) for _ in range(num)]
         log(f"ADMIN {msg.from_user.id} GEN {num} KEY")
         bot.reply_to(msg, "\n".join([f"`{k}`" for k in keys]), parse_mode="Markdown")
     except Exception as e:
+        logger.error(f"genkey error: {e}")
         bot.reply_to(msg, f"❌ Lỗi: {e}")
 
 @bot.message_handler(commands=['genkeybulk'])
@@ -264,6 +212,7 @@ def cmd_genkeybulk(msg):
             bot.send_document(msg.chat.id, f, caption=f"📁 {num} keys")
         os.remove(filename)
     except Exception as e:
+        logger.error(f"genkeybulk error: {e}")
         bot.reply_to(msg, f"❌ Lỗi: {e}")
 
 @bot.message_handler(commands=['approve'])
@@ -276,6 +225,8 @@ def cmd_approve(msg):
         bot.reply_to(msg, "📌 Cú pháp: /approve <UID> [ghi chú]")
         return
     note = " ".join(parts[2:]) if len(parts) > 2 else ""
+    if "approved" not in db:
+        db["approved"] = {}
     db["approved"][parts[1]] = {
         "approved_by": str(msg.from_user.id),
         "time": time.strftime("%Y-%m-%d %H:%M:%S"),
@@ -294,6 +245,8 @@ def cmd_unapprove(msg):
     if len(parts) < 2:
         bot.reply_to(msg, "📌 Cú pháp: /unapprove <UID>")
         return
+    if "approved" not in db:
+        db["approved"] = {}
     db["approved"].pop(parts[1], None)
     log(f"ADMIN UNAPPROVE: {parts[1]}")
     save_db()
@@ -309,12 +262,17 @@ def cmd_kick(msg):
         bot.reply_to(msg, "📌 Cú pháp: /kick <UID> [lý do]")
         return
     reason = " ".join(parts[2:]) if len(parts) > 2 else "No reason"
+    if "kicked" not in db:
+        db["kicked"] = {}
+    if "stats" not in db:
+        db["stats"] = {"total_keys": 0, "total_approved": 0, "total_kicked": 0}
     db["kicked"][parts[1]] = {
         "time": time.strftime("%Y-%m-%d %H:%M:%S"),
         "by": str(msg.from_user.id),
         "reason": reason
     }
-    db["approved"].pop(parts[1], None)
+    if "approved" in db:
+        db["approved"].pop(parts[1], None)
     db["stats"]["total_kicked"] += 1
     log(f"ADMIN KICK: {parts[1]} - {reason}")
     save_db()
@@ -331,9 +289,13 @@ def cmd_ban(msg):
         return
     target = parts[1]
     reason = " ".join(parts[2:]) if len(parts) > 2 else "Banned by admin"
-    if '.' in target and target.replace('.', '').replace(':', '').isdigit():
+    if '.' in target and re.match(r'^[\d.:]+$', target):
+        if "banned_ips" not in bans:
+            bans["banned_ips"] = []
         bans["banned_ips"].append({"ip": target, "reason": reason, "time": time.strftime("%Y-%m-%d %H:%M:%S")})
     else:
+        if "banned_uids" not in bans:
+            bans["banned_uids"] = []
         bans["banned_uids"].append({"uid": target, "reason": reason, "time": time.strftime("%Y-%m-%d %H:%M:%S")})
     save_bans()
     log(f"ADMIN BAN: {target}")
@@ -349,6 +311,10 @@ def cmd_unban(msg):
         bot.reply_to(msg, "📌 Cú pháp: /unban <UID/IP>")
         return
     target = parts[1]
+    if "banned_uids" not in bans:
+        bans["banned_uids"] = []
+    if "banned_ips" not in bans:
+        bans["banned_ips"] = []
     bans["banned_uids"] = [x for x in bans["banned_uids"] if (x.get("uid") if isinstance(x, dict) else x) != target]
     bans["banned_ips"] = [x for x in bans["banned_ips"] if (x.get("ip") if isinstance(x, dict) else x) != target]
     save_bans()
@@ -357,10 +323,20 @@ def cmd_unban(msg):
 
 @bot.message_handler(commands=['list'])
 def cmd_list(msg):
+    if "approved" not in db:
+        db["approved"] = {}
+    if "keys" not in db:
+        db["keys"] = {}
+    if "kicked" not in db:
+        db["kicked"] = {}
+    if "stats" not in db:
+        db["stats"] = {"total_keys": 0, "total_approved": 0, "total_kicked": 0}
+    
     approved = list(db["approved"].keys())[-20:]
     keys = list(db["keys"].keys())[-20:]
     kicked = list(db["kicked"].keys())[-10:]
-    resp = f"📊 Stats: {db['stats']['total_keys']} keys | {db['stats']['total_approved']} approved | {db['stats']['total_kicked']} kicked\n\n"
+    
+    resp = f"📊 Stats: {db['stats'].get('total_keys', 0)} keys | {db['stats'].get('total_approved', 0)} approved | {db['stats'].get('total_kicked', 0)} kicked\n\n"
     resp += "✅ Approved:\n" + ("\n".join([f"- `{u}`" for u in approved]) or "None")
     resp += "\n\n🔑 Keys (gần đây):\n" + ("\n".join([f"- `{k[:40]}...`" for k in keys]) or "None")
     resp += "\n\n❌ Kicked:\n" + ("\n".join([f"- `{u}`" for u in kicked]) or "None")
@@ -371,7 +347,9 @@ def cmd_listall(msg):
     if not is_admin(msg.from_user.id):
         bot.reply_to(msg, "❌ Bạn không phải admin!")
         return
-    keys = "\n".join([f"{k}: used={v['used']}, exp={v.get('expires','N/A')}" for k, v in db["keys"].items()])
+    if "keys" not in db:
+        db["keys"] = {}
+    keys = "\n".join([f"{k}: used={v.get('used', False)}, exp={v.get('expires','N/A')}" for k, v in db["keys"].items()])
     filename = f"all_keys_{int(time.time())}.txt"
     with open(filename, 'w', encoding='utf-8') as f:
         f.write(keys)
@@ -389,25 +367,23 @@ def cmd_info(msg):
         bot.reply_to(msg, "📌 Cú pháp: /info <UID/Key>")
         return
     target = parts[1]
+    if "approved" not in db:
+        db["approved"] = {}
+    if "keys" not in db:
+        db["keys"] = {}
+    
     if target in db["approved"]:
         info = db["approved"][target]
         bot.reply_to(
             msg,
-            f"👤 UID: `{target}`\n"
-            f"⏰ Duyệt: {info.get('time')}\n"
-            f"👤 Bởi: {info.get('approved_by')}\n"
-            f"📝 Ghi chú: {info.get('note','N/A')}",
+            f"👤 UID: `{target}`\n⏰ Duyệt: {info.get('time')}\n👤 Bởi: {info.get('approved_by')}\n📝 Ghi chú: {info.get('note','N/A')}",
             parse_mode="Markdown"
         )
     elif target in db["keys"]:
         k = db["keys"][target]
         bot.reply_to(
             msg,
-            f"🔑 Key: `{target[:40]}...`\n"
-            f"📌 Loại: {k['type']}\n"
-            f"✅ Đã dùng: {k['used']}\n"
-            f"📅 Hết hạn: {k.get('expires','N/A')}\n"
-            f"🔢 Kích hoạt: {k['activations']}/{k['max_activations']}",
+            f"🔑 Key: `{target[:40]}...`\n📌 Loại: {k.get('type','N/A')}\n✅ Đã dùng: {k.get('used', False)}\n📅 Hết hạn: {k.get('expires','N/A')}\n🔢 Kích hoạt: {k.get('activations',0)}/{k.get('max_activations',1)}",
             parse_mode="Markdown"
         )
     else:
@@ -415,12 +391,14 @@ def cmd_info(msg):
 
 @bot.message_handler(commands=['stats'])
 def cmd_stats(msg):
+    if "keys" not in db:
+        db["keys"] = {}
     total = len(db["keys"])
-    used = sum(1 for v in db["keys"].values() if v["used"])
+    used = sum(1 for v in db["keys"].values() if v.get("used", False))
     active = 0
     expired = 0
     for v in db["keys"].values():
-        if v["used"]:
+        if v.get("used", False):
             try:
                 exp = datetime.strptime(v["expires"], "%Y-%m-%d %H:%M:%S")
                 if datetime.now() > exp:
@@ -429,6 +407,10 @@ def cmd_stats(msg):
                     active += 1
             except:
                 active += 1
+    if "approved" not in db:
+        db["approved"] = {}
+    if "kicked" not in db:
+        db["kicked"] = {}
     bot.reply_to(
         msg,
         f"📊 Thống kê:\n"
@@ -447,6 +429,8 @@ def cmd_logs(msg):
         return
     parts = msg.text.split()
     n = int(parts[1]) if len(parts) > 1 else 20
+    if "logs" not in db:
+        db["logs"] = []
     logs = db["logs"][-n:]
     text = "\n".join(logs) or "No logs"
     if len(text) > 4000:
@@ -469,7 +453,7 @@ def cmd_clearlogs(msg):
     bot.reply_to(msg, "🗑️ Đã xóa logs.")
 
 @bot.message_handler(commands=['config'])
-def cmd_config(msg):
+def cmd_config_cmd(msg):
     if not is_admin(msg.from_user.id):
         bot.reply_to(msg, "❌ Bạn không phải admin!")
         return
@@ -503,12 +487,14 @@ def cmd_broadcast(msg):
         bot.reply_to(msg, "📌 Cú pháp: /broadcast <nội dung>")
         return
     count = 0
+    if "approved" not in db:
+        db["approved"] = {}
     for uid in set(list(db["approved"].keys()) + [str(x) for x in ADMIN_IDS]):
         try:
             bot.send_message(int(uid), f"📢 Thông báo:\n{text}")
             count += 1
-        except:
-            pass
+        except Exception as e:
+            logger.error(f"Broadcast to {uid} failed: {e}")
     bot.reply_to(msg, f"✅ Đã gửi tới {count} người.")
 
 @bot.message_handler(commands=['backup'])
@@ -547,45 +533,144 @@ def cmd_maintenance(msg):
     if not is_admin(msg.from_user.id):
         bot.reply_to(msg, "❌ Bạn không phải admin!")
         return
-    config["maintenance"] = not config["maintenance"]
+    config["maintenance"] = not config.get("maintenance", False)
     save_config()
     status = "BẬT" if config["maintenance"] else "TẮT"
     log(f"MAINTENANCE {status}")
     bot.reply_to(msg, f"🔧 Maintenance: {status}")
 
-@bot.message_handler(commands=['help'])
-def cmd_help(msg):
-    is_adm = is_admin(msg.from_user.id)
-    user_cmds = "👤 Lệnh User:\n/start - Khởi động\n/id - Xem ID\n/help - Trợ giúp"
-    admin_cmds = (
-        "\n\n🔧 Admin:\n"
-        "/genkey <số> <loại> [prefix] [ngày] - Tạo key\n"
-        "/genkeybulk <số> <loại> <prefix> [ngày] [file] - Tạo hàng loạt\n"
-        "/approve <UID> [ghi chú] - Duyệt UID\n"
-        "/unapprove <UID> - Hủy duyệt\n"
-        "/kick <UID> [lý do] - Kick\n"
-        "/ban <UID/IP> [lý do] - Ban\n"
-        "/unban <UID/IP> - Gỡ ban\n"
-        "/list - DS gần đây\n"
-        "/listall - Xuất file tất cả\n"
-        "/info <UID/Key> - Chi tiết\n"
-        "/stats - Thống kê\n"
-        "/logs [số] - Xem logs\n"
-        "/clearlogs - Xóa logs\n"
-        "/config <key> <value> - Cấu hình\n"
-        "/broadcast <nội dung> - Gửi mass\n"
-        "/backup - Backup DB\n"
-        "/restore <timestamp> - Restore DB\n"
-        "/maintenance - Bật/tắt bảo trì"
-    )
-    bot.reply_to(msg, user_cmds + (admin_cmds if is_adm else ""), parse_mode="Markdown")
+@bot.message_handler(func=lambda m: True)
+def handle_all(msg):
+    try:
+        uid = str(msg.from_user.id)
+        text = msg.text.strip() if msg.text else ""
+        
+        if is_banned(uid):
+            bot.reply_to(msg, "⛔ Bạn đã bị cấm sử dụng bot.")
+            return
+        
+        if config.get("maintenance", False) and not is_admin(msg.from_user.id):
+            bot.reply_to(msg, "🔧 Bot đang bảo trì. Vui lòng thử lại sau.")
+            return
+        
+        if text.startswith('/'):
+            return
+        
+        # Dylib auto-approve
+        if "#KichHoat" in text or "#Start" in text or "#YeuCau" in text:
+            device_uid = None
+            for part in text.split():
+                if part.startswith("UID:") or part.startswith("UDID:"):
+                    device_uid = part.split(":", 1)[1]
+            if device_uid:
+                if not config.get("auto_approve", True):
+                    bot.reply_to(msg, "⏳ Chờ admin duyệt...")
+                    if config.get("notify_admin", True):
+                        for admin in ADMIN_IDS:
+                            try:
+                                bot.send_message(admin, f"📋 Yêu cầu duyệt:\nUID: `{device_uid}`\nUser: {uid}", parse_mode="Markdown")
+                            except:
+                                pass
+                    return
+                if "approved" not in db:
+                    db["approved"] = {}
+                db["approved"][device_uid] = {
+                    "approved_by": "auto",
+                    "time": time.strftime("%Y-%m-%d %H:%M:%S"),
+                    "telegram_uid": uid
+                }
+                log(f"AUTO APPROVE: {device_uid}")
+                save_db()
+                bot.reply_to(msg, f"✅ Đã duyệt UID: `{device_uid}`", parse_mode="Markdown")
+                return
+        
+        # Key activation
+        if '-' in text and len(text) > 10:
+            if "kicked" not in db:
+                db["kicked"] = {}
+            if text in db["kicked"]:
+                bot.reply_to(msg, "❌ Key đã bị thu hồi.")
+                return
+            
+            if "keys" not in db:
+                db["keys"] = {}
+            if text not in db["keys"]:
+                bot.reply_to(msg, "❌ Key không hợp lệ hoặc không tồn tại.")
+                return
+            
+            key = db["keys"][text]
+            
+            if key.get("used", False):
+                if key.get("udid") and key["udid"] != uid:
+                    bot.reply_to(msg, "❌ Key đã được kích hoạt trên thiết bị khác.")
+                    return
+                bot.reply_to(msg, "ℹ️ Key đã kích hoạt trước đó.")
+                return
+            
+            if key.get("activations", 0) >= key.get("max_activations", 1):
+                bot.reply_to(msg, "❌ Key đã đạt giới hạn thiết bị.")
+                return
+            
+            try:
+                exp = datetime.strptime(key["expires"], "%Y-%m-%d %H:%M:%S")
+                if datetime.now() > exp:
+                    bot.reply_to(msg, "❌ Key đã hết hạn.")
+                    return
+            except:
+                pass
+            
+            key["used"] = True
+            key["udid"] = uid
+            key["device"] = "Telegram"
+            key["ip"] = msg.from_user.username or "unknown"
+            key["activations"] = key.get("activations", 0) + 1
+            key["activated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+            if "approved" not in db:
+                db["approved"] = {}
+            if "stats" not in db:
+                db["stats"] = {"total_keys": 0, "total_approved": 0, "total_kicked": 0}
+            db["approved"][uid] = {
+                "approved_by": "auto",
+                "time": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "key": text
+            }
+            db["stats"]["total_approved"] = db["stats"].get("total_approved", 0) + 1
+            log(f"KEY ACTIVE: {text} by {uid}")
+            save_db()
+            
+            bot.reply_to(
+                msg,
+                f"✅ Key kích hoạt thành công!\n"
+                f"📅 Hết hạn: `{key['expires']}`\n"
+                f"🔢 Lượt kích hoạt: {key['activations']}/{key['max_activations']}",
+                parse_mode="Markdown"
+            )
+            return
+        
+        bot.reply_to(msg, "❓ Không hiểu lệnh. Dùng /help để xem hướng dẫn.")
+    
+    except Exception as e:
+        logger.error(f"Handle error: {e}")
+        bot.reply_to(msg, "⚠️ Đã xảy ra lỗi. Vui lòng thử lại.")
 
+# ========== RUN ==========
 if __name__ == "__main__":
     print("🤖 Bot UnbndSDK Online - Admin: 5736655322")
     log("BOT ONLINE")
-    while True:
-        try:
-            bot.infinity_polling(timeout=60, long_polling_timeout=30)
-        except Exception as e:
-            logger.error(f"Polling error: {e}")
-            time.sleep(5)
+    
+    # Start bot polling in background
+    import threading
+    def run_bot():
+        while True:
+            try:
+                bot.infinity_polling(timeout=60, long_polling_timeout=30)
+            except Exception as e:
+                logger.error(f"Polling error: {e}")
+                time.sleep(5)
+    
+    bot_thread = threading.Thread(target=run_bot, daemon=True)
+    bot_thread.start()
+    
+    # Start web server
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, threaded=True)
