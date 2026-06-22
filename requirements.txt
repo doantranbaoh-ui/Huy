@@ -1,5 +1,6 @@
-python-telegram-bot==20.7
-flask==3.0.0
-cryptography==41.0.7
-flask-limiter==3.5.0
+cd ~/baohuy && cat > requirements.txt << 'EOF'
+flask==2.3.3
+pyTelegramBotAPI==4.14.0
 gunicorn==21.2.0
+EOF
+echo "requirements.txt da san sang"
