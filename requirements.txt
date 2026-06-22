@@ -1,6 +1,5 @@
-cd ~/baohuy && cat > requirements.txt << 'ENDOFFILE'
-flask==2.3.3
-pyTelegramBotAPI==4.14.0
-gunicorn==21.2.0
-ENDOFFILE
-cat requirements.txt
+# This is a sample requirements.txt
+requests==2.31.0
+numpy>=1.24.0
+pandas==2.1.0
+matplotlib<=3.8.0
