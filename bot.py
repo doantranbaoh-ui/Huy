@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-import json, os, time, uuid, hashlib, logging, re
+import json, os, time, uuid, hashlib, logging, re, secrets
 from datetime import datetime, timedelta
 import telebot
 from telebot import types
-from flask import Flask
+from flask import Flask, request, jsonify
 
 # ========== CONFIG ==========
 BOT_TOKEN = "6320148381:AAHKLMaGycWIv8sxdBU6sAmgOPn2XlqTIx0"
@@ -33,6 +33,218 @@ def stats():
         "kicked": len(db.get("kicked", {})),
         "maintenance": config.get("maintenance", False)
     }, 200
+
+# ========== API ENDPOINTS ==========
+@app.route('/api/check', methods=['POST'])
+def api_check():
+    data = request.get_json() or {}
+    uid = str(data.get('uid', ''))
+    key = data.get('key', '')
+    
+    if not uid or not key:
+        return jsonify({"status": "error", "message": "Missing uid or key"}), 400
+    
+    if "keys" not in db or key not in db["keys"]:
+        return jsonify({"status": "invalid", "message": "Key not found"}), 200
+    
+    k = db["keys"][key]
+    
+    if k.get("used", False) and k.get("udid") != uid:
+        return jsonify({"status": "used", "message": "Key used on another device"}), 200
+    
+    if k.get("activations", 0) >= k.get("max_activations", 1):
+        return jsonify({"status": "limit", "message": "Max activations reached"}), 200
+    
+    try:
+        exp = datetime.strptime(k["expires"], "%Y-%m-%d %H:%M:%S")
+        if datetime.now() > exp:
+            return jsonify({"status": "expired", "message": "Key expired"}), 200
+    except:
+        pass
+    
+    return jsonify({
+        "status": "valid",
+        "type": k.get("type", "unknown"),
+        "expires": k.get("expires"),
+        "activations": k.get("activations", 0),
+        "max": k.get("max_activations", 1)
+    }), 200
+
+@app.route('/api/activate', methods=['POST'])
+def api_activate():
+    data = request.get_json() or {}
+    uid = str(data.get('uid', ''))
+    key = data.get('key', '')
+    device = data.get('device', 'Unknown')
+    
+    if not uid or not key:
+        return jsonify({"status": "error", "message": "Missing uid or key"}), 400
+    
+    if "keys" not in db or key not in db["keys"]:
+        return jsonify({"status": "invalid", "message": "Key not found"}), 200
+    
+    k = db["keys"][key]
+    
+    if k.get("used", False) and k.get("udid") != uid:
+        return jsonify({"status": "used", "message": "Key used on another device"}), 200
+    
+    if k.get("activations", 0) >= k.get("max_activations", 1):
+        return jsonify({"status": "limit", "message": "Max activations reached"}), 200
+    
+    try:
+        exp = datetime.strptime(k["expires"], "%Y-%m-%d %H:%M:%S")
+        if datetime.now() > exp:
+            return jsonify({"status": "expired", "message": "Key expired"}), 200
+    except:
+        pass
+    
+    k["used"] = True
+    k["udid"] = uid
+    k["device"] = device
+    k["activations"] = k.get("activations", 0) + 1
+    k["activated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+    k["ip"] = request.remote_addr
+    
+    if "approved" not in db:
+        db["approved"] = {}
+    if "stats" not in db:
+        db["stats"] = {"total_keys": 0, "total_approved": 0, "total_kicked": 0}
+    
+    db["approved"][uid] = {
+        "approved_by": "api",
+        "time": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "key": key
+    }
+    db["stats"]["total_approved"] = db["stats"].get("total_approved", 0) + 1
+    
+    log(f"API ACTIVATE: {key} by {uid}")
+    save_db()
+    
+    return jsonify({
+        "status": "success",
+        "message": "Key activated",
+        "expires": k.get("expires"),
+        "activations": k.get("activations", 0),
+        "max": k.get("max_activations", 1)
+    }), 200
+
+@app.route('/api/verify', methods=['POST'])
+def api_verify():
+    data = request.get_json() or {}
+    uid = str(data.get('uid', ''))
+    
+    if not uid:
+        return jsonify({"status": "error", "message": "Missing uid"}), 400
+    
+    if "approved" not in db or uid not in db["approved"]:
+        return jsonify({"status": "unapproved", "message": "UID not approved"}), 200
+    
+    info = db["approved"][uid]
+    return jsonify({
+        "status": "approved",
+        "time": info.get("time"),
+        "by": info.get("approved_by")
+    }), 200
+
+@app.route('/api/kick', methods=['POST'])
+def api_kick():
+    data = request.get_json() or {}
+    uid = str(data.get('uid', ''))
+    admin_key = data.get('admin_key', '')
+    
+    if admin_key != str(BOT_TOKEN.split(':')[0]):
+        return jsonify({"status": "error", "message": "Invalid admin key"}), 403
+    
+    if not uid:
+        return jsonify({"status": "error", "message": "Missing uid"}), 400
+    
+    if "kicked" not in db:
+        db["kicked"] = {}
+    if "stats" not in db:
+        db["stats"] = {"total_keys": 0, "total_approved": 0, "total_kicked": 0}
+    
+    db["kicked"][uid] = {
+        "time": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "by": "api",
+        "reason": "API kick"
+    }
+    if "approved" in db:
+        db["approved"].pop(uid, None)
+    db["stats"]["total_kicked"] = db["stats"].get("total_kicked", 0) + 1
+    
+    log(f"API KICK: {uid}")
+    save_db()
+    
+    return jsonify({"status": "success", "message": f"UID {uid} kicked"}), 200
+
+@app.route('/api/ban', methods=['POST'])
+def api_ban():
+    data = request.get_json() or {}
+    target = data.get('target', '')
+    admin_key = data.get('admin_key', '')
+    
+    if admin_key != str(BOT_TOKEN.split(':')[0]):
+        return jsonify({"status": "error", "message": "Invalid admin key"}), 403
+    
+    if not target:
+        return jsonify({"status": "error", "message": "Missing target"}), 400
+    
+    if "banned_uids" not in bans:
+        bans["banned_uids"] = []
+    
+    bans["banned_uids"].append({
+        "uid": target,
+        "reason": "API ban",
+        "time": time.strftime("%Y-%m-%d %H:%M:%S")
+    })
+    save_bans()
+    log(f"API BAN: {target}")
+    
+    return jsonify({"status": "success", "message": f"Target {target} banned"}), 200
+
+@app.route('/api/unban', methods=['POST'])
+def api_unban():
+    data = request.get_json() or {}
+    target = data.get('target', '')
+    admin_key = data.get('admin_key', '')
+    
+    if admin_key != str(BOT_TOKEN.split(':')[0]):
+        return jsonify({"status": "error", "message": "Invalid admin key"}), 403
+    
+    if not target:
+        return jsonify({"status": "error", "message": "Missing target"}), 400
+    
+    if "banned_uids" not in bans:
+        bans["banned_uids"] = []
+    bans["banned_uids"] = [x for x in bans["banned_uids"] if (x.get("uid") if isinstance(x, dict) else x) != target]
+    save_bans()
+    log(f"API UNBAN: {target}")
+    
+    return jsonify({"status": "success", "message": f"Target {target} unbanned"}), 200
+
+@app.route('/api/list', methods=['GET'])
+def api_list():
+    admin_key = request.args.get('admin_key', '')
+    
+    if admin_key != str(BOT_TOKEN.split(':')[0]):
+        return jsonify({"status": "error", "message": "Invalid admin key"}), 403
+    
+    return jsonify({
+        "keys": list(db.get("keys", {}).keys())[-50:],
+        "approved": list(db.get("approved", {}).keys())[-50:],
+        "kicked": list(db.get("kicked", {}).keys())[-50:],
+        "banned": bans.get("banned_uids", [])
+    }), 200
+
+@app.route('/api/genuid', methods=['GET'])
+def api_genuid():
+    """Generate random UID for client"""
+    new_uid = secrets.token_hex(16)  # 32 chars hex
+    return jsonify({
+        "status": "success",
+        "uid": new_uid,
+        "length": len(new_uid)
+    }), 200
 
 # ========== LOGGING ==========
 logging.basicConfig(
@@ -273,7 +485,7 @@ def cmd_kick(msg):
     }
     if "approved" in db:
         db["approved"].pop(parts[1], None)
-    db["stats"]["total_kicked"] += 1
+    db["stats"]["total_kicked"] = db["stats"].get("total_kicked", 0) + 1
     log(f"ADMIN KICK: {parts[1]} - {reason}")
     save_db()
     bot.reply_to(msg, f"❌ Đã kick: `{parts[1]}`\n📝 Lý do: {reason}", parse_mode="Markdown")
@@ -658,7 +870,6 @@ if __name__ == "__main__":
     print("🤖 Bot UnbndSDK Online - Admin: 5736655322")
     log("BOT ONLINE")
     
-    # Start bot polling in background
     import threading
     def run_bot():
         while True:
@@ -671,6 +882,5 @@ if __name__ == "__main__":
     bot_thread = threading.Thread(target=run_bot, daemon=True)
     bot_thread.start()
     
-    # Start web server
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, threaded=True)
