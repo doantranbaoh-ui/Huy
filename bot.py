@@ -46,8 +46,8 @@ CONFIG = {
     # ========== TELEGRAM ==========
     "api_id": 27657608,              # THAY BẰNG API_ID
     "api_hash": "3b6e52a3713b44ad5adaa2bcf579de66",     # THAY BẰNG API_HASH
-    "bot_token": "YOUR_BOT_TOKEN",   # THAY BẰNG BOT TOKEN
-    "admin_id": 123456789,           # THAY BẰNG ID TELEGRAM CỦA BẠN
+    "bot_token": "8515267798:AAEUWB-9qZFcW2ZcDwbaLg8Vi0CtrrUO4gE",   # THAY BẰNG BOT TOKEN
+    "admin_id": 5736655322,           # THAY BẰNG ID TELEGRAM CỦA BẠN
 
     # ========== SESSION STRING (Để auto login 24/7) ==========
     # Nếu có session string, bot sẽ dùng thay vì login lại
