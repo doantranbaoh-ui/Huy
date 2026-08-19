@@ -1,4 +1,4 @@
-# bot.py - GARENA CHECKER BOT - CHỌN NÚT XONG MỚI GỬI TK MK
+# bot.py - GARENA CHECKER BOT - FIX LỖI NÚT START KHÔNG HIỂN THỊ
 import subprocess
 import sys
 import importlib
@@ -25,6 +25,53 @@ def install_package(package_name):
 
 for pkg in ["requests", "pyTelegramBotAPI"]:
     install_package(pkg)
+
+# ========== FIX CHO RENDER WEB SERVICE ==========
+import os as os_module
+import threading as threading_module
+from http.server import HTTPServer, BaseHTTPRequestHandler
+
+# Web server mini để Render detect port
+class RenderHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == '/':
+            self.send_response(200)
+            self.send_header('Content-type', 'text/html')
+            self.end_headers()
+            self.wfile.write(b"""
+            <html>
+                <head><title>🤖 Garena Checker Bot</title></head>
+                <body style="font-family:Arial;text-align:center;padding:50px;background:#0a0a0a;color:#00ff00;">
+                    <h1>🤖 Garena Checker Bot</h1>
+                    <p>Status: <b style="color:#00ff00;">🟢 ALIVE</b></p>
+                    <p>Admin: <a href="https://t.me/baohuyno1" style="color:#00ff00;">@baohuyno1</a></p>
+                </body>
+            </html>
+            """)
+        elif self.path == '/ping':
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"pong")
+        else:
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"Bot is running!")
+    
+    def log_message(self, format, *args):
+        pass
+
+def start_render_server():
+    try:
+        port = int(os_module.environ.get("PORT", 10000))
+        server = HTTPServer(("0.0.0.0", port), RenderHandler)
+        print(f"[*] Render web server chạy trên port {port}")
+        server.serve_forever()
+    except Exception as e:
+        print(f"[!] Lỗi web server: {e}")
+
+# Chạy web server trong thread riêng
+threading_module.Thread(target=start_render_server, daemon=True).start()
+# ==============================================
 
 # ========== CẤU HÌNH ==========
 TELEGRAM_BOT_TOKEN = "6367532329:AAEem2DziNWKZtFrA8goj5PGTOI4MVT7IKA"
@@ -89,8 +136,8 @@ checking = False
 stop_event = threading.Event()
 filtered_accounts = []
 pending_accounts = []
-waiting_for_accounts = False  # Trạng thái chờ nhập tk mk
-service_selected = None       # Service đã chọn
+waiting_for_accounts = False
+service_selected = None
 stats = {"total": 0, "checked": 0, "hits": 0, "dead": 0, "errors": 0}
 file_lock = threading.Lock()
 stats_lock = threading.Lock()
@@ -139,6 +186,7 @@ def safe_send_message(chat_id, text, reply_markup=None, parse_mode="HTML"):
 
 # ========== TẠO NÚT BẤM ==========
 def create_main_keyboard():
+    """Tạo bàn phím chính - LUÔN HIỂN THỊ"""
     keyboard = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     buttons = [
         KeyboardButton("📝 Gửi TK MK"),
@@ -155,14 +203,14 @@ def create_main_keyboard():
     return keyboard
 
 def create_service_keyboard():
-    """Bàn phím chọn service - KHI NHẤN SẼ YÊU CẦU GỬI TK MK"""
+    """Bàn phím chọn service"""
     keyboard = InlineKeyboardMarkup(row_width=2)
     buttons = []
     
     for key, value in SERVICE_ROUTES.items():
         btn = InlineKeyboardButton(
             f"{value['icon']} {value['desc']}",
-            callback_data=f"select_{key}"  # Đổi từ check_ thành select_
+            callback_data=f"select_{key}"
         )
         buttons.append(btn)
     
@@ -440,10 +488,10 @@ def check_accounts_batch(chat_id, accounts, service):
             except:
                 pass
 
-# ========== XỬ LÝ CALLBACK - CHỌN SERVICE ==========
+# ========== XỬ LÝ CALLBACK ==========
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callback(call):
-    global pending_accounts, filtered_accounts, checking, waiting_for_accounts, service_selected
+    global pending_accounts, waiting_for_accounts, service_selected, checking
     
     if not is_admin(call.message.chat.id):
         bot.answer_callback_query(call.id, "❌ Bạn không có quyền!")
@@ -451,7 +499,6 @@ def handle_callback(call):
     
     data = call.data
     
-    # ===== CHỌN SERVICE =====
     if data.startswith("select_"):
         service = data.replace("select_", "")
         
@@ -459,7 +506,6 @@ def handle_callback(call):
             bot.answer_callback_query(call.id, "❌ Service không hợp lệ!")
             return
         
-        # Lưu service đã chọn
         service_selected = service
         waiting_for_accounts = True
         
@@ -471,7 +517,6 @@ def handle_callback(call):
         except:
             pass
         
-        # Hướng dẫn gửi tk mk
         safe_send_message(
             call.message.chat.id,
             f"""
@@ -488,7 +533,6 @@ Gửi trực tiếp <code>user:pass</code> hoặc nhiều accounts
 <b>VD:</b>
 <code>user1:pass123</code>
 <code>user2:pass456</code>
-<code>user3:pass789</code>
 
 🔄 Bot sẽ tự động check sau khi nhận được tk mk!
 """
@@ -496,7 +540,6 @@ Gửi trực tiếp <code>user:pass</code> hoặc nhiều accounts
         bot.answer_callback_query(call.id, f"✅ Đã chọn {service_desc}")
         return
     
-    # ===== HỦY CHỌN =====
     elif data == "cancel_select":
         waiting_for_accounts = False
         service_selected = None
@@ -508,7 +551,6 @@ Gửi trực tiếp <code>user:pass</code> hoặc nhiều accounts
         bot.answer_callback_query(call.id, "Đã hủy")
         return
     
-    # ===== ADMIN =====
     elif data == "admin_status":
         if checking:
             elapsed = time.time() - stats.get("start_time", time.time())
@@ -575,9 +617,8 @@ def handle_text(message):
     
     text = message.text.strip()
     
-    # ===== NÚT BẤM =====
+    # Xử lý nút bấm
     if text == "📝 Gửi TK MK":
-        # Hiển thị bàn phím chọn service
         safe_send_message(
             message.chat.id,
             """
@@ -679,9 +720,8 @@ Bot sẽ tự động lọc ra user:pass và check!
     if text.startswith('/'):
         return
     
-    # ===== XỬ LÝ TK MK - CHỈ KHI ĐÃ CHỌN SERVICE =====
+    # Xử lý TK MK - chỉ khi đã chọn service
     if waiting_for_accounts and service_selected:
-        # Lọc tk mk
         accounts = loc_tk_mk(text)
         
         if not accounts:
@@ -694,13 +734,11 @@ Format đúng: <code>user:pass</code> hoặc <code>user|pass</code> hoặc <code
 """)
             return
         
-        # Lưu accounts và check
         pending_accounts = accounts
         service = service_selected
         service_desc = SERVICE_ROUTES[service]["desc"]
         icon = SERVICE_ROUTES[service]["icon"]
         
-        # Reset trạng thái
         waiting_for_accounts = False
         service_selected = None
         
@@ -718,14 +756,12 @@ Format đúng: <code>user:pass</code> hoặc <code>user|pass</code> hoặc <code
 🔄 Đang check...
 """)
         
-        # Check ngay lập tức
         if len(accounts) == 1:
             user, pwd = accounts[0]
             threading.Thread(target=check_single_account, args=(message.chat.id, user, pwd, service)).start()
         else:
             threading.Thread(target=check_accounts_batch, args=(message.chat.id, accounts, service)).start()
     else:
-        # Chưa chọn service
         safe_send_message(message.chat.id, """
 📌 <b>VUI LÒNG CHỌN SERVICE TRƯỚC</b>
 
@@ -740,7 +776,6 @@ def handle_document(message):
     if not is_admin(message.chat.id):
         return
     
-    # Kiểm tra đã chọn service chưa
     if not waiting_for_accounts or not service_selected:
         safe_send_message(message.chat.id, """
 📌 <b>VUI LÒNG CHỌN SERVICE TRƯỚC</b>
@@ -767,7 +802,6 @@ def handle_document(message):
         service_desc = SERVICE_ROUTES[service]["desc"]
         icon = SERVICE_ROUTES[service]["icon"]
         
-        # Reset trạng thái
         waiting_for_accounts = False
         service_selected = None
         
@@ -790,7 +824,6 @@ def handle_document(message):
 🔄 Đang check...
 """)
         
-        # Check ngay lập tức
         if len(accounts) == 1:
             user, pwd = accounts[0]
             threading.Thread(target=check_single_account, args=(message.chat.id, user, pwd, service)).start()
@@ -800,7 +833,7 @@ def handle_document(message):
     except Exception as e:
         safe_send_message(message.chat.id, f"❌ Lỗi: {e}")
 
-# ========== LỆNH ==========
+# ========== LỆNH /start - FIX ==========
 @bot.message_handler(commands=['start'])
 def cmd_start(message):
     if not is_admin(message.chat.id):
@@ -810,9 +843,11 @@ def cmd_start(message):
     hours = uptime.seconds // 3600
     minutes = (uptime.seconds % 3600) // 60
     
-    safe_send_message(
-        message.chat.id,
-        f"""
+    # Gửi tin nhắn kèm keyboard - LUÔN HIỂN THỊ NÚT
+    try:
+        bot.send_message(
+            message.chat.id,
+            f"""
 🤖 <b>GARENA CHECKER BOT</b>
 👤 Admin: <a href="https://t.me/baohuyno1">@baohuyno1</a>
 ⏱ Uptime: <code>{hours}h {minutes}m</code>
@@ -837,9 +872,23 @@ Bot sẽ lọc và check ngay lập tức!
 
 💡 <b>BOT 24/7 - LUÔN SẴN SÀNG</b>
 """,
-        reply_markup=create_main_keyboard()
-    )
+            reply_markup=create_main_keyboard()
+        )
+    except Exception as e:
+        print(f"[!] Lỗi gửi /start: {e}")
+        # Thử gửi không có keyboard
+        bot.send_message(
+            message.chat.id,
+            f"""
+🤖 <b>GARENA CHECKER BOT</b>
+👤 Admin: @baohuyno1
+⏱ Uptime: {hours}h {minutes}m
 
+📌 Bot đã sẵn sàng! Dùng /help để xem hướng dẫn.
+"""
+        )
+
+# ========== CÁC LỆNH KHÁC ==========
 @bot.message_handler(commands=['help'])
 def cmd_help(message):
     if not is_admin(message.chat.id):
