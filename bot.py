@@ -1,6 +1,6 @@
-# bot.py - GARENA CHECKER BOT V4.3 - PUBLIC USE
+# bot.py - GARENA CHECKER BOT V4.4 - THÔNG TIN ĐẸP
 # Tác giả: palofsc
-# Mục đích: Bot Telegram check acc - ai cũng có thể dùng, không cần admin
+# Mục đích: Bot Telegram check acc với format thông tin đẹp
 
 import subprocess
 import sys
@@ -47,10 +47,10 @@ class RenderHandler(BaseHTTPRequestHandler):
 <html>
 <head><title>Garena Checker Bot</title></head>
 <body style="font-family:Arial;text-align:center;padding:50px;background:#0a0a0a;color:#00ff00;">
-<h1>Garena Checker Bot V4.3</h1>
+<h1>Garena Checker Bot V4.4</h1>
 <p>Status: <b style="color:#00ff00;">ALIVE</b></p>
 <p>Admin: <a href="https://t.me/baohuyno1" style="color:#00ff00;">@baohuyno1</a></p>
-<p>Version: <b>4.3 - PUBLIC USE</b></p>
+<p>Version: <b>4.4 - THONG TIN DEP</b></p>
 </body>
 </html>"""
             self.wfile.write(html.encode('utf-8'))
@@ -575,34 +575,57 @@ def check_account_api(username, password, service):
         cache_results[cache_key] = result
     return result
 
-# ========== FORMAT HIT ==========
+# ========== FORMAT THÔNG TIN ĐẸP ==========
 def format_hit_info(username, password, service, result_data):
-    """Format thông tin hit"""
+    """Format thông tin hit đẹp"""
     service_desc = SERVICE_ROUTES.get(service, {}).get("desc", service)
     icon = SERVICE_ROUTES.get(service, {}).get("icon", "✅")
     
+    # Tạo đường kẻ ngang
+    line = "─" * 30
+    
     msg = f"""
 {icon} <b>HIT - {service_desc}</b>
-🔑 <code>{username}:{password}</code>
+{line}
+🔑 <b>Account:</b> <code>{username}:{password}</code>
 """
     
     if isinstance(result_data, dict):
-        skip_fields = ["result", "_is_hit", "_raw_response", "_error", "status", "success"]
+        # Danh sách field cần hiển thị
+        display_fields = [
+            "uid", "region", "shells", "email_verified", "mobile_bound",
+            "fb_linked", "account_secured", "password_set",
+            "aov_name", "aov_rank", "aov_level", "aov_banned", "aov_total_skins"
+        ]
+        
+        # Danh sách field bỏ qua
+        skip_fields = ["result", "_is_hit", "_raw_response", "_error", "status", "success", "tk", "mk"]
         
         info_lines = []
+        
+        # Hiển thị các field quan trọng trước
+        for field in display_fields:
+            if field in result_data and result_data[field] is not None and result_data[field] != "":
+                value = result_data[field]
+                label = field.replace("_", " ").title()
+                info_lines.append(f"📌 <b>{label}:</b> <code>{value}</code>")
+        
+        # Hiển thị các field còn lại
         for key, value in result_data.items():
-            if key not in skip_fields and value is not None and value != "" and value != {} and value != []:
+            if key not in display_fields and key not in skip_fields and value is not None and value != "" and value != {} and value != []:
                 if isinstance(value, (str, int, float)):
-                    info_lines.append(f"📌 {key}: <code>{value}</code>")
+                    label = key.replace("_", " ").title()
+                    info_lines.append(f"📌 <b>{label}:</b> <code>{value}</code>")
                 elif isinstance(value, dict):
                     for sub_key, sub_value in value.items():
                         if sub_value is not None and sub_value != "" and sub_value != {} and sub_value != []:
                             if isinstance(sub_value, (str, int, float)):
-                                info_lines.append(f"📌 {sub_key}: <code>{sub_value}</code>")
+                                sub_label = sub_key.replace("_", " ").title()
+                                info_lines.append(f"📌 <b>{sub_label}:</b> <code>{sub_value}</code>")
         
         if info_lines:
-            msg += "\n".join(info_lines[:15])
-            msg += "\n"
+            msg += "\n".join(info_lines)
+            msg += f"\n{line}"
     
     return msg
 
@@ -816,7 +839,7 @@ def cmd_start(message):
         proxy_count = len(proxy_list)
     
     safe_send_message(message.chat.id, f"""
-🤖 <b>GARENA CHECKER BOT V4.3</b>
+🤖 <b>GARENA CHECKER BOT V4.4</b>
 👤 Admin: @baohuyno1
 📤 Proxy: {proxy_count}
 
@@ -1020,7 +1043,6 @@ def handle_text(message):
     if text.startswith('/'):
         return
     
-    # Lọc tài khoản
     accounts, stats_loc = loc_tk_mk_only(text)
     
     if not accounts:
@@ -1130,7 +1152,7 @@ Preview (20 dong dau):
 def main():
     """Hàm chính khởi động bot"""
     print("=" * 60)
-    print("    GARENA CHECKER BOT V4.3 - PUBLIC USE")
+    print("    GARENA CHECKER BOT V4.4 - THONG TIN DEP")
     print("    ADMIN: @baohuyno1")
     print("    AI CUNG DUNG DUOC")
     print("=" * 60)
