@@ -1,4 +1,4 @@
-# bot.py - GARENA CHECKER BOT - NÂNG CẤP NÚT LỌC TK MK TỪ TXT
+# bot.py - GARENA CHECKER BOT - FULL HOÀN CHỈNH + TREO 24/7
 import subprocess
 import sys
 import importlib
@@ -41,6 +41,7 @@ DEFAULT_RETRIES = 3
 OUTPUT_HITS = "hits.txt"
 OUTPUT_DEAD = "dead.txt"
 OUTPUT_FILTERED = "filtered_accounts.txt"
+OUTPUT_CHECKED = "checked_accounts.txt"
 
 # ========== DANH SÁCH SERVICE ==========
 SERVICE_ROUTES = {
@@ -86,11 +87,12 @@ checking = False
 stop_event = threading.Event()
 filtered_accounts = []
 pending_accounts = []
-pending_type = None
 stats = {"total": 0, "checked": 0, "hits": 0, "dead": 0, "errors": 0}
 file_lock = threading.Lock()
 stats_lock = threading.Lock()
-pending_file_content = None  # Lưu nội dung file để lọc
+api_cache = {}
+cache_lock = threading.Lock()
+bot_start_time = datetime.now()
 
 bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN, parse_mode="HTML")
 
@@ -112,7 +114,6 @@ def loc_tk_mk(content):
         user = None
         pwd = None
         
-        # Thử các định dạng
         for sep in [':', '|', '/', '\t']:
             if sep in line:
                 parts = line.split(sep, 1)
@@ -121,10 +122,8 @@ def loc_tk_mk(content):
                 break
         
         if user and pwd:
-            # Làm sạch user
             user = re.sub(r'[^\w.@-]', '', user)
             pwd = pwd.strip()
-            
             if len(user) > 0 and len(pwd) > 0:
                 key = f"{user}:{pwd}"
                 if key not in seen:
@@ -319,7 +318,6 @@ def format_error_dep(username, password, service=""):
 
 # ========== TẠO NÚT BẤM ==========
 def create_main_keyboard():
-    """Tạo bàn phím chính"""
     keyboard = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     buttons = [
         KeyboardButton("📝 Gửi TK MK"),
@@ -329,13 +327,13 @@ def create_main_keyboard():
         KeyboardButton("📥 Tải Hits"),
         KeyboardButton("📥 Tải Dead"),
         KeyboardButton("⏹ Dừng check"),
-        KeyboardButton("👤 Admin")
+        KeyboardButton("👤 Admin"),
+        KeyboardButton("📋 Danh sách Service")
     ]
     keyboard.add(*buttons)
     return keyboard
 
 def create_service_keyboard():
-    """Tạo bàn phím inline chọn service"""
     keyboard = InlineKeyboardMarkup(row_width=2)
     buttons = []
     
@@ -360,7 +358,6 @@ def create_service_keyboard():
     return keyboard
 
 def create_admin_keyboard():
-    """Tạo bàn phím admin"""
     keyboard = InlineKeyboardMarkup(row_width=2)
     buttons = [
         InlineKeyboardButton("👤 Admin: @baohuyno1", url="https://t.me/baohuyno1"),
@@ -369,7 +366,8 @@ def create_admin_keyboard():
         InlineKeyboardButton("📥 Dead", callback_data="admin_dead"),
         InlineKeyboardButton("⏹ Dừng check", callback_data="admin_stop"),
         InlineKeyboardButton("🗑 Xóa pending", callback_data="admin_clear"),
-        InlineKeyboardButton("📋 Danh sách service", callback_data="admin_services")
+        InlineKeyboardButton("📋 Danh sách service", callback_data="admin_services"),
+        InlineKeyboardButton("📁 Tải filtered", callback_data="admin_filtered")
     ]
     keyboard.add(*buttons)
     return keyboard
@@ -587,6 +585,14 @@ def handle_callback(call):
         bot.send_message(call.message.chat.id, msg)
         bot.answer_callback_query(call.id)
     
+    elif data == "admin_filtered":
+        try:
+            with open(OUTPUT_FILTERED, 'rb') as f:
+                bot.send_document(call.message.chat.id, f, caption="📁 filtered_accounts.txt")
+        except:
+            bot.send_message(call.message.chat.id, "❌ Chưa có file filtered!")
+        bot.answer_callback_query(call.id)
+    
     elif data == "get_hits":
         try:
             with open(OUTPUT_HITS, 'rb') as f:
@@ -620,32 +626,6 @@ def handle_callback(call):
     
     bot.answer_callback_query(call.id)
 
-# ========== XỬ LÝ LỆNH LỌC TK MK ==========
-@bot.message_handler(commands=['loc'])
-def cmd_loc(message):
-    if not is_admin(message.chat.id):
-        return
-    
-    bot.reply_to(message, """
-🔍 <b>LỌC TK MK TỪ TXT</b>
-
-📌 <b>CÁCH DÙNG:</b>
-1️⃣ Nhấn nút <b>"🔍 Lọc TK MK từ TXT"</b>
-2️⃣ Gửi file .txt chứa danh sách
-3️⃣ Bot tự động lọc ra user:pass
-
-📌 <b>HỖ TRỢ ĐỊNH DẠNG:</b>
-• <code>user:pass</code>
-• <code>user|pass</code>
-• <code>user/pass</code>
-• <code>user    pass</code> (tab)
-
-📌 <b>VÍ DỤ:</b>
-<code>ZzkeconzZ:thanhoppa2001</code>
-<code>anhduckim1|kimanhduc1</code>
-<code>trannamtrungzzz/cuong2001</code>
-""")
-
 # ========== XỬ LÝ TEXT ==========
 @bot.message_handler(content_types=['text'])
 def handle_text(message):
@@ -654,7 +634,6 @@ def handle_text(message):
     
     text = message.text.strip()
     
-    # Xử lý nút bấm
     if text == "📝 Gửi TK MK":
         bot.reply_to(message, """
 📌 <b>GỬI TK MK</b>
@@ -745,7 +724,14 @@ Bot sẽ lọc chỉ giữ lại <code>user:pass</code>
 """, reply_markup=create_admin_keyboard())
         return
     
-    # Xử lý tk mk
+    elif text == "📋 Danh sách Service":
+        msg = "📋 <b>DANH SÁCH SERVICE</b>\n\n"
+        for key, value in SERVICE_ROUTES.items():
+            msg += f"{value['icon']} <b>{value['desc']}</b>\n"
+            msg += f"   Route: <code>{value['route']}</code>\n\n"
+        bot.send_message(message.chat.id, msg)
+        return
+    
     if text.startswith('/'):
         return
     
@@ -831,9 +817,14 @@ def cmd_start(message):
     if not is_admin(message.chat.id):
         return
     
+    uptime = datetime.now() - bot_start_time
+    hours = uptime.seconds // 3600
+    minutes = (uptime.seconds % 3600) // 60
+    
     bot.send_message(message.chat.id, f"""
 🤖 <b>GARENA CHECKER BOT</b>
 👤 Admin: <a href="https://t.me/baohuyno1">@baohuyno1</a>
+⏱ Uptime: <code>{hours}h {minutes}m</code>
 
 📌 <b>CÁCH DÙNG:</b>
 
@@ -855,27 +846,182 @@ Nhấn nút <b>"🔍 Lọc TK MK từ TXT"</b>
 • 🔍 Lọc TK MK từ TXT - Lọc file
 • 📊 Trạng thái - Xem tiến độ
 • 📥 Tải Hits - Tải hits.txt
-• 📥 Tải Dead - Tải dead.txt
-• ⏹ Dừng check - Dừng check
+• 📥 Tải Dead - Tải dead.txt• ⏹ Dừng check - Dừng check
 • 👤 Admin - Liên hệ admin
+• 📋 Danh sách Service - Xem services
 
 ⚡ <b>THREADS:</b> {DEFAULT_THREADS}
+📋 <b>SERVICES:</b> {', '.join(SERVICE_ROUTES.keys())}
+
+💡 <b>BOT 24/7 - LUÔN SẴN SÀNG</b>
 """, reply_markup=create_main_keyboard())
+
+# ========== LỆNH /help ==========
+@bot.message_handler(commands=['help'])
+def cmd_help(message):
+    if not is_admin(message.chat.id):
+        return
+    
+    bot.send_message(message.chat.id, f"""
+📌 <b>HƯỚNG DẪN SỬ DỤNG</b>
+
+<b>1. CHECK ĐƠN:</b>
+Gửi trực tiếp: <code>user:pass</code>
+→ Chọn service
+
+<b>2. CHECK HÀNG LOẠT:</b>
+Gửi file .txt hoặc nhiều accounts
+→ Chọn service
+
+<b>3. LỌC TK MK:</b>
+Nhấn nút <b>"🔍 Lọc TK MK từ TXT"</b>
+→ Gửi file .txt
+
+<b>4. CÁC LỆNH:</b>
+<code>/start</code> - Khởi động bot
+<code>/help</code> - Hướng dẫn
+<code>/loc</code> - Lọc tk mk từ txt
+<code>/status</code> - Xem trạng thái
+<code>/stop</code> - Dừng check
+<code>/hits</code> - Tải hits.txt
+<code>/dead</code> - Tải dead.txt
+<code>/clear</code> - Xóa pending
+<code>/services</code> - Xem services
+
+<b>5. HỖ TRỢ:</b>
+👤 Admin: @baohuyno1
+""", reply_markup=create_main_keyboard())
+
+# ========== LỆNH /loc ==========
+@bot.message_handler(commands=['loc'])
+def cmd_loc(message):
+    if not is_admin(message.chat.id):
+        return
+    
+    bot.reply_to(message, """
+🔍 <b>LỌC TK MK TỪ TXT</b>
+
+📌 <b>CÁCH DÙNG:</b>
+1️⃣ Nhấn nút <b>"🔍 Lọc TK MK từ TXT"</b>
+2️⃣ Gửi file .txt chứa danh sách
+3️⃣ Bot tự động lọc ra user:pass
+
+📌 <b>HỖ TRỢ ĐỊNH DẠNG:</b>
+• <code>user:pass</code>
+• <code>user|pass</code>
+• <code>user/pass</code>
+• <code>user    pass</code> (tab)
+
+📌 <b>VÍ DỤ:</b>
+<code>ZzkeconzZ:thanhoppa2001</code>
+<code>anhduckim1|kimanhduc1</code>
+<code>trannamtrungzzz/cuong2001</code>
+""")
+
+# ========== LỆNH /status ==========
+@bot.message_handler(commands=['status'])
+def cmd_status(message):
+    if not is_admin(message.chat.id):
+        return
+    
+    if checking:
+        elapsed = time.time() - stats.get("start_time", time.time())
+        speed = stats["checked"] / elapsed if elapsed > 0 else 0
+        bot.reply_to(message, f"""
+📊 <b>TRẠNG THÁI</b>
+🔄 Đang check: <b>YES</b>
+✅ Checked: <code>{stats['checked']}/{stats['total']}</code>
+🔴 HIT: <code>{stats['hits']}</code>
+❌ DEAD: <code>{stats['dead']}</code>
+⚡ Speed: <code>{speed:.1f}</code> acc/s
+⏱ Thời gian: <code>{elapsed:.0f}s</code>
+""")
+    else:
+        bot.reply_to(message, "💤 Bot đang rảnh")
+
+# ========== LỆNH /stop ==========
+@bot.message_handler(commands=['stop'])
+def cmd_stop(message):
+    if not is_admin(message.chat.id):
+        return
+    
+    global checking
+    stop_event.set()
+    checking = False
+    bot.reply_to(message, "🛑 Đã dừng check!")
+
+# ========== LỆNH /hits ==========
+@bot.message_handler(commands=['hits'])
+def cmd_hits(message):
+    if not is_admin(message.chat.id):
+        return
+    
+    try:
+        with open(OUTPUT_HITS, 'rb') as f:
+            bot.send_document(message.chat.id, f, caption="✅ hits.txt")
+    except:
+        bot.reply_to(message, "❌ Chưa có hits!")
+
+# ========== LỆNH /dead ==========
+@bot.message_handler(commands=['dead'])
+def cmd_dead(message):
+    if not is_admin(message.chat.id):
+        return
+    
+    try:
+        with open(OUTPUT_DEAD, 'rb') as f:
+            bot.send_document(message.chat.id, f, caption="❌ dead.txt")
+    except:
+        bot.reply_to(message, "❌ Chưa có dead!")
+
+# ========== LỆNH /clear ==========
+@bot.message_handler(commands=['clear'])
+def cmd_clear(message):
+    if not is_admin(message.chat.id):
+        return
+    
+    global pending_accounts
+    pending_accounts = []
+    bot.reply_to(message, "✅ Đã xóa danh sách pending!")
+
+# ========== LỆNH /services ==========
+@bot.message_handler(commands=['services'])
+def cmd_services(message):
+    if not is_admin(message.chat.id):
+        return
+    
+    msg = "📋 <b>DANH SÁCH SERVICE</b>\n\n"
+    for key, value in SERVICE_ROUTES.items():
+        msg += f"{value['icon']} <b>{value['desc']}</b>\n"
+        msg += f"   Route: <code>{value['route']}</code>\n\n"
+    bot.send_message(message.chat.id, msg)
+
+# ========== GIỮ BOT 24/7 ==========
+def keep_alive():
+    """Giữ bot sống bằng cách ping mỗi 5 phút"""
+    while True:
+        try:
+            time.sleep(300)  # 5 phút
+            print(f"[*] Keep alive ping at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        except:
+            pass
 
 # ========== MAIN ==========
 def main():
     print("=" * 60)
-    print("    GARENA CHECKER BOT")
+    print("    GARENA CHECKER BOT - 24/7")
     print("    ADMIN: @baohuyno1")
     print("=" * 60)
     print(f"[*] Threads: {DEFAULT_THREADS}")
     print(f"[*] Services: {len(SERVICE_ROUTES)}")
-    print("[*] Format: user:pass")
-    print("[*] Nút lọc TK MK từ TXT đã được thêm!")
+    print(f"[*] Start time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("=" * 60)
     
+    # Chạy keep alive trong thread riêng
+    threading.Thread(target=keep_alive, daemon=True).start()
+    
     try:
-        bot.send_message(ADMIN_CHAT_ID, """
+        bot.send_message(ADMIN_CHAT_ID, f"""
 🤖 Bot đã khởi động!
 
 📌 CÁCH DÙNG:
@@ -884,11 +1030,12 @@ def main():
 • Nhấn "🔍 Lọc TK MK từ TXT" -> Gửi file để lọc
 
 👤 Admin: @baohuyno1
+⏱ Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 """)
     except:
         pass
     
-    print("[*] Bot đang chạy...")
+    print("[*] Bot đang chạy 24/7...")
     
     while True:
         try:
