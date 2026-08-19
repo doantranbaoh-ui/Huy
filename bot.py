@@ -1,4 +1,4 @@
-# bot.py - GARENA CHECKER BOT - FIX LỖI bot NOT DEFINED
+# bot.py - GARENA CHECKER BOT - FIX LỖI START + HIỂN THỊ NÚT
 import subprocess
 import sys
 import importlib
@@ -92,13 +92,69 @@ file_lock = threading.Lock()
 stats_lock = threading.Lock()
 bot_start_time = datetime.now()
 
-# Khởi tạo bot NGAY LẬP TỨC
+# Khởi tạo bot
 bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN, parse_mode="HTML")
 
 def is_admin(chat_id):
     return str(chat_id) == str(ADMIN_CHAT_ID)
 
-# ========== LỌC TK MK - FIX ==========
+# ========== TẠO NÚT BẤM ==========
+def create_main_keyboard():
+    """Tạo bàn phím chính"""
+    keyboard = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    buttons = [
+        KeyboardButton("📝 Gửi TK MK"),
+        KeyboardButton("📁 Gửi File TXT"),
+        KeyboardButton("🔍 Lọc TK MK từ TXT"),
+        KeyboardButton("📊 Trạng thái"),
+        KeyboardButton("📥 Tải Hits"),
+        KeyboardButton("📥 Tải Dead"),
+        KeyboardButton("⏹ Dừng check"),
+        KeyboardButton("👤 Admin"),
+        KeyboardButton("📋 Danh sách Service")
+    ]
+    keyboard.add(*buttons)
+    return keyboard
+
+def create_service_keyboard():
+    """Tạo bàn phím inline chọn service"""
+    keyboard = InlineKeyboardMarkup(row_width=2)
+    buttons = []
+    
+    for key, value in SERVICE_ROUTES.items():
+        btn = InlineKeyboardButton(
+            f"{value['icon']} {value['desc']}",
+            callback_data=f"check_{key}"
+        )
+        buttons.append(btn)
+    
+    keyboard.add(*buttons)
+    keyboard.row(
+        InlineKeyboardButton("📥 Hits", callback_data="get_hits"),
+        InlineKeyboardButton("📥 Dead", callback_data="get_dead"),
+        InlineKeyboardButton("⏹ Stop", callback_data="stop_check")
+    )
+    keyboard.row(
+        InlineKeyboardButton("❌ Hủy", callback_data="cancel_check")
+    )
+    return keyboard
+
+def create_admin_keyboard():
+    """Tạo bàn phím admin"""
+    keyboard = InlineKeyboardMarkup(row_width=2)
+    buttons = [
+        InlineKeyboardButton("👤 Admin: @baohuyno1", url="https://t.me/baohuyno1"),
+        InlineKeyboardButton("📊 Trạng thái", callback_data="admin_status"),
+        InlineKeyboardButton("📥 Hits", callback_data="admin_hits"),
+        InlineKeyboardButton("📥 Dead", callback_data="admin_dead"),
+        InlineKeyboardButton("⏹ Dừng check", callback_data="admin_stop"),
+        InlineKeyboardButton("🗑 Xóa pending", callback_data="admin_clear"),
+        InlineKeyboardButton("📋 Danh sách service", callback_data="admin_services")
+    ]
+    keyboard.add(*buttons)
+    return keyboard
+
+# ========== LỌC TK MK ==========
 def loc_tk_mk(content):
     accounts = []
     seen = set()
@@ -308,59 +364,6 @@ def format_dead_dep(username, password, service=""):
 ║ ⚠️ Tài khoản không hợp lệ
 ╚══════════════════════════════════╝
 """
-
-# ========== TẠO NÚT BẤM ==========
-def create_main_keyboard():
-    keyboard = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    buttons = [
-        KeyboardButton("📝 Gửi TK MK"),
-        KeyboardButton("📁 Gửi File TXT"),
-        KeyboardButton("🔍 Lọc TK MK từ TXT"),
-        KeyboardButton("📊 Trạng thái"),
-        KeyboardButton("📥 Tải Hits"),
-        KeyboardButton("📥 Tải Dead"),
-        KeyboardButton("⏹ Dừng check"),
-        KeyboardButton("👤 Admin"),
-        KeyboardButton("📋 Danh sách Service")
-    ]
-    keyboard.add(*buttons)
-    return keyboard
-
-def create_service_keyboard():
-    keyboard = InlineKeyboardMarkup(row_width=2)
-    buttons = []
-    
-    for key, value in SERVICE_ROUTES.items():
-        btn = InlineKeyboardButton(
-            f"{value['icon']} {value['desc']}",
-            callback_data=f"check_{key}"
-        )
-        buttons.append(btn)
-    
-    keyboard.add(*buttons)
-    keyboard.row(
-        InlineKeyboardButton("📥 Hits", callback_data="get_hits"),
-        InlineKeyboardButton("📥 Dead", callback_data="get_dead"),
-        InlineKeyboardButton("⏹ Stop", callback_data="stop_check")
-    )
-    keyboard.row(
-        InlineKeyboardButton("❌ Hủy", callback_data="cancel_check")
-    )
-    return keyboard
-
-def create_admin_keyboard():
-    keyboard = InlineKeyboardMarkup(row_width=2)
-    buttons = [
-        InlineKeyboardButton("👤 Admin: @baohuyno1", url="https://t.me/baohuyno1"),
-        InlineKeyboardButton("📊 Trạng thái", callback_data="admin_status"),
-        InlineKeyboardButton("📥 Hits", callback_data="admin_hits"),
-        InlineKeyboardButton("📥 Dead", callback_data="admin_dead"),
-        InlineKeyboardButton("⏹ Dừng check", callback_data="admin_stop"),
-        InlineKeyboardButton("🗑 Xóa pending", callback_data="admin_clear"),
-        InlineKeyboardButton("📋 Danh sách service", callback_data="admin_services")
-    ]
-    keyboard.add(*buttons)
-    return keyboard
 
 # ========== CHECK ĐƠN ==========
 def check_single_account(chat_id, username, password, service="lienquan"):
@@ -802,7 +805,7 @@ def handle_document(message):
     except Exception as e:
         bot.reply_to(message, f"❌ Lỗi: {e}")
 
-# ========== LỆNH ==========
+# ========== LỆNH /start ==========
 @bot.message_handler(commands=['start'])
 def cmd_start(message):
     if not is_admin(message.chat.id):
@@ -812,7 +815,10 @@ def cmd_start(message):
     hours = uptime.seconds // 3600
     minutes = (uptime.seconds % 3600) // 60
     
-    bot.send_message(message.chat.id, f"""
+    # Gửi tin nhắn kèm keyboard
+    bot.send_message(
+        message.chat.id, 
+        f"""
 🤖 <b>GARENA CHECKER BOT</b>
 👤 Admin: <a href="https://t.me/baohuyno1">@baohuyno1</a>
 ⏱ Uptime: <code>{hours}h {minutes}m</code>
@@ -835,14 +841,18 @@ Nhấn nút <b>"🔍 Lọc TK MK từ TXT"</b>
 📋 <b>SERVICES:</b> {', '.join(SERVICE_ROUTES.keys())}
 
 💡 <b>BOT 24/7 - LUÔN SẴN SÀNG</b>
-""", reply_markup=create_main_keyboard())
+""", 
+        reply_markup=create_main_keyboard()  # Thêm keyboard
+    )
 
 @bot.message_handler(commands=['help'])
 def cmd_help(message):
     if not is_admin(message.chat.id):
         return
     
-    bot.send_message(message.chat.id, f"""
+    bot.send_message(
+        message.chat.id, 
+        f"""
 📌 <b>HƯỚNG DẪN SỬ DỤNG</b>
 
 <b>1. CHECK ĐƠN:</b>
@@ -870,7 +880,9 @@ Nhấn nút <b>"🔍 Lọc TK MK từ TXT"</b>
 
 <b>5. HỖ TRỢ:</b>
 👤 Admin: @baohuyno1
-""", reply_markup=create_main_keyboard())
+""", 
+        reply_markup=create_main_keyboard()
+    )
 
 @bot.message_handler(commands=['loc'])
 def cmd_loc(message):
@@ -969,15 +981,6 @@ def cmd_services(message):
         msg += f"   Route: <code>{value['route']}</code>\n\n"
     bot.send_message(message.chat.id, msg)
 
-# ========== GIỮ BOT 24/7 ==========
-def keep_alive():
-    while True:
-        try:
-            time.sleep(300)
-            print(f"[*] Keep alive ping at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        except:
-            pass
-
 # ========== MAIN ==========
 def main():
     print("=" * 60)
@@ -988,9 +991,6 @@ def main():
     print(f"[*] Services: {len(SERVICE_ROUTES)}")
     print(f"[*] Start time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("=" * 60)
-    
-    # Chạy keep alive
-    threading.Thread(target=keep_alive, daemon=True).start()
     
     try:
         bot.send_message(ADMIN_CHAT_ID, f"""
