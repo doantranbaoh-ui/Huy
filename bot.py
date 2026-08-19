@@ -1,4 +1,4 @@
-# bot.py - GARENA CHECKER BOT - FIX LỖI 409 CONFLICT
+# bot.py - GARENA CHECKER BOT - FIX LỖI bot NOT DEFINED
 import subprocess
 import sys
 import importlib
@@ -42,10 +42,6 @@ DEFAULT_RETRIES = 3
 OUTPUT_HITS = "hits.txt"
 OUTPUT_DEAD = "dead.txt"
 OUTPUT_FILTERED = "filtered_accounts.txt"
-OUTPUT_CHECKED = "checked_accounts.txt"
-
-# File lock để tránh conflict
-LOCK_FILE = "bot.lock"
 
 # ========== DANH SÁCH SERVICE ==========
 SERVICE_ROUTES = {
@@ -94,45 +90,22 @@ pending_accounts = []
 stats = {"total": 0, "checked": 0, "hits": 0, "dead": 0, "errors": 0}
 file_lock = threading.Lock()
 stats_lock = threading.Lock()
-api_cache = {}
-cache_lock = threading.Lock()
 bot_start_time = datetime.now()
-running = True
 
-# ========== TẠO LOCK FILE ==========
-def acquire_lock():
-    """Tạo lock file để tránh nhiều instance"""
-    try:
-        if os.path.exists(LOCK_FILE):
-            # Kiểm tra xem lock file còn hợp lệ không
-            with open(LOCK_FILE, 'r') as f:
-                pid = int(f.read().strip())
-                try:
-                    os.kill(pid, 0)  # Kiểm tra process còn sống
-                    return False  # Process vẫn đang chạy
-                except OSError:
-                    # Process đã chết, xóa lock
-                    os.remove(LOCK_FILE)
-        
-        # Ghi PID vào lock file
-        with open(LOCK_FILE, 'w') as f:
-            f.write(str(os.getpid()))
-        return True
-    except:
-        return True
+# Khởi tạo bot NGAY LẬP TỨC
+bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN, parse_mode="HTML")
 
-def release_lock():
-    """Xóa lock file"""
-    try:
-        if os.path.exists(LOCK_FILE):
-            os.remove(LOCK_FILE)
-    except:
-        pass
+def is_admin(chat_id):
+    return str(chat_id) == str(ADMIN_CHAT_ID)
 
-# ========== LỌC TK MK ==========
+# ========== LỌC TK MK - FIX ==========
 def loc_tk_mk(content):
     accounts = []
     seen = set()
+    
+    if not content:
+        return accounts
+    
     lines = content.split('\n')
     
     for line in lines:
@@ -143,21 +116,29 @@ def loc_tk_mk(content):
         user = None
         pwd = None
         
-        for sep in [':', '|', '/', '\t']:
+        for sep in [':', '|', '/', '\t', ';']:
             if sep in line:
                 parts = line.split(sep, 1)
+                if len(parts) == 2:
+                    user = parts[0].strip()
+                    pwd = parts[1].strip()
+                    break
+        
+        if not user or not pwd:
+            parts = line.split(maxsplit=1)
+            if len(parts) == 2:
                 user = parts[0].strip()
                 pwd = parts[1].strip()
-                break
         
         if user and pwd:
-            user = re.sub(r'[^\w.@-]', '', user)
-            pwd = pwd.strip()
-            if len(user) > 0 and len(pwd) > 0:
-                key = f"{user}:{pwd}"
+            user_clean = re.sub(r'[^\w.@-]', '', user)
+            pwd_clean = pwd.strip()
+            
+            if len(user_clean) > 0 and len(pwd_clean) > 0:
+                key = f"{user_clean}:{pwd_clean}"
                 if key not in seen:
                     seen.add(key)
-                    accounts.append((user, pwd))
+                    accounts.append((user_clean, pwd_clean))
     
     return accounts
 
@@ -220,14 +201,13 @@ def format_hit_dep(username, password, data, service=""):
 """
     
     uid = data.get("uid", data.get("id", "N/A"))
-    name = data.get("name", data.get("nickname", data.get("aov_name", data.get("display_name", "N/A"))))
+    name = data.get("name", data.get("nickname", data.get("aov_name", "N/A")))
     region = data.get("region", data.get("country", "VN"))
-    
     shells = data.get("shells", data.get("so", data.get("coins", 0)))
-    nap_so = data.get("nap_so", data.get("last_recharge", data.get("recharge", "N/A")))
+    nap_so = data.get("nap_so", data.get("last_recharge", "N/A"))
     
-    email = data.get("email", data.get("mail", data.get("email_address", "")))
-    email_verified = data.get("email_verified", data.get("mail_verified", data.get("email_verified", False)))
+    email = data.get("email", data.get("mail", ""))
+    email_verified = data.get("email_verified", data.get("mail_verified", False))
     email_str = "✅ Đã xác thực" if email_verified else "❌ Chưa xác thực"
     if email:
         email_display = f"{email[:3]}***@{email.split('@')[1] if '@' in email else 'gmail.com'}"
@@ -256,14 +236,12 @@ def format_hit_dep(username, password, data, service=""):
     aov_banned = data.get("aov_banned", data.get("banned", data.get("is_banned", "NO")))
     band_str = "🔴 BANNED" if str(aov_banned).upper() in ["YES", "TRUE", "1", "BANNED"] else "🟢 Bình thường"
     
-    last_login = data.get("last_login", data.get("last_login_time", data.get("login_last", "N/A")))
-    created = data.get("created", data.get("tao_gr", data.get("created_at", data.get("register_time", "N/A"))))
-    
+    last_login = data.get("last_login", data.get("last_login_time", "N/A"))
+    created = data.get("created", data.get("tao_gr", data.get("created_at", "N/A")))
     aov_rank = data.get("aov_rank", data.get("rank", data.get("tier", "N/A")))
     aov_level = data.get("aov_level", data.get("level", data.get("lv", 0)))
-    aov_total_skins = data.get("aov_total_skins", data.get("skin", data.get("skins", data.get("total_skins", 0))))
-    aov_total_champs = data.get("aov_total_champs", data.get("hero", data.get("champs", data.get("heroes", 0))))
-    
+    aov_total_skins = data.get("aov_total_skins", data.get("skin", data.get("skins", 0)))
+    aov_total_champs = data.get("aov_total_champs", data.get("hero", data.get("champs", 0)))
     qh = data.get("qh", data.get("quan_he", data.get("friends", 0)))
     cccd = data.get("cccd", data.get("cmnd", data.get("id_card", "No")))
     authen = data.get("authen", data.get("2fa", data.get("two_factor", "No")))
@@ -282,7 +260,6 @@ def format_hit_dep(username, password, data, service=""):
         status_parts.append("Pass")
     
     status_str = " | ".join(status_parts) if status_parts else "Acc thường"
-    
     service_icon = SERVICE_ROUTES.get(service, {}).get("icon", "🎮")
     
     return f"""
@@ -332,19 +309,6 @@ def format_dead_dep(username, password, service=""):
 ╚══════════════════════════════════╝
 """
 
-def format_error_dep(username, password, service=""):
-    service_icon = SERVICE_ROUTES.get(service, {}).get("icon", "🎮")
-    return f"""
-╔══════════════════════════════════╗
-║          ⚠️ ERROR                ║
-╠══════════════════════════════════╣
-║ {service_icon} Service: {service.upper()}
-║ 🔑 {username}:{password}
-║ ────────────────────────────────
-║ ❌ Lỗi khi check
-╚══════════════════════════════════╝
-"""
-
 # ========== TẠO NÚT BẤM ==========
 def create_main_keyboard():
     keyboard = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
@@ -374,7 +338,6 @@ def create_service_keyboard():
         buttons.append(btn)
     
     keyboard.add(*buttons)
-    
     keyboard.row(
         InlineKeyboardButton("📥 Hits", callback_data="get_hits"),
         InlineKeyboardButton("📥 Dead", callback_data="get_dead"),
@@ -383,7 +346,6 @@ def create_service_keyboard():
     keyboard.row(
         InlineKeyboardButton("❌ Hủy", callback_data="cancel_check")
     )
-    
     return keyboard
 
 def create_admin_keyboard():
@@ -395,8 +357,7 @@ def create_admin_keyboard():
         InlineKeyboardButton("📥 Dead", callback_data="admin_dead"),
         InlineKeyboardButton("⏹ Dừng check", callback_data="admin_stop"),
         InlineKeyboardButton("🗑 Xóa pending", callback_data="admin_clear"),
-        InlineKeyboardButton("📋 Danh sách service", callback_data="admin_services"),
-        InlineKeyboardButton("📁 Tải filtered", callback_data="admin_filtered")
+        InlineKeyboardButton("📋 Danh sách service", callback_data="admin_services")
     ]
     keyboard.add(*buttons)
     return keyboard
@@ -420,7 +381,16 @@ def check_single_account(chat_id, username, password, service="lienquan"):
                 f.write(f"{username}:{password}\n")
         bot.send_message(chat_id, format_dead_dep(username, password, service))
     else:
-        bot.send_message(chat_id, format_error_dep(username, password, service))
+        bot.send_message(chat_id, f"""
+╔══════════════════════════════════╗
+║          ⚠️ ERROR                ║
+╠══════════════════════════════════╣
+║ {SERVICE_ROUTES.get(service, {}).get('icon', '🎮')} Service: {service.upper()}
+║ 🔑 {username}:{password}
+║ ────────────────────────────────
+║ ❌ Lỗi khi check
+╚══════════════════════════════════╝
+""")
 
 # ========== CHECK NHIỀU ACCOUNT ==========
 def check_accounts_batch(chat_id, accounts, service):
@@ -612,14 +582,6 @@ def handle_callback(call):
             msg += f"{value['icon']} <b>{value['desc']}</b>\n"
             msg += f"   Route: <code>{value['route']}</code>\n\n"
         bot.send_message(call.message.chat.id, msg)
-        bot.answer_callback_query(call.id)
-    
-    elif data == "admin_filtered":
-        try:
-            with open(OUTPUT_FILTERED, 'rb') as f:
-                bot.send_document(call.message.chat.id, f, caption="📁 filtered_accounts.txt")
-        except:
-            bot.send_message(call.message.chat.id, "❌ Chưa có file filtered!")
         bot.answer_callback_query(call.id)
     
     elif data == "get_hits":
@@ -1018,29 +980,14 @@ def keep_alive():
 
 # ========== MAIN ==========
 def main():
-    # Kiểm tra lock file
-    if not acquire_lock():
-        print("[!] Bot instance khác đang chạy! Thoát...")
-        sys.exit(1)
-    
     print("=" * 60)
     print("    GARENA CHECKER BOT - 24/7")
     print("    ADMIN: @baohuyno1")
     print("=" * 60)
-    print(f"[*] PID: {os.getpid()}")
     print(f"[*] Threads: {DEFAULT_THREADS}")
     print(f"[*] Services: {len(SERVICE_ROUTES)}")
     print(f"[*] Start time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("=" * 60)
-    
-    # Xử lý tín hiệu dừng
-    def signal_handler(sig, frame):
-        print("\n[!] Đang dừng bot...")
-        release_lock()
-        sys.exit(0)
-    
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
     
     # Chạy keep alive
     threading.Thread(target=keep_alive, daemon=True).start()
@@ -1062,10 +1009,9 @@ def main():
     
     print("[*] Bot đang chạy 24/7...")
     
-    # Sử dụng polling với timeout ngắn và xử lý lỗi 409
     while True:
         try:
-            bot.polling(none_stop=True, interval=1, timeout=30, long_polling_timeout=30)
+            bot.polling(none_stop=True, interval=1, timeout=30)
         except Exception as e:
             error_msg = str(e)
             if "409" in error_msg or "Conflict" in error_msg:
@@ -1075,12 +1021,10 @@ def main():
             else:
                 print(f"[!] Lỗi: {e}")
                 time.sleep(5)
-                continue
 
 if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
         print("\n[!] Bot dừng!")
-        release_lock()
         sys.exit(0)
