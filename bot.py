@@ -1,9 +1,11 @@
-# bot.py - Garena Checker Bot - Sửa lỗi Telegram API
+# bot.py - Garena Checker Bot - Full chức năng lọc tk mk ra txt
+# Token: 6367532329:AAEem2DziNWKZtFrA8goj5PGTOI4MVT7IKA
+# Admin: 5736655322
+# Chạy trên Render không cần requirements.txt
 import subprocess
 import sys
 import importlib
 
-# ========== TỰ ĐỘNG CÀI PACKAGES ==========
 def install_package(package_name):
     try:
         importlib.import_module(package_name)
@@ -31,34 +33,8 @@ from colorama import init, Fore, Style
 init(autoreset=True)
 
 # ========== CẤU HÌNH ==========
-# TOKEN PHẢI ĐÚNG ĐỊNH DẠNG: 123456789:ABC-DEF...
-TELEGRAM_BOT_TOKEN = "6367532329:AAFXK16_AaÂvANEcrqpOhb1ỉ6vOadxJ6k4U"
+TELEGRAM_BOT_TOKEN = "6367532329:AAEem2DziNWKZtFrA8goj5PGTOI4MVT7IKA"
 ADMIN_CHAT_ID = "5736655322"
-
-# ========== KIỂM TRA TOKEN ==========
-def validate_token(token):
-    """Kiểm tra token hợp lệ"""
-    if not token or ":" not in token:
-        return False
-    parts = token.split(":")
-    if len(parts) != 2:
-        return False
-    try:
-        int(parts[0])
-    except ValueError:
-        return False
-    return len(parts[1]) > 30
-
-# Nếu token không hợp lệ, thử bỏ ký tự đặc biệt
-if not validate_token(TELEGRAM_BOT_TOKEN):
-    print("[!] Token không hợp lệ, đang thử làm sạch...")
-    # Loại bỏ ký tự đặc biệt
-    cleaned_token = re.sub(r'[^\w:.-]', '', TELEGRAM_BOT_TOKEN)
-    if validate_token(cleaned_token):
-        TELEGRAM_BOT_TOKEN = cleaned_token
-        print(f"[+] Token đã làm sạch: {TELEGRAM_BOT_TOKEN[:10]}...")
-    else:
-        print("[!] Token vẫn không hợp lệ!")
 
 API_BASE = "https://lol.nhatminh301.com"
 API_USERNAME = "thaituduc"
@@ -105,13 +81,7 @@ stats = {
     "start_time": None
 }
 
-# ========== KHỞI TẠO BOT ==========
-try:
-    bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN, parse_mode="HTML")
-    print(f"[+] Bot khởi tạo thành công với token: {TELEGRAM_BOT_TOKEN[:10]}...")
-except Exception as e:
-    print(f"[!] Lỗi khởi tạo bot: {e}")
-    sys.exit(1)
+bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN, parse_mode="HTML")
 
 def print_info(msg):
     print(f"[*] {msg}")
@@ -620,14 +590,8 @@ def cmd_list(message):
         return
     
     try:
-        with open(FILTERED_FILE, 'r', encoding='utf-8') as f:
-            content = f.read()
-        
-        if content:
-            with open(FILTERED_FILE, 'rb') as f:
-                bot.send_document(message.chat.id, f, caption="📁 filtered_accounts.txt")
-        else:
-            bot.reply_to(message, "❌ Chưa có file!")
+        with open(FILTERED_FILE, 'rb') as f:
+            bot.send_document(message.chat.id, f, caption="📁 filtered_accounts.txt")
     except FileNotFoundError:
         bot.reply_to(message, "❌ Chưa có file!")
 
@@ -655,7 +619,6 @@ def cmd_status(message):
 ✅ Đã check: {stats['checked']}/{stats['total']}
 🔴 Hits: {stats['hits']}
 ❌ Dead: {stats['dead']}
-⚡ Tốc độ: {stats['checked']/elapsed:.2f} acc/s
 """
     bot.send_message(message.chat.id, msg)
 
@@ -772,12 +735,13 @@ def handle_text(message):
 def main():
     print("=" * 60)
     print("    GARENA CHECKER BOT")
+    print("    Token: 6367532329:AAEe...IKA")
+    print("    Admin: 5736655322")
     print("=" * 60)
     
-    # KHÔNG dùng remove_webhook() - bỏ qua lỗi 404
-    # Thử gửi tin nhắn khởi động
     try:
         bot.send_message(ADMIN_CHAT_ID, "🤖 Bot đã khởi động!\nDùng /start để xem menu")
+        print("[+] Đã gửi tin nhắn khởi động")
     except Exception as e:
         print(f"[!] Không gửi được tin nhắn: {e}")
     
