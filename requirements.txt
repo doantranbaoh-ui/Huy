@@ -1,34 +1,4 @@
-# requirements.txt - Bot Telegram Check/Scan/Crack 24/7
-# Cài đặt: pip install -r requirements.txt
-
-# Telegram Bot
-telethon>=1.36.0
-cryptg>=0.4.0
-
-# Web Server (Giữ bot online 24/7)
-flask>=3.0.0
-gunicorn>=21.2.0
-
-# HTTP Requests
-requests>=2.31.0
-aiohttp>=3.9.0
-aiofiles>=23.2.0
-
-# HTML Parsing (Scan)
-beautifulsoup4>=4.12.0
-
-# DNS (Scan)
-dnspython>=2.6.0
-
-# Async
-asyncio-throttle>=1.0.0
-
-# Encoding
-chardet>=5.2.0
-
-# Colorama (Console)
-colorama>=0.4.6
-
-# SSL
-pyOpenSSL>=23.3.0
-certifi>=2023.11.0
+requests==2.31.0
+colorama==0.4.6
+pyTelegramBotAPI==4.14.0
+flask==3.0.0
