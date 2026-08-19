@@ -1,4 +1,4 @@
-# bot.py - GARENA CHECKER BOT - CHI LAY USER:PASS CHUAN
+# bot.py - GARENA CHECKER BOT - LOC TK MK CHUAN
 import subprocess
 import sys
 import importlib
@@ -43,7 +43,7 @@ class RenderHandler(BaseHTTPRequestHandler):
 <h1>Garena Checker Bot</h1>
 <p>Status: <b style="color:#00ff00;">ALIVE</b></p>
 <p>Admin: <a href="https://t.me/baohuyno1" style="color:#00ff00;">@baohuyno1</a></p>
-<p>Version: <b>2.3 - CHI LAY USER:PASS</b></p>
+<p>Version: <b>2.4 - LOC TK MK CHUAN</b></p>
 </body>
 </html>"""
             self.wfile.write(html.encode('utf-8'))
@@ -237,7 +237,7 @@ def create_admin_keyboard():
 def loc_tk_mk_clean(content):
     """
     Lọc chỉ lấy định dạng user:pass
-    Giữ nguyên định dạng như: ZzkeconzZ:thanhoppa2001
+    Bỏ qua tất cả thông tin khác
     """
     accounts = []
     seen = set()
@@ -260,7 +260,7 @@ def loc_tk_mk_clean(content):
             continue
         
         # Bỏ qua dòng quá dài hoặc quá ngắn
-        if len(line) < 3 or len(line) > 200:
+        if len(line) < 3 or len(line) > 500:
             stats_loc["invalid"] += 1
             continue
         
@@ -273,7 +273,7 @@ def loc_tk_mk_clean(content):
                 
                 # Kiểm tra user và pass hợp lệ
                 if user and pwd and len(user) >= 2 and len(pwd) >= 1:
-                    # Giữ nguyên user và pass, không thay đổi
+                    # Giữ nguyên user và pass
                     key = f"{user}:{pwd}"
                     if key not in seen:
                         seen.add(key)
@@ -287,58 +287,6 @@ def loc_tk_mk_clean(content):
                 stats_loc["invalid"] += 1
         else:
             stats_loc["invalid"] += 1
-    
-    return accounts, stats_loc
-
-# ========== HÀM LỌC TỪ FILE LỚN ==========
-def loc_file_lon(file_path):
-    """
-    Lọc file lớn từng dòng một
-    """
-    accounts = []
-    seen = set()
-    stats_loc = {
-        "total_lines": 0,
-        "valid": 0,
-        "invalid": 0,
-        "duplicate": 0
-    }
-    
-    try:
-        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-            for line in f:
-                stats_loc["total_lines"] += 1
-                line = line.strip()
-                if not line:
-                    continue
-                
-                if len(line) < 3 or len(line) > 200:
-                    stats_loc["invalid"] += 1
-                    continue
-                
-                # Tìm dấu :
-                if ':' in line:
-                    parts = line.split(':', 1)
-                    if len(parts) == 2:
-                        user = parts[0].strip()
-                        pwd = parts[1].strip()
-                        
-                        if user and pwd and len(user) >= 2 and len(pwd) >= 1:
-                            key = f"{user}:{pwd}"
-                            if key not in seen:
-                                seen.add(key)
-                                accounts.append((user, pwd))
-                                stats_loc["valid"] += 1
-                            else:
-                                stats_loc["duplicate"] += 1
-                        else:
-                            stats_loc["invalid"] += 1
-                    else:
-                        stats_loc["invalid"] += 1
-                else:
-                    stats_loc["invalid"] += 1
-    except Exception as e:
-        print(f"[!] Loi doc file: {e}")
     
     return accounts, stats_loc
 
@@ -404,7 +352,6 @@ def save_result(username, password, status, service=""):
             with open(OUTPUT_ERROR, 'a', encoding='utf-8') as f:
                 f.write(f"{username}:{password}\n")
         
-        # Lưu kết quả chi tiết
         with open(OUTPUT_RESULT, 'a', encoding='utf-8') as f:
             f.write(f"{username}:{password}|{status}|{service}\n")
 
@@ -487,7 +434,6 @@ def check_batch(chat_id, accounts, service):
             else:
                 stats["errors"] += 1
             
-            # Cập nhật tiến độ
             if stats["checked"] % 20 == 0:
                 try:
                     elapsed = time.time() - stats["start_time"]
@@ -527,7 +473,6 @@ def check_batch(chat_id, accounts, service):
 """
     safe_send_message(chat_id, result_msg)
     
-    # Gửi file kết quả
     if stats["hits"] > 0 and os.path.exists(OUTPUT_HITS):
         with open(OUTPUT_HITS, 'rb') as f:
             try:
@@ -658,7 +603,6 @@ Gui truc tiep <code>user:pass</code>
 VD:
 <code>ZzkeconzZ:thanhoppa2001</code>
 <code>anhduckim1:kimanhduc1</code>
-<code>trannamtrungzzz:cuong2001</code>
 """)
         return
     
@@ -674,6 +618,7 @@ Bot se tu dong loc va check!
         safe_send_message(message.chat.id, """
 🔍 <b>LOC TK MK TU TXT</b>
 Gui file .txt de loc chi lay <code>user:pass</code>
+Bo qua tat ca thong tin khac
 """)
         return
     
@@ -766,7 +711,6 @@ VD:
     
     pending_accounts = accounts
     
-    # Lưu clean
     with open(OUTPUT_CLEAN, 'w', encoding='utf-8') as f:
         for user, pwd in accounts:
             f.write(f"{user}:{pwd}\n")
@@ -805,7 +749,6 @@ def handle_document(message):
         file_info = bot.get_file(message.document.file_id)
         content = bot.download_file(file_info.file_path).decode('utf-8', errors='ignore')
         
-        # Lọc chỉ lấy user:pass
         accounts, stats_loc = loc_tk_mk_clean(content)
         
         if not accounts:
@@ -814,7 +757,6 @@ def handle_document(message):
         
         pending_accounts = accounts
         
-        # Lưu file clean
         with open(OUTPUT_CLEAN, 'w', encoding='utf-8') as f:
             for user, pwd in accounts:
                 f.write(f"{user}:{pwd}\n")
@@ -854,7 +796,7 @@ def cmd_start(message):
     bot.send_message(
         message.chat.id,
         f"""
-🤖 <b>GARENA CHECKER BOT V2.3</b>
+🤖 <b>GARENA CHECKER BOT V2.4</b>
 👤 Admin: <a href="https://t.me/baohuyno1">@baohuyno1</a>
 ⏱ Uptime: <code>{hours}h {minutes}m</code>
 ⏱ Delay API: <code>{API_DELAY}s</code>
@@ -873,13 +815,13 @@ Gui file .txt chua danh sach
 Nhan nut <b>"🔍 Loc TK MK tu TXT"</b>
 → Gui file .txt de loc
 
-📌 <b>DINH DANG:</b>
+📌 <b>CHI LAY DINH DANG:</b>
 <code>user:pass</code>
+Bo qua tat ca thong tin khac
 
 VD:
 <code>ZzkeconzZ:thanhoppa2001</code>
 <code>anhduckim1:kimanhduc1</code>
-<code>trannamtrungzzz:cuong2001</code>
 
 ⚡ <b>THREADS:</b> {DEFAULT_THREADS}
 📋 <b>SERVICES:</b> {', '.join(SERVICE_ROUTES.keys())}
@@ -889,109 +831,10 @@ VD:
         reply_markup=create_main_keyboard()
     )
 
-# ========== LỆNH /help ==========
-@bot.message_handler(commands=['help'])
-def cmd_help(message):
-    if not is_admin(message.chat.id):
-        return
-    
-    safe_send_message(
-        message.chat.id,
-        f"""
-📌 <b>HUONG DAN SU DUNG</b>
-
-<b>1. CHECK DON:</b>
-Gui truc tiep: <code>user:pass</code>
-→ Chon service
-
-<b>2. CHECK HANG LOAT:</b>
-Gui file .txt hoac nhieu accounts
-→ Chon service
-
-<b>3. LOC TK MK:</b>
-Nhan nut <b>"🔍 Loc TK MK tu TXT"</b>
-→ Gui file .txt
-
-<b>4. CAC LENH:</b>
-<code>/start</code> - Khoi dong bot
-<code>/help</code> - Huong dan
-<code>/status</code> - Xem trang thai
-<code>/stop</code> - Dung check
-<code>/hits</code> - Tai hits.txt
-<code>/dead</code> - Tai dead.txt
-<code>/clear</code> - Xoa pending
-
-<b>5. HO TRO:</b>
-👤 Admin: @baohuyno1
-""",
-        reply_markup=create_main_keyboard()
-    )
-
-@bot.message_handler(commands=['status'])
-def cmd_status(message):
-    if not is_admin(message.chat.id):
-        return
-    
-    if checking:
-        elapsed = time.time() - stats.get("start_time", time.time())
-        speed = stats["checked"] / elapsed if elapsed > 0 else 0
-        safe_send_message(message.chat.id, f"""
-📊 <b>TRANG THAI</b>
-🔄 Dang check: <b>YES</b>
-✅ Checked: <code>{stats['checked']}/{stats['total']}</code>
-🔴 HIT: <code>{stats['hits']}</code>
-❌ DEAD: <code>{stats['dead']}</code>
-⚠️ Errors: <code>{stats['errors']}</code>
-⚡ Speed: <code>{speed:.1f}</code> acc/s
-""")
-    else:
-        safe_send_message(message.chat.id, "💤 Bot dang ranh")
-
-@bot.message_handler(commands=['stop'])
-def cmd_stop(message):
-    if not is_admin(message.chat.id):
-        return
-    
-    global checking
-    stop_event.set()
-    checking = False
-    safe_send_message(message.chat.id, "🛑 Da dung check!")
-
-@bot.message_handler(commands=['hits'])
-def cmd_hits(message):
-    if not is_admin(message.chat.id):
-        return
-    
-    try:
-        with open(OUTPUT_HITS, 'rb') as f:
-            bot.send_document(message.chat.id, f, caption="✅ hits.txt")
-    except:
-        safe_send_message(message.chat.id, "❌ Chua co hits!")
-
-@bot.message_handler(commands=['dead'])
-def cmd_dead(message):
-    if not is_admin(message.chat.id):
-        return
-    
-    try:
-        with open(OUTPUT_DEAD, 'rb') as f:
-            bot.send_document(message.chat.id, f, caption="❌ dead.txt")
-    except:
-        safe_send_message(message.chat.id, "❌ Chua co dead!")
-
-@bot.message_handler(commands=['clear'])
-def cmd_clear(message):
-    if not is_admin(message.chat.id):
-        return
-    
-    global pending_accounts
-    pending_accounts = []
-    safe_send_message(message.chat.id, "✅ Da xoa danh sach pending!")
-
 # ========== MAIN ==========
 def main():
     print("=" * 60)
-    print("    GARENA CHECKER BOT V2.3")
+    print("    GARENA CHECKER BOT V2.4")
     print("    ADMIN: @baohuyno1")
     print("    CHI LAY DINH DANG USER:PASS")
     print("=" * 60)
@@ -1002,12 +845,9 @@ def main():
     
     try:
         bot.send_message(ADMIN_CHAT_ID, """
-🤖 Bot da khoi dong V2.3!
-
-📌 CHI LAY DINH DANG: user:pass
-VD: ZzkeconzZ:thanhoppa2001
-
-👤 Admin: @baohuyno1
+🤖 Bot da khoi dong V2.4!
+CHI LAY DINH DANG: user:pass
+Bo qua tat ca thong tin khac
 """)
     except:
         pass
