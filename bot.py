@@ -1,6 +1,6 @@
-# bot.py - GARENA CHECKER BOT V4.6 - CHECK NHIỀU ACC
+# bot.py - GARENA CHECKER BOT V4.7 - CHECKMULTI FIX
 # Tác giả: palofsc
-# Mục đích: Bot Telegram check acc với lệnh /checkmulti
+# Mục đích: Bot Telegram check acc với /checkmulti hỗ trợ nhiều dòng
 
 import subprocess
 import sys
@@ -47,10 +47,10 @@ class RenderHandler(BaseHTTPRequestHandler):
 <html>
 <head><title>Garena Checker Bot</title></head>
 <body style="font-family:Arial;text-align:center;padding:50px;background:#0a0a0a;color:#00ff00;">
-<h1>Garena Checker Bot V4.6</h1>
+<h1>Garena Checker Bot V4.7</h1>
 <p>Status: <b style="color:#00ff00;">ALIVE</b></p>
 <p>Admin: <a href="https://t.me/baohuyno1" style="color:#00ff00;">@baohuyno1</a></p>
-<p>Version: <b>4.6 - CHECK MULTI</b></p>
+<p>Version: <b>4.7 - CHECKMULTI FIX</b></p>
 </body>
 </html>"""
             self.wfile.write(html.encode('utf-8'))
@@ -889,63 +889,21 @@ def cmd_start(message):
         proxy_count = len(proxy_list)
     
     safe_send_message(message.chat.id, f"""
-🤖 <b>GARENA CHECKER BOT V4.6</b>
+🤖 <b>GARENA CHECKER BOT V4.7</b>
 👤 Admin: @baohuyno1
 🌐 Proxy: {proxy_count}
 
 📌 <b>LENH SU DUNG:</b>
 
 <b>CHECK TAI KHOAN:</b>
-/check user:pass - Check 1 acc (Lien Quan)
-/check user:pass service - Check theo service
+/check user:pass - Check 1 acc
+/check user:pass service - Check 1 acc theo service
 /checkmulti user1:pass1,user2:pass2 - Check nhieu acc
 /checkmulti user1:pass1,user2:pass2 service - Check nhieu acc theo service
 /checkall - Check tat ca acc dang cho
 
-<b>LOAD PROXY:</b>
-/proxy - Huong dan load proxy
-
-<b>XEM KET QUA:</b>
-/hits - File hits
-/dead - File dead
-/loc - File loc
-/report - File report
-
-<b>QUAN LY:</b>
-/status - Trang thai
-/stop - Dung check
-/services - Danh sach service
-
 <b>SERVICE:</b>
 lienquan, miniworld, blockmango, deltaforce, hotmail, fc, fullpack
-""")
-
-@bot.message_handler(commands=['help'])
-def cmd_help(message):
-    """Lệnh /help"""
-    safe_send_message(message.chat.id, """
-📌 <b>HUONG DAN SU DUNG:</b>
-
-<b>1. CHECK 1 ACC:</b>
-/check user:pass
-/check user:pass lienquan
-
-<b>2. CHECK NHIEU ACC:</b>
-/checkmulti user1:pass1,user2:pass2
-/checkmulti user1:pass1,user2:pass2 lienquan
-
-<b>3. CHECK NHIEU ACC TU FILE:</b>
-Gui file .txt chua danh sach user:pass
-Bot tu dong loc va check
-
-<b>4. LOAD PROXY:</b>
-/proxy - Xem huong dan
-Gui file .txt chua ip:port
-
-<b>5. XEM KET QUA:</b>
-/hits - File hits
-/dead - File dead
-/report - File report
 """)
 
 @bot.message_handler(commands=['check'])
@@ -981,37 +939,61 @@ Cac service: {', '.join(SERVICE_ROUTES.keys())}
 
 @bot.message_handler(commands=['checkmulti'])
 def cmd_checkmulti(message):
-    """Lệnh /checkmulti user1:pass1,user2:pass2 [service]"""
-    parts = message.text.split()
-    if len(parts) < 2:
+    """Lệnh /checkmulti - Hỗ trợ nhiều dòng và dấu phẩy"""
+    # Lấy toàn bộ text sau lệnh /checkmulti
+    text = message.text.strip()
+    
+    # Bỏ phần /checkmulti
+    if text.startswith('/checkmulti'):
+        text = text[len('/checkmulti'):].strip()
+    
+    if not text:
         safe_send_message(message.chat.id, """
 ❌ CACH DUNG:
-/checkmulti user1:pass1,user2:pass2
-/checkmulti user1:pass1,user2:pass2 lienquan
+/checkmulti user1:pass1
+user2:pass2
+user3:pass3
 
-<b>Ví dụ:</b>
+Hoặc:
 /checkmulti user1:pass1,user2:pass2,user3:pass3
+
+Hoặc:
 /checkmulti user1:pass1,user2:pass2 lienquan
 """)
         return
     
-    accounts_str = parts[1]
-    service = parts[2] if len(parts) > 2 else "lienquan"
+    # Tách service nếu có (từ cuối cùng nếu là service hợp lệ)
+    lines = text.split('\n')
+    service = "lienquan"
     
-    if service not in SERVICE_ROUTES:
-        safe_send_message(message.chat.id, f"""
-❌ SERVICE KHONG HOP LE!
-Cac service: {', '.join(SERVICE_ROUTES.keys())}
-""")
-        return
+    # Kiểm tra dòng cuối có phải service không
+    if lines:
+        last_line = lines[-1].strip()
+        last_word = last_line.split()[-1] if last_line.split() else ""
+        
+        # Nếu dòng cuối chỉ có 1 từ và là service hợp lệ
+        if last_word in SERVICE_ROUTES and len(last_line.split()) == 1:
+            service = last_word
+            lines = lines[:-1]
+        elif last_word in SERVICE_ROUTES and len(last_line.split()) > 1:
+            # Service nằm cuối dòng có acc
+            service = last_word
+            lines[-1] = last_line.rsplit(last_word, 1)[0].strip()
     
-    # Tách nhiều acc bằng dấu phẩy
-    accounts_input = accounts_str.replace(',', '\n')
+    # Gộp tất cả dòng thành 1 chuỗi
+    accounts_input = '\n'.join(lines)
+    
+    # Thay dấu phẩy bằng xuống dòng
+    accounts_input = accounts_input.replace(',', '\n')
     
     accounts, stats_loc = loc_tk_mk_only(accounts_input)
     
     if not accounts:
-        safe_send_message(message.chat.id, "❌ Khong tim thay acc hop le! Dung format: user1:pass1,user2:pass2")
+        safe_send_message(message.chat.id, """
+❌ KHONG TIM THAY ACC HOP LE!
+Format: user:pass
+Moi acc cach nhau boi dau phay hoac xuong dong
+""")
         return
     
     total = len(accounts)
@@ -1037,7 +1019,7 @@ def cmd_checkall(message):
         pending_accounts[chat_id] = []
         threading.Thread(target=check_all_services, args=(chat_id, accounts)).start()
     else:
-        safe_send_message(chat_id, "❌ Khong co acc nao dang cho! Gui file .txt hoac dung /checkmulti")
+        safe_send_message(chat_id, "❌ Khong co acc nao dang cho!")
 
 @bot.message_handler(commands=['proxy'])
 def cmd_proxy(message):
@@ -1051,10 +1033,6 @@ def cmd_proxy(message):
 ip:port
 hoặc
 ip:port:user:pass
-
-<b>Ví dụ:</b>
-192.168.1.1:8080
-192.168.1.2:8080:user123:pass456
 """)
 
 @bot.message_handler(commands=['status'])
@@ -1257,7 +1235,7 @@ Preview (20 dong dau):
 def main():
     """Hàm chính khởi động bot"""
     print("=" * 60)
-    print("    GARENA CHECKER BOT V4.6 - CHECK MULTI")
+    print("    GARENA CHECKER BOT V4.7 - CHECKMULTI FIX")
     print("    ADMIN: @baohuyno1")
     print("    AI CUNG DUNG DUOC")
     print("=" * 60)
