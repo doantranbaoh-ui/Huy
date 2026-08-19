@@ -1,7 +1,3 @@
-# bot.py - GARENA CHECKER BOT V4.8 - CHECK FIX ĐA ĐỊNH DẠNG
-# Tác giả: palofsc
-# Mục đích: Bot Telegram check acc hỗ trợ | hoặc :
-
 import subprocess
 import sys
 import importlib
@@ -83,6 +79,11 @@ threading_module.Thread(target=start_render_server, daemon=True).start()
 TELEGRAM_BOT_TOKEN = "6367532329:AAEem2DziNWKZtFrA8goj5PGTOI4MVT7IKA"
 ADMIN_CHAT_ID = "5736655322"
 ADMIN_USERNAME = "baohuyno1"
+
+# Kênh bắt buộc phải tham gia
+REQUIRED_CHANNEL = "@hakiiosvip"
+REQUIRED_CHANNEL_ID = "@hakiiosvip"
+REQUIRED_CHANNEL_URL = "https://t.me/hakiiosvip"
 
 API_BASE = "https://lol.nhatminh301.com"
 API_USERNAME = "thaituduc"
@@ -169,6 +170,96 @@ cache_results = {}
 cache_lock = threading.Lock()
 
 bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN, parse_mode="HTML")
+
+# ========== KIỂM TRA THÀNH VIÊN KÊNH ==========
+def is_user_member(user_id):
+    """Kiểm tra user có tham gia kênh bắt buộc không"""
+    try:
+        chat_member = bot.get_chat_member(REQUIRED_CHANNEL_ID, user_id)
+        status = chat_member.status
+        if status in ['member', 'administrator', 'creator']:
+            return True
+        return False
+    except Exception as e:
+        print(f"[!] Loi kiem tra thanh vien: {e}")
+        return False
+
+def check_membership(message):
+    """Kiểm tra và gửi thông báo yêu cầu tham gia kênh"""
+    user_id = message.from_user.id
+    if is_user_member(user_id):
+        return True
+    
+    # Tạo nút bấm tham gia kênh
+    markup = telebot.types.InlineKeyboardMarkup()
+    join_button = telebot.types.InlineKeyboardButton(
+        text="📢 THAM GIA KÊNH BẮT BUỘC",
+        url=REQUIRED_CHANNEL_URL
+    )
+    check_button = telebot.types.InlineKeyboardButton(
+        text="✅ TÔI ĐÃ THAM GIA",
+        callback_data="check_join"
+    )
+    markup.add(join_button)
+    markup.add(check_button)
+    
+    safe_send_message(
+        message.chat.id,
+        f"""
+🔒 <b>BẠN CHƯA THAM GIA KÊNH BẮT BUỘC!</b>
+
+📢 Vui lòng tham gia kênh sau để sử dụng bot:
+👉 <a href="{REQUIRED_CHANNEL_URL}"><b>{REQUIRED_CHANNEL}</b></a>
+
+Sau khi tham gia, bấm nút bên dưới để xác nhận!
+""",
+        parse_mode="HTML"
+    )
+    
+    try:
+        bot.send_message(message.chat.id, "👇 Xác nhận sau khi tham gia:", reply_markup=markup)
+    except:
+        pass
+    
+    return False
+
+@bot.callback_query_handler(func=lambda call: call.data == "check_join")
+def callback_check_join(call):
+    """Xử lý nút xác nhận đã tham gia kênh"""
+    user_id = call.from_user.id
+    
+    if is_user_member(user_id):
+        bot.answer_callback_query(call.id, "✅ Xác nhận thành công! Bạn có thể sử dụng bot.")
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+        safe_send_message(
+            call.message.chat.id,
+            f"""
+✅ <b>XÁC NHẬN THÀNH CÔNG!</b>
+
+Chào mừng bạn đến với bot!
+Dùng /start để xem hướng dẫn sử dụng.
+"""
+        )
+    else:
+        bot.answer_callback_query(call.id, "❌ Bạn chưa tham gia kênh!", show_alert=True)
+        safe_send_message(
+            call.message.chat.id,
+            f"""
+❌ <b>BẠN CHƯA THAM GIA KÊNH!</b>
+
+Vui lòng tham gia: <a href="{REQUIRED_CHANNEL_URL}"><b>{REQUIRED_CHANNEL}</b></a>
+Sau đó bấm nút xác nhận lại.
+"""
+        )
+
+# ========== DECORATOR KIỂM TRA THÀNH VIÊN ==========
+def require_membership(func):
+    """Decorator yêu cầu phải là thành viên kênh"""
+    def wrapper(message, *args, **kwargs):
+        if check_membership(message):
+            return func(message, *args, **kwargs)
+        return None
+    return wrapper
 
 # ========== HÀM GỬI TIN NHẮN ==========
 def safe_send_message(chat_id, text, parse_mode="HTML"):
@@ -620,45 +711,72 @@ def format_hit_info(username, password, service, result_data):
     service_desc = SERVICE_ROUTES.get(service, {}).get("desc", service)
     icon = SERVICE_ROUTES.get(service, {}).get("icon", "✅")
     
-    line = "─" * 30
+    line = "━━━━━━━━━━━━━━━━━━━━━━"
     
-    msg = f"""
-{icon} <b>HIT - {service_desc}</b>
-{line}
-🔑 <b>Account:</b> <code>{username}:{password}</code>
-"""
+    msg = f"{line}\n{icon} <b>HIT - {service_desc}</b>\n{line}\n"
+    msg += f"🔑 <b>Account:</b> <code>{username}:{password}</code>\n"
     
     if isinstance(result_data, dict):
-        display_fields = [
-            "uid", "region", "shells", "email_verified", "mobile_bound",
-            "fb_linked", "account_secured", "password_set",
-            "aov_name", "aov_rank", "aov_level", "aov_banned", "aov_total_skins"
-        ]
-        
-        skip_fields = ["result", "_is_hit", "_raw_response", "_error", "status", "success", "tk", "mk"]
+        # Map field names to labels with icons
+        field_map = {
+            "uid": ("👤 UID", "uid"),
+            "name": ("👤 Name", "name"),
+            "nickname": ("👤 Nickname", "nickname"),
+            "region": ("🌐 Region", "region"),
+            "shells": ("💰 Shells", "shells"),
+            "so": ("💲 Sò", "so"),
+            "nap_so": ("💰 Nạp sò", "nap_so"),
+            "email": ("📧 Email", "email"),
+            "email_verified": ("📧 Email Verified", "email_verified"),
+            "phone": ("📱 SĐT", "phone"),
+            "sdt": ("📱 SĐT", "sdt"),
+            "mobile_bound": ("📱 Mobile Bound", "mobile_bound"),
+            "fb": ("🔗 FB", "fb"),
+            "fb_linked": ("🔗 FB Linked", "fb_linked"),
+            "password_set": ("🛡 PASS", "password_set"),
+            "account_secured": ("🛡 Account Secured", "account_secured"),
+            "banned": ("🚫 BAND", "banned"),
+            "ban": ("🚫 BAND", "ban"),
+            "last_login": ("⏰ Login cuối", "last_login"),
+            "created_at": ("📅 Tạo GR", "created_at"),
+            "server": ("🖥 Server", "server"),
+            "aov_name": ("🔥 NAME", "aov_name"),
+            "aov_rank": ("👑 RANK", "aov_rank"),
+            "aov_level": ("✨ LEVEL", "aov_level"),
+            "aov_total_skins": ("💎 SKIN", "aov_total_skins"),
+            "aov_total_heroes": ("💪 HERO", "aov_total_heroes"),
+            "aov_total_relationships": ("⚡️ QH", "aov_total_relationships"),
+            "cccd": ("📄 CCCD", "cccd"),
+            "authen": ("🛡 Authen", "authen"),
+            "ss_4": ("✦ SS(4)", "ss_4"),
+            "anime_1": ("✦ Anime(1)", "anime_1"),
+            "tinh_trang": ("📋 Tình Trạng", "tinh_trang"),
+            "status_account": ("📋 Tình Trạng", "status_account")
+        }
         
         info_lines = []
         
-        for field in display_fields:
-            if field in result_data and result_data[field] is not None and result_data[field] != "":
+        # Process known fields in order
+        for key, (label, field) in field_map.items():
+            if field in result_data and result_data[field] is not None and result_data[field] != "" and result_data[field] != "N/A":
                 value = result_data[field]
-                label = field.replace("_", " ").title()
-                field_icon = get_field_icon(field)
-                info_lines.append(f"{field_icon} <b>{label}:</b> <code>{value}</code>")
+                info_lines.append(f"{label}: {value}")
+        
+        # Process any remaining fields
+        skip_fields = set(field_map.keys())
+        skip_fields.update(["result", "_is_hit", "_raw_response", "_error", "status", "success", "tk", "mk", "data", "message"])
         
         for key, value in result_data.items():
-            if key not in display_fields and key not in skip_fields and value is not None and value != "" and value != {} and value != []:
+            if key not in skip_fields and value is not None and value != "" and value != {} and value != []:
                 if isinstance(value, (str, int, float)):
                     label = key.replace("_", " ").title()
-                    field_icon = get_field_icon(key)
-                    info_lines.append(f"{field_icon} <b>{label}:</b> <code>{value}</code>")
+                    info_lines.append(f"▫️ {label}: {value}")
                 elif isinstance(value, dict):
                     for sub_key, sub_value in value.items():
                         if sub_value is not None and sub_value != "" and sub_value != {} and sub_value != []:
                             if isinstance(sub_value, (str, int, float)):
                                 sub_label = sub_key.replace("_", " ").title()
-                                sub_icon = get_field_icon(sub_key)
-                                info_lines.append(f"{sub_icon} <b>{sub_label}:</b> <code>{sub_value}</code>")
+                                info_lines.append(f"▫️ {sub_label}: {sub_value}")
         
         if info_lines:
             msg += "\n".join(info_lines)
@@ -924,6 +1042,9 @@ def check_all_services(chat_id, accounts):
 @bot.message_handler(commands=['start'])
 def cmd_start(message):
     """Lệnh /start"""
+    if not check_membership(message):
+        return
+    
     with proxy_lock:
         proxy_count = len(proxy_list)
     
@@ -948,6 +1069,9 @@ lienquan, miniworld, blockmango, deltaforce, hotmail, fc, fullpack
 @bot.message_handler(commands=['check'])
 def cmd_check(message):
     """Lệnh /check user:pass hoặc user|pass [service]"""
+    if not check_membership(message):
+        return
+    
     parts = message.text.split()
     if len(parts) < 2:
         safe_send_message(message.chat.id, """
@@ -983,6 +1107,9 @@ Cac service: {', '.join(SERVICE_ROUTES.keys())}
 @bot.message_handler(commands=['checkmulti'])
 def cmd_checkmulti(message):
     """Lệnh /checkmulti - Hỗ trợ nhiều định dạng"""
+    if not check_membership(message):
+        return
+    
     text = message.text.strip()
     
     if text.startswith('/checkmulti'):
@@ -1047,6 +1174,9 @@ Dang bat dau check...
 @bot.message_handler(commands=['checkall'])
 def cmd_checkall(message):
     """Lệnh /checkall"""
+    if not check_membership(message):
+        return
+    
     global pending_accounts
     
     chat_id = message.chat.id
@@ -1060,6 +1190,9 @@ def cmd_checkall(message):
 @bot.message_handler(commands=['proxy'])
 def cmd_proxy(message):
     """Lệnh /proxy"""
+    if not check_membership(message):
+        return
+    
     safe_send_message(message.chat.id, """
 📤 <b>LOAD PROXY</b>
 
@@ -1074,6 +1207,9 @@ ip:port:user:pass
 @bot.message_handler(commands=['status'])
 def cmd_status(message):
     """Lệnh /status"""
+    if not check_membership(message):
+        return
+    
     if checking:
         elapsed = time.time() - stats.get("start_time", time.time())
         speed = stats["checked"] / elapsed if elapsed > 0 else 0
@@ -1099,6 +1235,9 @@ def cmd_status(message):
 @bot.message_handler(commands=['stop'])
 def cmd_stop(message):
     """Lệnh /stop"""
+    if not check_membership(message):
+        return
+    
     stop_event.set()
     checking = False
     safe_send_message(message.chat.id, "🛑 Da dung check!")
@@ -1106,6 +1245,9 @@ def cmd_stop(message):
 @bot.message_handler(commands=['services'])
 def cmd_services(message):
     """Lệnh /services"""
+    if not check_membership(message):
+        return
+    
     msg = "📋 <b>DANH SACH SERVICE:</b>\n\n"
     for key, value in SERVICE_ROUTES.items():
         msg += f"{value['icon']} <b>{key}</b>: {value['desc']}\n"
@@ -1115,6 +1257,9 @@ def cmd_services(message):
 @bot.message_handler(commands=['hits'])
 def cmd_hits(message):
     """Lệnh /hits"""
+    if not check_membership(message):
+        return
+    
     try:
         with open(OUTPUT_HITS, 'rb') as f:
             bot.send_document(message.chat.id, f, caption="✅ hits.txt")
@@ -1124,6 +1269,9 @@ def cmd_hits(message):
 @bot.message_handler(commands=['dead'])
 def cmd_dead(message):
     """Lệnh /dead"""
+    if not check_membership(message):
+        return
+    
     try:
         with open(OUTPUT_DEAD, 'rb') as f:
             bot.send_document(message.chat.id, f, caption="❌ dead.txt")
@@ -1133,6 +1281,9 @@ def cmd_dead(message):
 @bot.message_handler(commands=['loc'])
 def cmd_loc(message):
     """Lệnh /loc"""
+    if not check_membership(message):
+        return
+    
     try:
         with open(OUTPUT_LOC, 'rb') as f:
             bot.send_document(message.chat.id, f, caption="📥 loc_accounts.txt")
@@ -1142,6 +1293,9 @@ def cmd_loc(message):
 @bot.message_handler(commands=['report'])
 def cmd_report(message):
     """Lệnh /report"""
+    if not check_membership(message):
+        return
+    
     try:
         with open(OUTPUT_RESULT, 'rb') as f:
             bot.send_document(message.chat.id, f, caption="📊 report.txt")
@@ -1152,6 +1306,9 @@ def cmd_report(message):
 @bot.message_handler(content_types=['text'])
 def handle_text(message):
     """Xử lý tin nhắn văn bản"""
+    if not check_membership(message):
+        return
+    
     global pending_accounts
     
     text = message.text.strip()
@@ -1206,6 +1363,9 @@ Service: lienquan, miniworld, blockmango, deltaforce, hotmail, fc, fullpack
 @bot.message_handler(content_types=['document'])
 def handle_document(message):
     """Xử lý file tài liệu"""
+    if not check_membership(message):
+        return
+    
     global pending_accounts
     
     chat_id = message.chat.id
@@ -1280,11 +1440,13 @@ def main():
     print("    GARENA CHECKER BOT V4.8 - CHECK FIX")
     print("    ADMIN: @baohuyno1")
     print("    HO TRO | VA :")
+    print("    KENH BAT BUOC: @hakiiosvip")
     print("=" * 60)
     print(f"[*] Threads: {DEFAULT_THREADS}")
     print(f"[*] Timeout: {DEFAULT_TIMEOUT}s")
     print(f"[*] Services: {len(SERVICE_ROUTES)}")
     print(f"[*] API Base: {API_BASE}")
+    print(f"[*] Required Channel: {REQUIRED_CHANNEL}")
     print("=" * 60)
     
     while True:
