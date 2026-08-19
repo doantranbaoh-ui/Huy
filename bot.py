@@ -1,4 +1,4 @@
-# bot.py - GARENA CHECKER BOT - FIX LỖI START + HIỂN THỊ NÚT
+# bot.py - GARENA CHECKER BOT - CHỌN NÚT XONG MỚI GỬI TK MK
 import subprocess
 import sys
 import importlib
@@ -42,6 +42,8 @@ DEFAULT_RETRIES = 3
 OUTPUT_HITS = "hits.txt"
 OUTPUT_DEAD = "dead.txt"
 OUTPUT_FILTERED = "filtered_accounts.txt"
+
+MAX_MESSAGE_LENGTH = 4000
 
 # ========== DANH SÁCH SERVICE ==========
 SERVICE_ROUTES = {
@@ -87,6 +89,8 @@ checking = False
 stop_event = threading.Event()
 filtered_accounts = []
 pending_accounts = []
+waiting_for_accounts = False  # Trạng thái chờ nhập tk mk
+service_selected = None       # Service đã chọn
 stats = {"total": 0, "checked": 0, "hits": 0, "dead": 0, "errors": 0}
 file_lock = threading.Lock()
 stats_lock = threading.Lock()
@@ -98,9 +102,43 @@ bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN, parse_mode="HTML")
 def is_admin(chat_id):
     return str(chat_id) == str(ADMIN_CHAT_ID)
 
+# ========== HÀM GỬI TIN NHẮN AN TOÀN ==========
+def safe_send_message(chat_id, text, reply_markup=None, parse_mode="HTML"):
+    if not text:
+        return
+    
+    if len(text) > MAX_MESSAGE_LENGTH:
+        parts = []
+        current_part = ""
+        lines = text.split('\n')
+        
+        for line in lines:
+            if len(current_part) + len(line) + 1 > MAX_MESSAGE_LENGTH:
+                parts.append(current_part)
+                current_part = line + '\n'
+            else:
+                current_part += line + '\n'
+        
+        if current_part:
+            parts.append(current_part)
+        
+        for i, part in enumerate(parts):
+            try:
+                if i == len(parts) - 1 and reply_markup:
+                    bot.send_message(chat_id, part.strip(), parse_mode=parse_mode, reply_markup=reply_markup)
+                else:
+                    bot.send_message(chat_id, part.strip(), parse_mode=parse_mode)
+                time.sleep(0.1)
+            except Exception as e:
+                print(f"[!] Lỗi gửi tin nhắn: {e}")
+    else:
+        try:
+            bot.send_message(chat_id, text, parse_mode=parse_mode, reply_markup=reply_markup)
+        except Exception as e:
+            print(f"[!] Lỗi gửi tin nhắn: {e}")
+
 # ========== TẠO NÚT BẤM ==========
 def create_main_keyboard():
-    """Tạo bàn phím chính"""
     keyboard = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     buttons = [
         KeyboardButton("📝 Gửi TK MK"),
@@ -117,30 +155,24 @@ def create_main_keyboard():
     return keyboard
 
 def create_service_keyboard():
-    """Tạo bàn phím inline chọn service"""
+    """Bàn phím chọn service - KHI NHẤN SẼ YÊU CẦU GỬI TK MK"""
     keyboard = InlineKeyboardMarkup(row_width=2)
     buttons = []
     
     for key, value in SERVICE_ROUTES.items():
         btn = InlineKeyboardButton(
             f"{value['icon']} {value['desc']}",
-            callback_data=f"check_{key}"
+            callback_data=f"select_{key}"  # Đổi từ check_ thành select_
         )
         buttons.append(btn)
     
     keyboard.add(*buttons)
     keyboard.row(
-        InlineKeyboardButton("📥 Hits", callback_data="get_hits"),
-        InlineKeyboardButton("📥 Dead", callback_data="get_dead"),
-        InlineKeyboardButton("⏹ Stop", callback_data="stop_check")
-    )
-    keyboard.row(
-        InlineKeyboardButton("❌ Hủy", callback_data="cancel_check")
+        InlineKeyboardButton("❌ Hủy", callback_data="cancel_select")
     )
     return keyboard
 
 def create_admin_keyboard():
-    """Tạo bàn phím admin"""
     keyboard = InlineKeyboardMarkup(row_width=2)
     buttons = [
         InlineKeyboardButton("👤 Admin: @baohuyno1", url="https://t.me/baohuyno1"),
@@ -172,29 +204,30 @@ def loc_tk_mk(content):
         user = None
         pwd = None
         
-        for sep in [':', '|', '/', '\t', ';']:
+        separators = [':', '|', '/', '\t', ';', ' ']
+        for sep in separators:
             if sep in line:
                 parts = line.split(sep, 1)
                 if len(parts) == 2:
                     user = parts[0].strip()
                     pwd = parts[1].strip()
-                    break
+                    if user and pwd:
+                        break
+                    else:
+                        user = None
+                        pwd = None
         
         if not user or not pwd:
-            parts = line.split(maxsplit=1)
-            if len(parts) == 2:
-                user = parts[0].strip()
-                pwd = parts[1].strip()
+            continue
         
-        if user and pwd:
-            user_clean = re.sub(r'[^\w.@-]', '', user)
-            pwd_clean = pwd.strip()
-            
-            if len(user_clean) > 0 and len(pwd_clean) > 0:
-                key = f"{user_clean}:{pwd_clean}"
-                if key not in seen:
-                    seen.add(key)
-                    accounts.append((user_clean, pwd_clean))
+        user_clean = re.sub(r'[^\w.@.-]', '', user)
+        pwd_clean = pwd.strip()
+        
+        if len(user_clean) > 0 and len(pwd_clean) > 0:
+            key = f"{user_clean}:{pwd_clean}"
+            if key not in seen:
+                seen.add(key)
+                accounts.append((user_clean, pwd_clean))
     
     return accounts
 
@@ -249,126 +282,45 @@ def format_hit_dep(username, password, data, service=""):
     
     if not isinstance(data, dict):
         return f"""
-╔══════════════════════════════════╗
-║          ✅ HIT                   ║
-╠══════════════════════════════════╣
-║ 🔑 {username}:{password}
-╚══════════════════════════════════╝
+✅ HIT
+🔑 {username}:{password}
 """
     
     uid = data.get("uid", data.get("id", "N/A"))
     name = data.get("name", data.get("nickname", data.get("aov_name", "N/A")))
     region = data.get("region", data.get("country", "VN"))
     shells = data.get("shells", data.get("so", data.get("coins", 0)))
-    nap_so = data.get("nap_so", data.get("last_recharge", "N/A"))
+    rank = data.get("aov_rank", data.get("rank", data.get("tier", "N/A")))
+    level = data.get("aov_level", data.get("level", data.get("lv", 0)))
+    skins = data.get("aov_total_skins", data.get("skin", data.get("skins", 0)))
+    heroes = data.get("aov_total_champs", data.get("hero", data.get("champs", 0)))
     
-    email = data.get("email", data.get("mail", ""))
-    email_verified = data.get("email_verified", data.get("mail_verified", False))
-    email_str = "✅ Đã xác thực" if email_verified else "❌ Chưa xác thực"
-    if email:
-        email_display = f"{email[:3]}***@{email.split('@')[1] if '@' in email else 'gmail.com'}"
-    else:
-        email_display = "Không có"
-    
-    mobile = data.get("mobile", data.get("sdt", data.get("phone", "")))
-    mobile_bound = data.get("mobile_bound", data.get("sdt_bound", data.get("phone_verified", False)))
-    if mobile_bound and mobile:
-        mobile_display = f"{mobile[:4]}***{mobile[-3:] if len(mobile) > 3 else ''}"
-    else:
-        mobile_display = "Chưa liên kết"
-    
-    password_set = data.get("password_set", data.get("has_password", True))
-    pass_str = "✅ Có" if password_set else "❌ Không"
-    
-    fb_linked = data.get("fb_linked", data.get("fb", data.get("facebook_linked", False)))
-    fb_id = data.get("fb_id", data.get("facebook_id", ""))
-    if fb_linked and fb_id:
-        fb_str = f"✅ Liên kết [{fb_id}]"
-    elif fb_linked:
-        fb_str = "✅ Đã liên kết"
-    else:
-        fb_str = "❌ Chưa liên kết"
-    
-    aov_banned = data.get("aov_banned", data.get("banned", data.get("is_banned", "NO")))
-    band_str = "🔴 BANNED" if str(aov_banned).upper() in ["YES", "TRUE", "1", "BANNED"] else "🟢 Bình thường"
-    
-    last_login = data.get("last_login", data.get("last_login_time", "N/A"))
-    created = data.get("created", data.get("tao_gr", data.get("created_at", "N/A")))
-    aov_rank = data.get("aov_rank", data.get("rank", data.get("tier", "N/A")))
-    aov_level = data.get("aov_level", data.get("level", data.get("lv", 0)))
-    aov_total_skins = data.get("aov_total_skins", data.get("skin", data.get("skins", 0)))
-    aov_total_champs = data.get("aov_total_champs", data.get("hero", data.get("champs", 0)))
-    qh = data.get("qh", data.get("quan_he", data.get("friends", 0)))
-    cccd = data.get("cccd", data.get("cmnd", data.get("id_card", "No")))
-    authen = data.get("authen", data.get("2fa", data.get("two_factor", "No")))
-    
-    cccd_str = "✅ Có" if cccd and cccd != "No" else "❌ Không"
-    authen_str = "✅ Có" if authen and authen != "No" else "❌ Không"
-    
-    status_parts = []
-    if fb_linked:
-        status_parts.append("FB")
-    if mobile_bound:
-        status_parts.append("SĐT")
-    if email_verified:
-        status_parts.append("Email")
-    if password_set:
-        status_parts.append("Pass")
-    
-    status_str = " | ".join(status_parts) if status_parts else "Acc thường"
     service_icon = SERVICE_ROUTES.get(service, {}).get("icon", "🎮")
     
     return f"""
-╔══════════════════════════════════╗
-║          ✅ HIT                   ║
-╠══════════════════════════════════╣
-║ {service_icon} Service: {service.upper()}
-║ 🔑 {username}:{password}
-║ ────────────────────────────────
-║ 🆔 UID: {uid}
-║ 👤 Nick: {name}
-║ 🌐 Region: {region}
-║ 💲 Sò: {shells}
-║ 💰 Nạp: {nap_so}
-║ ────────────────────────────────
-║ 📩 Email: {email_display} {email_str}
-║ 📱 SĐT: {mobile_display}
-║ 🛡 Pass: {pass_str}
-║ 🔗 FB: {fb_str}
-║ ────────────────────────────────
-║ ⚠️ Status: {band_str}
-║ ⏰ Login cuối: {last_login}
-║ 📅 Tạo GR: {created}
-║ ────────────────────────────────
-║ 👑 Rank: {aov_rank}
-║ ✨ Level: {aov_level}
-║ 💎 Skin: {aov_total_skins}
-║ ⚔️ Hero: {aov_total_champs}
-║ 👥 Friends: {qh}
-║ ────────────────────────────────
-║ 📄 CCCD: {cccd_str}
-║ 🔐 2FA: {authen_str}
-║ 📋 Status: {status_str}
-╚══════════════════════════════════╝
+{service_icon} ✅ HIT - {service.upper()}
+🔑 {username}:{password}
+🆔 UID: {uid}
+👤 Name: {name}
+🌐 Region: {region}
+💰 Sò: {shells}
+👑 Rank: {rank}
+✨ Level: {level}
+💎 Skin: {skins}
+⚔️ Hero: {heroes}
 """
 
 def format_dead_dep(username, password, service=""):
     service_icon = SERVICE_ROUTES.get(service, {}).get("icon", "🎮")
     return f"""
-╔══════════════════════════════════╗
-║          ❌ DEAD                 ║
-╠══════════════════════════════════╣
-║ {service_icon} Service: {service.upper()}
-║ 🔑 {username}:{password}
-║ ────────────────────────────────
-║ ⚠️ Tài khoản không hợp lệ
-╚══════════════════════════════════╝
+{service_icon} ❌ DEAD - {service.upper()}
+🔑 {username}:{password}
 """
 
 # ========== CHECK ĐƠN ==========
 def check_single_account(chat_id, username, password, service="lienquan"):
     service_desc = SERVICE_ROUTES.get(service, {}).get("desc", service)
-    bot.send_message(chat_id, f"🔍 Đang check <code>{username}:{password}</code> với {service_desc}...")
+    safe_send_message(chat_id, f"🔍 Đang check <code>{username}:{password}</code> với {service_desc}...")
     
     result = check_account_api(username, password, service)
     result_type = result.get("result", "unknown")
@@ -377,30 +329,21 @@ def check_single_account(chat_id, username, password, service="lienquan"):
         with file_lock:
             with open(OUTPUT_HITS, 'a', encoding='utf-8') as f:
                 f.write(f"{username}:{password}\n")
-        bot.send_message(chat_id, format_hit_dep(username, password, result, service))
+        safe_send_message(chat_id, format_hit_dep(username, password, result, service))
     elif result_type == "dead":
         with file_lock:
             with open(OUTPUT_DEAD, 'a', encoding='utf-8') as f:
                 f.write(f"{username}:{password}\n")
-        bot.send_message(chat_id, format_dead_dep(username, password, service))
+        safe_send_message(chat_id, format_dead_dep(username, password, service))
     else:
-        bot.send_message(chat_id, f"""
-╔══════════════════════════════════╗
-║          ⚠️ ERROR                ║
-╠══════════════════════════════════╣
-║ {SERVICE_ROUTES.get(service, {}).get('icon', '🎮')} Service: {service.upper()}
-║ 🔑 {username}:{password}
-║ ────────────────────────────────
-║ ❌ Lỗi khi check
-╚══════════════════════════════════╝
-""")
+        safe_send_message(chat_id, f"⚠️ ERROR - {service.upper()}\n🔑 {username}:{password}\n❌ Lỗi khi check")
 
 # ========== CHECK NHIỀU ACCOUNT ==========
 def check_accounts_batch(chat_id, accounts, service):
     global checking, stats
     
     if checking:
-        bot.send_message(chat_id, "⚠️ Đang check rồi!")
+        safe_send_message(chat_id, "⚠️ Đang check rồi!")
         return
     
     checking = True
@@ -419,7 +362,7 @@ def check_accounts_batch(chat_id, accounts, service):
     service_desc = SERVICE_ROUTES.get(service, {}).get("desc", service)
     icon = SERVICE_ROUTES.get(service, {}).get("icon", "🔍")
     
-    bot.send_message(chat_id, f"""
+    safe_send_message(chat_id, f"""
 {icon} <b>BẮT ĐẦU CHECK</b>
 📊 Tổng: <code>{total}</code> accounts
 🎯 Service: <b>{service_desc}</b>
@@ -442,7 +385,7 @@ def check_accounts_batch(chat_id, accounts, service):
                     with open(OUTPUT_HITS, 'a', encoding='utf-8') as f:
                         f.write(f"{user}:{pwd}\n")
                 try:
-                    bot.send_message(chat_id, format_hit_dep(user, pwd, result, service))
+                    safe_send_message(chat_id, format_hit_dep(user, pwd, result, service))
                 except:
                     pass
             elif result_type == "dead":
@@ -457,7 +400,7 @@ def check_accounts_batch(chat_id, accounts, service):
                 try:
                     elapsed = time.time() - stats["start_time"]
                     speed = stats["checked"] / elapsed if elapsed > 0 else 0
-                    bot.send_message(chat_id, f"""
+                    safe_send_message(chat_id, f"""
 📊 <b>TIẾN ĐỘ</b>
 ✅ Checked: <code>{stats['checked']}/{total}</code>
 🔴 Hits: <code>{stats['hits']}</code>
@@ -488,16 +431,19 @@ def check_accounts_batch(chat_id, accounts, service):
 ⏱ Thời gian: <code>{elapsed:.1f}s</code>
 ⚡ Tốc độ: <code>{stats['total']/elapsed:.1f}</code> acc/s
 """
-    bot.send_message(chat_id, result_msg)
+    safe_send_message(chat_id, result_msg)
     
     if stats["hits"] > 0 and os.path.exists(OUTPUT_HITS):
         with open(OUTPUT_HITS, 'rb') as f:
-            bot.send_document(chat_id, f, caption=f"✅ hits.txt ({stats['hits']} acc)")
+            try:
+                bot.send_document(chat_id, f, caption=f"✅ hits.txt ({stats['hits']} acc)")
+            except:
+                pass
 
-# ========== XỬ LÝ CALLBACK ==========
+# ========== XỬ LÝ CALLBACK - CHỌN SERVICE ==========
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callback(call):
-    global pending_accounts, filtered_accounts, checking
+    global pending_accounts, filtered_accounts, checking, waiting_for_accounts, service_selected
     
     if not is_admin(call.message.chat.id):
         bot.answer_callback_query(call.id, "❌ Bạn không có quyền!")
@@ -505,41 +451,69 @@ def handle_callback(call):
     
     data = call.data
     
-    if data.startswith("check_"):
-        service = data.replace("check_", "")
+    # ===== CHỌN SERVICE =====
+    if data.startswith("select_"):
+        service = data.replace("select_", "")
         
         if service not in SERVICE_ROUTES:
             bot.answer_callback_query(call.id, "❌ Service không hợp lệ!")
             return
+        
+        # Lưu service đã chọn
+        service_selected = service
+        waiting_for_accounts = True
+        
+        service_desc = SERVICE_ROUTES[service]["desc"]
+        icon = SERVICE_ROUTES[service]["icon"]
         
         try:
             bot.delete_message(call.message.chat.id, call.message.message_id)
         except:
             pass
         
-        service_desc = SERVICE_ROUTES[service]["desc"]
-        icon = SERVICE_ROUTES[service]["icon"]
-        
-        if pending_accounts:
-            accounts = pending_accounts
-            pending_accounts = []
-            
-            if len(accounts) == 1:
-                user, pwd = accounts[0]
-                bot.send_message(call.message.chat.id, f"{icon} Đang check <code>{user}:{pwd}</code> với {service_desc}...")
-                threading.Thread(target=check_single_account, args=(call.message.chat.id, user, pwd, service)).start()
-            else:
-                filtered_accounts = accounts
-                bot.send_message(call.message.chat.id, f"{icon} Đang check {len(accounts)} acc với {service_desc}...")
-                threading.Thread(target=check_accounts_batch, args=(call.message.chat.id, accounts, service)).start()
-        else:
-            bot.answer_callback_query(call.id, "❌ Không có accounts để check!")
+        # Hướng dẫn gửi tk mk
+        safe_send_message(
+            call.message.chat.id,
+            f"""
+{icon} <b>ĐÃ CHỌN: {service_desc}</b>
+
+📌 <b>VUI LÒNG GỬI TK MK</b>
+Gửi trực tiếp <code>user:pass</code> hoặc nhiều accounts
+
+<b>Hỗ trợ định dạng:</b>
+• <code>user:pass</code>
+• <code>user|pass</code>
+• <code>user/pass</code>
+
+<b>VD:</b>
+<code>user1:pass123</code>
+<code>user2:pass456</code>
+<code>user3:pass789</code>
+
+🔄 Bot sẽ tự động check sau khi nhận được tk mk!
+"""
+        )
+        bot.answer_callback_query(call.id, f"✅ Đã chọn {service_desc}")
+        return
     
+    # ===== HỦY CHỌN =====
+    elif data == "cancel_select":
+        waiting_for_accounts = False
+        service_selected = None
+        try:
+            bot.delete_message(call.message.chat.id, call.message.message_id)
+        except:
+            pass
+        safe_send_message(call.message.chat.id, "❌ Đã hủy chọn service!")
+        bot.answer_callback_query(call.id, "Đã hủy")
+        return
+    
+    # ===== ADMIN =====
     elif data == "admin_status":
         if checking:
             elapsed = time.time() - stats.get("start_time", time.time())
             speed = stats["checked"] / elapsed if elapsed > 0 else 0
-            bot.send_message(call.message.chat.id, f"""
+            safe_send_message(call.message.chat.id, f"""
 📊 <b>TRẠNG THÁI</b>
 🔄 Đang check: <b>YES</b>
 ✅ Checked: <code>{stats['checked']}/{stats['total']}</code>
@@ -549,7 +523,7 @@ def handle_callback(call):
 ⏱ Thời gian: <code>{elapsed:.0f}s</code>
 """)
         else:
-            bot.send_message(call.message.chat.id, "💤 Bot đang rảnh")
+            safe_send_message(call.message.chat.id, "💤 Bot đang rảnh")
         bot.answer_callback_query(call.id)
     
     elif data == "admin_hits":
@@ -557,7 +531,7 @@ def handle_callback(call):
             with open(OUTPUT_HITS, 'rb') as f:
                 bot.send_document(call.message.chat.id, f, caption="✅ hits.txt")
         except:
-            bot.send_message(call.message.chat.id, "❌ Chưa có hits!")
+            safe_send_message(call.message.chat.id, "❌ Chưa có hits!")
         bot.answer_callback_query(call.id)
     
     elif data == "admin_dead":
@@ -565,18 +539,20 @@ def handle_callback(call):
             with open(OUTPUT_DEAD, 'rb') as f:
                 bot.send_document(call.message.chat.id, f, caption="❌ dead.txt")
         except:
-            bot.send_message(call.message.chat.id, "❌ Chưa có dead!")
+            safe_send_message(call.message.chat.id, "❌ Chưa có dead!")
         bot.answer_callback_query(call.id)
     
     elif data == "admin_stop":
         stop_event.set()
         checking = False
-        bot.send_message(call.message.chat.id, "🛑 Đã dừng check!")
+        safe_send_message(call.message.chat.id, "🛑 Đã dừng check!")
         bot.answer_callback_query(call.id)
     
     elif data == "admin_clear":
         pending_accounts = []
-        bot.send_message(call.message.chat.id, "✅ Đã xóa danh sách pending!")
+        waiting_for_accounts = False
+        service_selected = None
+        safe_send_message(call.message.chat.id, "✅ Đã xóa danh sách pending!")
         bot.answer_callback_query(call.id)
     
     elif data == "admin_services":
@@ -584,38 +560,7 @@ def handle_callback(call):
         for key, value in SERVICE_ROUTES.items():
             msg += f"{value['icon']} <b>{value['desc']}</b>\n"
             msg += f"   Route: <code>{value['route']}</code>\n\n"
-        bot.send_message(call.message.chat.id, msg)
-        bot.answer_callback_query(call.id)
-    
-    elif data == "get_hits":
-        try:
-            with open(OUTPUT_HITS, 'rb') as f:
-                bot.send_document(call.message.chat.id, f, caption="✅ hits.txt")
-        except:
-            bot.send_message(call.message.chat.id, "❌ Chưa có hits!")
-        bot.answer_callback_query(call.id)
-    
-    elif data == "get_dead":
-        try:
-            with open(OUTPUT_DEAD, 'rb') as f:
-                bot.send_document(call.message.chat.id, f, caption="❌ dead.txt")
-        except:
-            bot.send_message(call.message.chat.id, "❌ Chưa có dead!")
-        bot.answer_callback_query(call.id)
-    
-    elif data == "stop_check":
-        stop_event.set()
-        checking = False
-        bot.send_message(call.message.chat.id, "🛑 Đã dừng check!")
-        bot.answer_callback_query(call.id)
-    
-    elif data == "cancel_check":
-        pending_accounts = []
-        try:
-            bot.delete_message(call.message.chat.id, call.message.message_id)
-        except:
-            pass
-        bot.send_message(call.message.chat.id, "❌ Đã hủy check!")
+        safe_send_message(call.message.chat.id, msg)
         bot.answer_callback_query(call.id)
     
     bot.answer_callback_query(call.id)
@@ -623,44 +568,49 @@ def handle_callback(call):
 # ========== XỬ LÝ TEXT ==========
 @bot.message_handler(content_types=['text'])
 def handle_text(message):
+    global pending_accounts, waiting_for_accounts, service_selected
+    
     if not is_admin(message.chat.id):
         return
     
     text = message.text.strip()
     
+    # ===== NÚT BẤM =====
     if text == "📝 Gửi TK MK":
-        bot.reply_to(message, """
-📌 <b>GỬI TK MK</b>
-Gửi trực tiếp <code>user:pass</code> hoặc nhiều accounts
-
-VD:
-<code>user1:pass123</code>
-<code>user2:pass456</code>
-<code>user3:pass789</code>
-""")
+        # Hiển thị bàn phím chọn service
+        safe_send_message(
+            message.chat.id,
+            """
+📌 <b>CHỌN SERVICE</b>
+👇 Nhấn chọn service muốn check:
+""",
+            reply_markup=create_service_keyboard()
+        )
         return
     
     elif text == "📁 Gửi File TXT":
-        bot.reply_to(message, """
+        safe_send_message(message.chat.id, """
 📌 <b>GỬI FILE TXT</b>
-Gửi file .txt chứa danh sách tk mk
-Bot sẽ tự động lọc và hiển thị nút chọn service
+
+📌 <b>CÁCH DÙNG:</b>
+1️⃣ Nhấn <b>"📝 Gửi TK MK"</b>
+2️⃣ Chọn service
+3️⃣ Gửi file .txt
+
+Bot sẽ tự động lọc và check!
 """)
         return
     
     elif text == "🔍 Lọc TK MK từ TXT":
-        bot.reply_to(message, """
+        safe_send_message(message.chat.id, """
 🔍 <b>LỌC TK MK TỪ TXT</b>
 
-📌 Gửi file .txt chứa danh sách tài khoản
-Bot sẽ lọc chỉ giữ lại <code>user:pass</code>
+📌 <b>CÁCH DÙNG:</b>
+1️⃣ Nhấn <b>"📝 Gửi TK MK"</b>
+2️⃣ Chọn service
+3️⃣ Gửi file .txt
 
-📌 Hỗ trợ định dạng:
-• <code>user:pass</code>
-• <code>user|pass</code>
-• <code>user/pass</code>
-
-📌 Sau khi lọc xong, chọn service để check!
+Bot sẽ tự động lọc ra user:pass và check!
 """)
         return
     
@@ -668,7 +618,7 @@ Bot sẽ lọc chỉ giữ lại <code>user:pass</code>
         if checking:
             elapsed = time.time() - stats.get("start_time", time.time())
             speed = stats["checked"] / elapsed if elapsed > 0 else 0
-            bot.reply_to(message, f"""
+            safe_send_message(message.chat.id, f"""
 📊 <b>TRẠNG THÁI</b>
 🔄 Đang check: <b>YES</b>
 ✅ Checked: <code>{stats['checked']}/{stats['total']}</code>
@@ -678,7 +628,7 @@ Bot sẽ lọc chỉ giữ lại <code>user:pass</code>
 ⏱ Thời gian: <code>{elapsed:.0f}s</code>
 """)
         else:
-            bot.reply_to(message, "💤 Bot đang rảnh")
+            safe_send_message(message.chat.id, "💤 Bot đang rảnh")
         return
     
     elif text == "📥 Tải Hits":
@@ -686,7 +636,7 @@ Bot sẽ lọc chỉ giữ lại <code>user:pass</code>
             with open(OUTPUT_HITS, 'rb') as f:
                 bot.send_document(message.chat.id, f, caption="✅ hits.txt")
         except:
-            bot.reply_to(message, "❌ Chưa có hits!")
+            safe_send_message(message.chat.id, "❌ Chưa có hits!")
         return
     
     elif text == "📥 Tải Dead":
@@ -694,17 +644,17 @@ Bot sẽ lọc chỉ giữ lại <code>user:pass</code>
             with open(OUTPUT_DEAD, 'rb') as f:
                 bot.send_document(message.chat.id, f, caption="❌ dead.txt")
         except:
-            bot.reply_to(message, "❌ Chưa có dead!")
+            safe_send_message(message.chat.id, "❌ Chưa có dead!")
         return
     
     elif text == "⏹ Dừng check":
         stop_event.set()
         checking = False
-        bot.reply_to(message, "🛑 Đã dừng check!")
+        safe_send_message(message.chat.id, "🛑 Đã dừng check!")
         return
     
     elif text == "👤 Admin":
-        bot.send_message(message.chat.id, """
+        safe_send_message(message.chat.id, """
 👤 <b>ADMIN</b>
 📌 Admin: @baohuyno1
 🔗 Liên hệ: https://t.me/baohuyno1
@@ -723,53 +673,85 @@ Bot sẽ lọc chỉ giữ lại <code>user:pass</code>
         for key, value in SERVICE_ROUTES.items():
             msg += f"{value['icon']} <b>{value['desc']}</b>\n"
             msg += f"   Route: <code>{value['route']}</code>\n\n"
-        bot.send_message(message.chat.id, msg)
+        safe_send_message(message.chat.id, msg)
         return
     
     if text.startswith('/'):
         return
     
-    accounts = loc_tk_mk(text)
-    
-    if not accounts:
-        bot.reply_to(message, """
+    # ===== XỬ LÝ TK MK - CHỈ KHI ĐÃ CHỌN SERVICE =====
+    if waiting_for_accounts and service_selected:
+        # Lọc tk mk
+        accounts = loc_tk_mk(text)
+        
+        if not accounts:
+            safe_send_message(message.chat.id, """
 ❌ <b>KHÔNG TÌM THẤY!</b>
 Format đúng: <code>user:pass</code> hoặc <code>user|pass</code> hoặc <code>user/pass</code>
 
 📌 Ví dụ:
 <code>ZzkeconzZ:thanhoppa2001</code>
 """)
-        return
-    
-    global pending_accounts
-    pending_accounts = accounts
-    
-    preview = '\n'.join([f"{u}:{p}" for u, p in accounts[:10]])
-    total = len(accounts)
-    
-    msg = f"""
+            return
+        
+        # Lưu accounts và check
+        pending_accounts = accounts
+        service = service_selected
+        service_desc = SERVICE_ROUTES[service]["desc"]
+        icon = SERVICE_ROUTES[service]["icon"]
+        
+        # Reset trạng thái
+        waiting_for_accounts = False
+        service_selected = None
+        
+        preview = '\n'.join([f"{u}:{p}" for u, p in accounts[:10]])
+        total = len(accounts)
+        
+        safe_send_message(message.chat.id, f"""
 📌 <b>ĐÃ NHẬN {total} ACCOUNTS</b>
+🎯 Service: {icon} {service_desc}
 
 <b>Preview (10 dòng đầu):</b>
 <code>{preview}</code>
 {"..." if total > 10 else ""}
 
-👇 <b>Chọn service để check:</b>
-"""
-    
-    bot.send_message(message.chat.id, msg, reply_markup=create_service_keyboard())
+🔄 Đang check...
+""")
+        
+        # Check ngay lập tức
+        if len(accounts) == 1:
+            user, pwd = accounts[0]
+            threading.Thread(target=check_single_account, args=(message.chat.id, user, pwd, service)).start()
+        else:
+            threading.Thread(target=check_accounts_batch, args=(message.chat.id, accounts, service)).start()
+    else:
+        # Chưa chọn service
+        safe_send_message(message.chat.id, """
+📌 <b>VUI LÒNG CHỌN SERVICE TRƯỚC</b>
+
+👇 Nhấn <b>"📝 Gửi TK MK"</b> để chọn service
+""")
 
 # ========== XỬ LÝ FILE ==========
 @bot.message_handler(content_types=['document'])
 def handle_document(message):
+    global pending_accounts, waiting_for_accounts, service_selected
+    
     if not is_admin(message.chat.id):
         return
     
-    global pending_accounts
+    # Kiểm tra đã chọn service chưa
+    if not waiting_for_accounts or not service_selected:
+        safe_send_message(message.chat.id, """
+📌 <b>VUI LÒNG CHỌN SERVICE TRƯỚC</b>
+
+👇 Nhấn <b>"📝 Gửi TK MK"</b> để chọn service
+""")
+        return
     
     try:
         if not message.document.file_name.endswith('.txt'):
-            bot.reply_to(message, "❌ Chỉ hỗ trợ file .txt!")
+            safe_send_message(message.chat.id, "❌ Chỉ hỗ trợ file .txt!")
             return
         
         file_info = bot.get_file(message.document.file_id)
@@ -777,10 +759,17 @@ def handle_document(message):
         accounts = loc_tk_mk(content)
         
         if not accounts:
-            bot.reply_to(message, "❌ Không tìm thấy user:pass trong file!")
+            safe_send_message(message.chat.id, "❌ Không tìm thấy user:pass trong file!")
             return
         
         pending_accounts = accounts
+        service = service_selected
+        service_desc = SERVICE_ROUTES[service]["desc"]
+        icon = SERVICE_ROUTES[service]["icon"]
+        
+        # Reset trạng thái
+        waiting_for_accounts = False
+        service_selected = None
         
         with open(OUTPUT_FILTERED, 'w', encoding='utf-8') as f:
             for user, pwd in accounts:
@@ -789,23 +778,29 @@ def handle_document(message):
         preview = '\n'.join([f"{u}:{p}" for u, p in accounts[:20]])
         total = len(accounts)
         
-        msg = f"""
+        safe_send_message(message.chat.id, f"""
 ✅ <b>LỌC XONG!</b>
 📊 Tổng: <code>{total}</code> accounts
+🎯 Service: {icon} {service_desc}
 
 <b>Preview (20 dòng đầu):</b>
 <code>{preview}</code>
 {"..." if total > 20 else ""}
 
-👇 <b>Chọn service để check:</b>
-"""
+🔄 Đang check...
+""")
         
-        bot.send_message(message.chat.id, msg, reply_markup=create_service_keyboard())
+        # Check ngay lập tức
+        if len(accounts) == 1:
+            user, pwd = accounts[0]
+            threading.Thread(target=check_single_account, args=(message.chat.id, user, pwd, service)).start()
+        else:
+            threading.Thread(target=check_accounts_batch, args=(message.chat.id, accounts, service)).start()
         
     except Exception as e:
-        bot.reply_to(message, f"❌ Lỗi: {e}")
+        safe_send_message(message.chat.id, f"❌ Lỗi: {e}")
 
-# ========== LỆNH /start ==========
+# ========== LỆNH ==========
 @bot.message_handler(commands=['start'])
 def cmd_start(message):
     if not is_admin(message.chat.id):
@@ -815,9 +810,8 @@ def cmd_start(message):
     hours = uptime.seconds // 3600
     minutes = (uptime.seconds % 3600) // 60
     
-    # Gửi tin nhắn kèm keyboard
-    bot.send_message(
-        message.chat.id, 
+    safe_send_message(
+        message.chat.id,
         f"""
 🤖 <b>GARENA CHECKER BOT</b>
 👤 Admin: <a href="https://t.me/baohuyno1">@baohuyno1</a>
@@ -825,24 +819,25 @@ def cmd_start(message):
 
 📌 <b>CÁCH DÙNG:</b>
 
-1️⃣ <b>GỬI TK MK</b>
-Gửi trực tiếp <code>user:pass</code>
-→ Chọn service bằng nút bấm
+1️⃣ <b>CHỌN SERVICE</b>
+Nhấn nút <b>"📝 Gửi TK MK"</b>
+→ Chọn service muốn check
 
-2️⃣ <b>GỬI FILE TXT</b>
-Gửi file .txt chứa danh sách
-→ Chọn service bằng nút bấm
+2️⃣ <b>GỬI TK MK</b>
+Sau khi chọn service, gửi:
+• <code>user:pass</code> (check đơn)
+• Nhiều accounts (check hàng loạt)
+• File .txt chứa danh sách
 
-3️⃣ <b>LỌC TK MK TỪ TXT</b>
-Nhấn nút <b>"🔍 Lọc TK MK từ TXT"</b>
-→ Gửi file .txt để lọc
+3️⃣ <b>BOT TỰ ĐỘNG CHECK</b>
+Bot sẽ lọc và check ngay lập tức!
 
 ⚡ <b>THREADS:</b> {DEFAULT_THREADS}
 📋 <b>SERVICES:</b> {', '.join(SERVICE_ROUTES.keys())}
 
 💡 <b>BOT 24/7 - LUÔN SẴN SÀNG</b>
-""", 
-        reply_markup=create_main_keyboard()  # Thêm keyboard
+""",
+        reply_markup=create_main_keyboard()
     )
 
 @bot.message_handler(commands=['help'])
@@ -850,64 +845,36 @@ def cmd_help(message):
     if not is_admin(message.chat.id):
         return
     
-    bot.send_message(
-        message.chat.id, 
+    safe_send_message(
+        message.chat.id,
         f"""
 📌 <b>HƯỚNG DẪN SỬ DỤNG</b>
 
-<b>1. CHECK ĐƠN:</b>
-Gửi trực tiếp: <code>user:pass</code>
-→ Chọn service
+<b>1. CHỌN SERVICE:</b>
+Nhấn <b>"📝 Gửi TK MK"</b> → Chọn service
 
-<b>2. CHECK HÀNG LOẠT:</b>
-Gửi file .txt hoặc nhiều accounts
-→ Chọn service
+<b>2. GỬI TK MK:</b>
+• Check đơn: <code>user:pass</code>
+• Check hàng loạt: Nhiều accounts
+• Check file: Gửi file .txt
 
-<b>3. LỌC TK MK:</b>
-Nhấn nút <b>"🔍 Lọc TK MK từ TXT"</b>
-→ Gửi file .txt
+<b>3. BOT TỰ ĐỘNG CHECK:</b>
+Sau khi gửi tk mk, bot sẽ check ngay!
 
 <b>4. CÁC LỆNH:</b>
 <code>/start</code> - Khởi động bot
 <code>/help</code> - Hướng dẫn
-<code>/loc</code> - Lọc tk mk từ txt
 <code>/status</code> - Xem trạng thái
 <code>/stop</code> - Dừng check
 <code>/hits</code> - Tải hits.txt
 <code>/dead</code> - Tải dead.txt
 <code>/clear</code> - Xóa pending
-<code>/services</code> - Xem services
 
 <b>5. HỖ TRỢ:</b>
 👤 Admin: @baohuyno1
-""", 
+""",
         reply_markup=create_main_keyboard()
     )
-
-@bot.message_handler(commands=['loc'])
-def cmd_loc(message):
-    if not is_admin(message.chat.id):
-        return
-    
-    bot.reply_to(message, """
-🔍 <b>LỌC TK MK TỪ TXT</b>
-
-📌 <b>CÁCH DÙNG:</b>
-1️⃣ Nhấn nút <b>"🔍 Lọc TK MK từ TXT"</b>
-2️⃣ Gửi file .txt chứa danh sách
-3️⃣ Bot tự động lọc ra user:pass
-
-📌 <b>HỖ TRỢ ĐỊNH DẠNG:</b>
-• <code>user:pass</code>
-• <code>user|pass</code>
-• <code>user/pass</code>
-• <code>user    pass</code> (tab)
-
-📌 <b>VÍ DỤ:</b>
-<code>ZzkeconzZ:thanhoppa2001</code>
-<code>anhduckim1|kimanhduc1</code>
-<code>trannamtrungzzz/cuong2001</code>
-""")
 
 @bot.message_handler(commands=['status'])
 def cmd_status(message):
@@ -917,7 +884,7 @@ def cmd_status(message):
     if checking:
         elapsed = time.time() - stats.get("start_time", time.time())
         speed = stats["checked"] / elapsed if elapsed > 0 else 0
-        bot.reply_to(message, f"""
+        safe_send_message(message.chat.id, f"""
 📊 <b>TRẠNG THÁI</b>
 🔄 Đang check: <b>YES</b>
 ✅ Checked: <code>{stats['checked']}/{stats['total']}</code>
@@ -927,7 +894,7 @@ def cmd_status(message):
 ⏱ Thời gian: <code>{elapsed:.0f}s</code>
 """)
     else:
-        bot.reply_to(message, "💤 Bot đang rảnh")
+        safe_send_message(message.chat.id, "💤 Bot đang rảnh")
 
 @bot.message_handler(commands=['stop'])
 def cmd_stop(message):
@@ -937,7 +904,7 @@ def cmd_stop(message):
     global checking
     stop_event.set()
     checking = False
-    bot.reply_to(message, "🛑 Đã dừng check!")
+    safe_send_message(message.chat.id, "🛑 Đã dừng check!")
 
 @bot.message_handler(commands=['hits'])
 def cmd_hits(message):
@@ -948,7 +915,7 @@ def cmd_hits(message):
         with open(OUTPUT_HITS, 'rb') as f:
             bot.send_document(message.chat.id, f, caption="✅ hits.txt")
     except:
-        bot.reply_to(message, "❌ Chưa có hits!")
+        safe_send_message(message.chat.id, "❌ Chưa có hits!")
 
 @bot.message_handler(commands=['dead'])
 def cmd_dead(message):
@@ -959,27 +926,18 @@ def cmd_dead(message):
         with open(OUTPUT_DEAD, 'rb') as f:
             bot.send_document(message.chat.id, f, caption="❌ dead.txt")
     except:
-        bot.reply_to(message, "❌ Chưa có dead!")
+        safe_send_message(message.chat.id, "❌ Chưa có dead!")
 
 @bot.message_handler(commands=['clear'])
 def cmd_clear(message):
     if not is_admin(message.chat.id):
         return
     
-    global pending_accounts
+    global pending_accounts, waiting_for_accounts, service_selected
     pending_accounts = []
-    bot.reply_to(message, "✅ Đã xóa danh sách pending!")
-
-@bot.message_handler(commands=['services'])
-def cmd_services(message):
-    if not is_admin(message.chat.id):
-        return
-    
-    msg = "📋 <b>DANH SÁCH SERVICE</b>\n\n"
-    for key, value in SERVICE_ROUTES.items():
-        msg += f"{value['icon']} <b>{value['desc']}</b>\n"
-        msg += f"   Route: <code>{value['route']}</code>\n\n"
-    bot.send_message(message.chat.id, msg)
+    waiting_for_accounts = False
+    service_selected = None
+    safe_send_message(message.chat.id, "✅ Đã xóa danh sách pending!")
 
 # ========== MAIN ==========
 def main():
@@ -990,19 +948,19 @@ def main():
     print(f"[*] Threads: {DEFAULT_THREADS}")
     print(f"[*] Services: {len(SERVICE_ROUTES)}")
     print(f"[*] Start time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print("[*] Chế độ: Chọn service → Gửi tk mk")
     print("=" * 60)
     
     try:
         bot.send_message(ADMIN_CHAT_ID, f"""
 🤖 Bot đã khởi động!
 
-📌 CÁCH DÙNG:
-• Gửi user:pass -> Chọn service
-• Gửi file .txt -> Chọn service
-• Nhấn "🔍 Lọc TK MK từ TXT" -> Gửi file để lọc
+📌 CÁCH DÙNG MỚI:
+1️⃣ Nhấn "📝 Gửi TK MK" → Chọn service
+2️⃣ Gửi tk mk hoặc file .txt
+3️⃣ Bot tự động check!
 
 👤 Admin: @baohuyno1
-⏱ Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 """)
     except:
         pass
