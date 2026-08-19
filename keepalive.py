@@ -1,11 +1,10 @@
-# keepalive.py - Giữ bot chạy 24/7 trên Render
+# keepalive.py - Giữ bot chạy 24/7 trên Render (Web Service)
 import os
 import sys
 import subprocess
 import time
 import threading
 import requests
-import socket
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from datetime import datetime
 
@@ -92,10 +91,6 @@ class KeepAliveHandler(BaseHTTPRequestHandler):
                             font-size: 0.9em;
                             color: #666;
                         }}
-                        .version {{
-                            color: #00ff88;
-                            font-size: 0.8em;
-                        }}
                     </style>
                 </head>
                 <body>
@@ -109,11 +104,10 @@ class KeepAliveHandler(BaseHTTPRequestHandler):
                             <div class="info-item">⏱ Uptime: <span id="uptime">Loading...</span></div>
                             <div class="info-item">👤 Admin: <a href="https://t.me/baohuyno1" class="admin-link">@baohuyno1</a></div>
                             <div class="info-item">📌 Port: {PORT}</div>
-                            <div class="info-item">📌 PID: {os.getpid()}</div>
                             <div class="info-item">🔄 Bot Status: <span id="bot_status">Checking...</span></div>
                         </div>
                         <div class="footer">
-                            <span class="version">v2.0</span> | Powered by ❤️ | Bot 24/7
+                            Powered by ❤️ | Bot 24/7
                         </div>
                     </div>
                     <script>
@@ -177,7 +171,6 @@ class KeepAliveHandler(BaseHTTPRequestHandler):
             self.wfile.write(b"404 Not Found")
     
     def log_message(self, format, *args):
-        # Tắt log để tránh spam
         pass
 
 def run_web_server():
