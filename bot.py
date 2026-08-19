@@ -1,4 +1,4 @@
-# bot.py - GARENA CHECKER BOT - FIX /START HIỆN NÚT
+# bot.py - GARENA CHECKER BOT - FULL FIX
 import subprocess
 import sys
 import importlib
@@ -134,8 +134,6 @@ checking = False
 stop_event = threading.Event()
 filtered_accounts = []
 pending_accounts = []
-waiting_for_accounts = False
-service_selected = None
 stats = {"total": 0, "checked": 0, "hits": 0, "dead": 0, "errors": 0}
 file_lock = threading.Lock()
 stats_lock = threading.Lock()
@@ -183,7 +181,6 @@ def safe_send_message(chat_id, text, reply_markup=None, parse_mode="HTML"):
 
 # ========== TẠO NÚT BẤM ==========
 def create_main_keyboard():
-    """Tạo bàn phím chính - LUÔN HIỂN THỊ"""
     keyboard = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     buttons = [
         KeyboardButton("📝 Gui TK MK"),
@@ -206,14 +203,11 @@ def create_service_keyboard():
     for key, value in SERVICE_ROUTES.items():
         btn = InlineKeyboardButton(
             f"{value['icon']} {value['desc']}",
-            callback_data=f"select_{key}"
+            callback_data=f"check_{key}"
         )
         buttons.append(btn)
     
     keyboard.add(*buttons)
-    keyboard.row(
-        InlineKeyboardButton("❌ Huy", callback_data="cancel_select")
-    )
     return keyboard
 
 def create_admin_keyboard():
@@ -487,7 +481,7 @@ def check_accounts_batch(chat_id, accounts, service):
 # ========== XỬ LÝ CALLBACK ==========
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callback(call):
-    global pending_accounts, waiting_for_accounts, service_selected, checking
+    global pending_accounts, filtered_accounts, checking
     
     if not is_admin(call.message.chat.id):
         bot.answer_callback_query(call.id, "❌ Ban khong co quyen!")
@@ -495,57 +489,35 @@ def handle_callback(call):
     
     data = call.data
     
-    if data.startswith("select_"):
-        service = data.replace("select_", "")
+    if data.startswith("check_"):
+        service = data.replace("check_", "")
         
         if service not in SERVICE_ROUTES:
             bot.answer_callback_query(call.id, "❌ Service khong hop le!")
             return
         
-        service_selected = service
-        waiting_for_accounts = True
+        try:
+            bot.delete_message(call.message.chat.id, call.message.message_id)
+        except:
+            pass
         
         service_desc = SERVICE_ROUTES[service]["desc"]
         icon = SERVICE_ROUTES[service]["icon"]
         
-        try:
-            bot.delete_message(call.message.chat.id, call.message.message_id)
-        except:
-            pass
-        
-        safe_send_message(
-            call.message.chat.id,
-            f"""
-{icon} <b>DA CHON: {service_desc}</b>
-
-📌 <b>VUI LONG GUI TK MK</b>
-Gui truc tiep <code>user:pass</code> hoac nhieu accounts
-
-<b>Ho tro dinh dang:</b>
-• <code>user:pass</code>
-• <code>user|pass</code>
-• <code>user/pass</code>
-
-<b>VD:</b>
-<code>user1:pass123</code>
-<code>user2:pass456</code>
-
-🔄 Bot se tu dong check sau khi nhan duoc tk mk!
-"""
-        )
-        bot.answer_callback_query(call.id, f"✅ Da chon {service_desc}")
-        return
-    
-    elif data == "cancel_select":
-        waiting_for_accounts = False
-        service_selected = None
-        try:
-            bot.delete_message(call.message.chat.id, call.message.message_id)
-        except:
-            pass
-        safe_send_message(call.message.chat.id, "❌ Da huy chon service!")
-        bot.answer_callback_query(call.id, "Da huy")
-        return
+        if pending_accounts:
+            accounts = pending_accounts
+            pending_accounts = []
+            
+            if len(accounts) == 1:
+                user, pwd = accounts[0]
+                safe_send_message(call.message.chat.id, f"{icon} Dang check <code>{user}:{pwd}</code> voi {service_desc}...")
+                threading.Thread(target=check_single_account, args=(call.message.chat.id, user, pwd, service)).start()
+            else:
+                filtered_accounts = accounts
+                safe_send_message(call.message.chat.id, f"{icon} Dang check {len(accounts)} acc voi {service_desc}...")
+                threading.Thread(target=check_accounts_batch, args=(call.message.chat.id, accounts, service)).start()
+        else:
+            bot.answer_callback_query(call.id, "❌ Khong co accounts de check!")
     
     elif data == "admin_status":
         if checking:
@@ -588,8 +560,6 @@ Gui truc tiep <code>user:pass</code> hoac nhieu accounts
     
     elif data == "admin_clear":
         pending_accounts = []
-        waiting_for_accounts = False
-        service_selected = None
         safe_send_message(call.message.chat.id, "✅ Da xoa danh sach pending!")
         bot.answer_callback_query(call.id)
     
@@ -606,7 +576,7 @@ Gui truc tiep <code>user:pass</code> hoac nhieu accounts
 # ========== XỬ LÝ TEXT ==========
 @bot.message_handler(content_types=['text'])
 def handle_text(message):
-    global pending_accounts, waiting_for_accounts, service_selected
+    global pending_accounts
     
     if not is_admin(message.chat.id):
         return
@@ -615,25 +585,21 @@ def handle_text(message):
     
     # XỬ LÝ NÚT BẤM
     if text == "📝 Gui TK MK":
-        safe_send_message(
-            message.chat.id,
-            """
-📌 <b>CHON SERVICE</b>
-👇 Nhan chon service muon check:
-""",
-            reply_markup=create_service_keyboard()
-        )
+        safe_send_message(message.chat.id, """
+📌 <b>GUI TK MK</b>
+Gui truc tiep <code>user:pass</code> hoac nhieu accounts
+
+VD:
+<code>user1:pass123</code>
+<code>user2:pass456</code>
+<code>user3:pass789</code>
+""")
         return
     
     elif text == "📁 Gui File TXT":
         safe_send_message(message.chat.id, """
 📌 <b>GUI FILE TXT</b>
-
-📌 <b>CACH DUNG:</b>
-1️⃣ Nhan <b>"📝 Gui TK MK"</b>
-2️⃣ Chon service
-3️⃣ Gui file .txt
-
+Gui file .txt chua danh sach tk mk
 Bot se tu dong loc va check!
 """)
         return
@@ -642,12 +608,15 @@ Bot se tu dong loc va check!
         safe_send_message(message.chat.id, """
 🔍 <b>LOC TK MK TU TXT</b>
 
-📌 <b>CACH DUNG:</b>
-1️⃣ Nhan <b>"📝 Gui TK MK"</b>
-2️⃣ Chon service
-3️⃣ Gui file .txt
+📌 Gui file .txt chua danh sach tai khoan
+Bot se loc chi giu lai <code>user:pass</code>
 
-Bot se tu dong loc ra user:pass va check!
+📌 Ho tro dinh dang:
+• <code>user:pass</code>
+• <code>user|pass</code>
+• <code>user/pass</code>
+
+📌 Sau khi loc xong, chon service de check!
 """)
         return
     
@@ -716,68 +685,42 @@ Bot se tu dong loc ra user:pass va check!
     if text.startswith('/'):
         return
     
-    # XỬ LÝ TK MK - KIỂM TRA ĐÃ CHỌN SERVICE
-    if waiting_for_accounts and service_selected:
-        accounts = loc_tk_mk(text)
-        
-        if not accounts:
-            safe_send_message(message.chat.id, """
+    # XỬ LÝ TK MK
+    accounts = loc_tk_mk(text)
+    
+    if not accounts:
+        safe_send_message(message.chat.id, """
 ❌ <b>KHONG TIM THAY!</b>
 Format dung: <code>user:pass</code> hoac <code>user|pass</code> hoac <code>user/pass</code>
 
 📌 Vi du:
 <code>ZzkeconzZ:thanhoppa2001</code>
 """)
-            return
-        
-        pending_accounts = accounts
-        service = service_selected
-        service_desc = SERVICE_ROUTES[service]["desc"]
-        icon = SERVICE_ROUTES[service]["icon"]
-        
-        waiting_for_accounts = False
-        service_selected = None
-        
-        preview = '\n'.join([f"{u}:{p}" for u, p in accounts[:10]])
-        total = len(accounts)
-        
-        safe_send_message(message.chat.id, f"""
+        return
+    
+    pending_accounts = accounts
+    
+    preview = '\n'.join([f"{u}:{p}" for u, p in accounts[:10]])
+    total = len(accounts)
+    
+    msg = f"""
 📌 <b>DA NHAN {total} ACCOUNTS</b>
-🎯 Service: {icon} {service_desc}
 
 <b>Preview (10 dong dau):</b>
 <code>{preview}</code>
 {"..." if total > 10 else ""}
 
-🔄 Dang check...
-""")
-        
-        if len(accounts) == 1:
-            user, pwd = accounts[0]
-            threading.Thread(target=check_single_account, args=(message.chat.id, user, pwd, service)).start()
-        else:
-            threading.Thread(target=check_accounts_batch, args=(message.chat.id, accounts, service)).start()
-    else:
-        safe_send_message(message.chat.id, """
-📌 <b>VUI LONG CHON SERVICE TRUOC</b>
-
-👇 Nhan <b>"📝 Gui TK MK"</b> de chon service
-""")
+👇 <b>Chon service de check:</b>
+"""
+    
+    safe_send_message(message.chat.id, msg, reply_markup=create_service_keyboard())
 
 # ========== XỬ LÝ FILE ==========
 @bot.message_handler(content_types=['document'])
 def handle_document(message):
-    global pending_accounts, waiting_for_accounts, service_selected
+    global pending_accounts
     
     if not is_admin(message.chat.id):
-        return
-    
-    if not waiting_for_accounts or not service_selected:
-        safe_send_message(message.chat.id, """
-📌 <b>VUI LONG CHON SERVICE TRUOC</b>
-
-👇 Nhan <b>"📝 Gui TK MK"</b> de chon service
-""")
         return
     
     try:
@@ -794,12 +737,6 @@ def handle_document(message):
             return
         
         pending_accounts = accounts
-        service = service_selected
-        service_desc = SERVICE_ROUTES[service]["desc"]
-        icon = SERVICE_ROUTES[service]["icon"]
-        
-        waiting_for_accounts = False
-        service_selected = None
         
         with open(OUTPUT_FILTERED, 'w', encoding='utf-8') as f:
             for user, pwd in accounts:
@@ -808,28 +745,23 @@ def handle_document(message):
         preview = '\n'.join([f"{u}:{p}" for u, p in accounts[:20]])
         total = len(accounts)
         
-        safe_send_message(message.chat.id, f"""
+        msg = f"""
 ✅ <b>LOC XONG!</b>
 📊 Tong: <code>{total}</code> accounts
-🎯 Service: {icon} {service_desc}
 
 <b>Preview (20 dong dau):</b>
 <code>{preview}</code>
 {"..." if total > 20 else ""}
 
-🔄 Dang check...
-""")
+👇 <b>Chon service de check:</b>
+"""
         
-        if len(accounts) == 1:
-            user, pwd = accounts[0]
-            threading.Thread(target=check_single_account, args=(message.chat.id, user, pwd, service)).start()
-        else:
-            threading.Thread(target=check_accounts_batch, args=(message.chat.id, accounts, service)).start()
+        safe_send_message(message.chat.id, msg, reply_markup=create_service_keyboard())
         
     except Exception as e:
         safe_send_message(message.chat.id, f"❌ Loi: {e}")
 
-# ========== LỆNH /start - FIX HIỆN NÚT ==========
+# ========== LỆNH /start ==========
 @bot.message_handler(commands=['start'])
 def cmd_start(message):
     if not is_admin(message.chat.id):
@@ -840,7 +772,6 @@ def cmd_start(message):
     minutes = (uptime.seconds % 3600) // 60
     
     try:
-        # Gửi tin nhắn kèm keyboard - LUÔN HIỂN THỊ NÚT
         bot.send_message(
             message.chat.id,
             f"""
@@ -850,29 +781,27 @@ def cmd_start(message):
 
 📌 <b>CACH DUNG:</b>
 
-1️⃣ <b>CHON SERVICE</b>
-Nhan nut <b>"📝 Gui TK MK"</b>
-→ Chon service muon check
+1️⃣ <b>GUI TK MK</b>
+Gui truc tiep <code>user:pass</code>
+→ Chon service bang nut bam
 
-2️⃣ <b>GUI TK MK</b>
-Sau khi chon service, gui:
-• <code>user:pass</code> (check don)
-• Nhieu accounts (check hang loat)
-• File .txt chua danh sach
+2️⃣ <b>GUI FILE TXT</b>
+Gui file .txt chua danh sach
+→ Chon service bang nut bam
 
-3️⃣ <b>BOT TU DONG CHECK</b>
-Bot se loc va check ngay lap tuc!
+3️⃣ <b>LOC TK MK TU TXT</b>
+Nhan nut <b>"🔍 Loc TK MK tu TXT"</b>
+→ Gui file .txt de loc
 
 ⚡ <b>THREADS:</b> {DEFAULT_THREADS}
 📋 <b>SERVICES:</b> {', '.join(SERVICE_ROUTES.keys())}
 
 💡 <b>BOT 24/7 - LUON SAN SANG</b>
 """,
-            reply_markup=create_main_keyboard()  # THÊM KEYBOARD
+            reply_markup=create_main_keyboard()
         )
     except Exception as e:
         print(f"[!] Loi gui /start: {e}")
-        # Thử gửi không có keyboard
         bot.send_message(
             message.chat.id,
             f"""
@@ -895,20 +824,22 @@ def cmd_help(message):
         f"""
 📌 <b>HUONG DAN SU DUNG</b>
 
-<b>1. CHON SERVICE:</b>
-Nhan <b>"📝 Gui TK MK"</b> → Chon service
+<b>1. CHECK DON:</b>
+Gui truc tiep: <code>user:pass</code>
+→ Chon service
 
-<b>2. GUI TK MK:</b>
-• Check don: <code>user:pass</code>
-• Check hang loat: Nhieu accounts
-• Check file: Gui file .txt
+<b>2. CHECK HANG LOAT:</b>
+Gui file .txt hoac nhieu accounts
+→ Chon service
 
-<b>3. BOT TU DONG CHECK:</b>
-Sau khi gui tk mk, bot se check ngay!
+<b>3. LOC TK MK:</b>
+Nhan nut <b>"🔍 Loc TK MK tu TXT"</b>
+→ Gui file .txt
 
 <b>4. CAC LENH:</b>
 <code>/start</code> - Khoi dong bot
 <code>/help</code> - Huong dan
+<code>/loc</code> - Loc tk mk tu txt
 <code>/status</code> - Xem trang thai
 <code>/stop</code> - Dung check
 <code>/hits</code> - Tai hits.txt
@@ -920,6 +851,30 @@ Sau khi gui tk mk, bot se check ngay!
 """,
         reply_markup=create_main_keyboard()
     )
+
+@bot.message_handler(commands=['loc'])
+def cmd_loc(message):
+    if not is_admin(message.chat.id):
+        return
+    
+    safe_send_message(message.chat.id, """
+🔍 <b>LOC TK MK TU TXT</b>
+
+📌 <b>CACH DUNG:</b>
+1️⃣ Nhan nut <b>"🔍 Loc TK MK tu TXT"</b>
+2️⃣ Gui file .txt chua danh sach
+3️⃣ Bot tu dong loc ra user:pass
+
+📌 <b>HO TRO DINH DANG:</b>
+• <code>user:pass</code>
+• <code>user|pass</code>
+• <code>user/pass</code>
+
+📌 <b>VI DU:</b>
+<code>ZzkeconzZ:thanhoppa2001</code>
+<code>anhduckim1|kimanhduc1</code>
+<code>trannamtrungzzz/cuong2001</code>
+""")
 
 @bot.message_handler(commands=['status'])
 def cmd_status(message):
@@ -978,11 +933,20 @@ def cmd_clear(message):
     if not is_admin(message.chat.id):
         return
     
-    global pending_accounts, waiting_for_accounts, service_selected
+    global pending_accounts
     pending_accounts = []
-    waiting_for_accounts = False
-    service_selected = None
     safe_send_message(message.chat.id, "✅ Da xoa danh sach pending!")
+
+@bot.message_handler(commands=['services'])
+def cmd_services(message):
+    if not is_admin(message.chat.id):
+        return
+    
+    msg = "📋 <b>DANH SACH SERVICE</b>\n\n"
+    for key, value in SERVICE_ROUTES.items():
+        msg += f"{value['icon']} <b>{value['desc']}</b>\n"
+        msg += f"   Route: <code>{value['route']}</code>\n\n"
+    safe_send_message(message.chat.id, msg)
 
 # ========== MAIN ==========
 def main():
@@ -993,17 +957,16 @@ def main():
     print(f"[*] Threads: {DEFAULT_THREADS}")
     print(f"[*] Services: {len(SERVICE_ROUTES)}")
     print(f"[*] Start time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print("[*] Che do: Chon service -> Gui tk mk")
     print("=" * 60)
     
     try:
         bot.send_message(ADMIN_CHAT_ID, f"""
 🤖 Bot da khoi dong!
 
-📌 CACH DUNG MOI:
-1️⃣ Nhan "📝 Gui TK MK" -> Chon service
-2️⃣ Gui tk mk hoac file .txt
-3️⃣ Bot tu dong check!
+📌 CACH DUNG:
+• Gui user:pass -> Chon service
+• Gui file .txt -> Chon service
+• Nhan "🔍 Loc TK MK tu TXT" -> Gui file de loc
 
 👤 Admin: @baohuyno1
 """)
