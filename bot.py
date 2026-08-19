@@ -1,4 +1,4 @@
-# bot.py - GARENA CHECKER BOT - FIX FULL
+# bot.py - GARENA CHECKER BOT - FIX /START HIỆN NÚT
 import subprocess
 import sys
 import importlib
@@ -31,7 +31,6 @@ import os as os_module
 import threading as threading_module
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
-# Web server mini de Render detect port
 class RenderHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == '/':
@@ -69,7 +68,6 @@ def start_render_server():
     except Exception as e:
         print(f"[!] Loi web server: {e}")
 
-# Chay web server trong thread rieng
 threading_module.Thread(target=start_render_server, daemon=True).start()
 # ==============================================
 
@@ -143,7 +141,6 @@ file_lock = threading.Lock()
 stats_lock = threading.Lock()
 bot_start_time = datetime.now()
 
-# Khoi tao bot
 bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN, parse_mode="HTML")
 
 def is_admin(chat_id):
@@ -186,6 +183,7 @@ def safe_send_message(chat_id, text, reply_markup=None, parse_mode="HTML"):
 
 # ========== TẠO NÚT BẤM ==========
 def create_main_keyboard():
+    """Tạo bàn phím chính - LUÔN HIỂN THỊ"""
     keyboard = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     buttons = [
         KeyboardButton("📝 Gui TK MK"),
@@ -615,6 +613,7 @@ def handle_text(message):
     
     text = message.text.strip()
     
+    # XỬ LÝ NÚT BẤM
     if text == "📝 Gui TK MK":
         safe_send_message(
             message.chat.id,
@@ -717,6 +716,7 @@ Bot se tu dong loc ra user:pass va check!
     if text.startswith('/'):
         return
     
+    # XỬ LÝ TK MK - KIỂM TRA ĐÃ CHỌN SERVICE
     if waiting_for_accounts and service_selected:
         accounts = loc_tk_mk(text)
         
@@ -829,7 +829,7 @@ def handle_document(message):
     except Exception as e:
         safe_send_message(message.chat.id, f"❌ Loi: {e}")
 
-# ========== LỆNH /start ==========
+# ========== LỆNH /start - FIX HIỆN NÚT ==========
 @bot.message_handler(commands=['start'])
 def cmd_start(message):
     if not is_admin(message.chat.id):
@@ -840,6 +840,7 @@ def cmd_start(message):
     minutes = (uptime.seconds % 3600) // 60
     
     try:
+        # Gửi tin nhắn kèm keyboard - LUÔN HIỂN THỊ NÚT
         bot.send_message(
             message.chat.id,
             f"""
@@ -867,10 +868,11 @@ Bot se loc va check ngay lap tuc!
 
 💡 <b>BOT 24/7 - LUON SAN SANG</b>
 """,
-            reply_markup=create_main_keyboard()
+            reply_markup=create_main_keyboard()  # THÊM KEYBOARD
         )
     except Exception as e:
         print(f"[!] Loi gui /start: {e}")
+        # Thử gửi không có keyboard
         bot.send_message(
             message.chat.id,
             f"""
@@ -882,7 +884,7 @@ Bot se loc va check ngay lap tuc!
 """
         )
 
-# ========== CÁC LỆNH KHÁC ==========
+# ========== LỆNH /help ==========
 @bot.message_handler(commands=['help'])
 def cmd_help(message):
     if not is_admin(message.chat.id):
