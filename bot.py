@@ -1,4 +1,4 @@
-# bot.py - GARENA CHECKER BOT - FIX LỖI NÚT START KHÔNG HIỂN THỊ
+# bot.py - GARENA CHECKER BOT - FIX FULL
 import subprocess
 import sys
 import importlib
@@ -31,23 +31,23 @@ import os as os_module
 import threading as threading_module
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
-# Web server mini để Render detect port
+# Web server mini de Render detect port
 class RenderHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == '/':
             self.send_response(200)
-            self.send_header('Content-type', 'text/html')
+            self.send_header('Content-type', 'text/html; charset=utf-8')
             self.end_headers()
-            self.wfile.write(b"""
-            <html>
-                <head><title>🤖 Garena Checker Bot</title></head>
-                <body style="font-family:Arial;text-align:center;padding:50px;background:#0a0a0a;color:#00ff00;">
-                    <h1>🤖 Garena Checker Bot</h1>
-                    <p>Status: <b style="color:#00ff00;">🟢 ALIVE</b></p>
-                    <p>Admin: <a href="https://t.me/baohuyno1" style="color:#00ff00;">@baohuyno1</a></p>
-                </body>
-            </html>
-            """)
+            html = """<!DOCTYPE html>
+<html>
+<head><title>Garena Checker Bot</title></head>
+<body style="font-family:Arial;text-align:center;padding:50px;background:#0a0a0a;color:#00ff00;">
+<h1>Garena Checker Bot</h1>
+<p>Status: <b style="color:#00ff00;">ALIVE</b></p>
+<p>Admin: <a href="https://t.me/baohuyno1" style="color:#00ff00;">@baohuyno1</a></p>
+</body>
+</html>"""
+            self.wfile.write(html.encode('utf-8'))
         elif self.path == '/ping':
             self.send_response(200)
             self.end_headers()
@@ -64,12 +64,12 @@ def start_render_server():
     try:
         port = int(os_module.environ.get("PORT", 10000))
         server = HTTPServer(("0.0.0.0", port), RenderHandler)
-        print(f"[*] Render web server chạy trên port {port}")
+        print(f"[*] Render web server chay tren port {port}")
         server.serve_forever()
     except Exception as e:
-        print(f"[!] Lỗi web server: {e}")
+        print(f"[!] Loi web server: {e}")
 
-# Chạy web server trong thread riêng
+# Chay web server trong thread rieng
 threading_module.Thread(target=start_render_server, daemon=True).start()
 # ==============================================
 
@@ -96,7 +96,7 @@ MAX_MESSAGE_LENGTH = 4000
 SERVICE_ROUTES = {
     "lienquan": {
         "route": "/api/lienquan",
-        "desc": "Liên Quân Mobile",
+        "desc": "Lien Quan Mobile",
         "icon": "🎮"
     },
     "miniworld": {
@@ -143,7 +143,7 @@ file_lock = threading.Lock()
 stats_lock = threading.Lock()
 bot_start_time = datetime.now()
 
-# Khởi tạo bot
+# Khoi tao bot
 bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN, parse_mode="HTML")
 
 def is_admin(chat_id):
@@ -177,33 +177,31 @@ def safe_send_message(chat_id, text, reply_markup=None, parse_mode="HTML"):
                     bot.send_message(chat_id, part.strip(), parse_mode=parse_mode)
                 time.sleep(0.1)
             except Exception as e:
-                print(f"[!] Lỗi gửi tin nhắn: {e}")
+                print(f"[!] Loi gui tin nhan: {e}")
     else:
         try:
             bot.send_message(chat_id, text, parse_mode=parse_mode, reply_markup=reply_markup)
         except Exception as e:
-            print(f"[!] Lỗi gửi tin nhắn: {e}")
+            print(f"[!] Loi gui tin nhan: {e}")
 
 # ========== TẠO NÚT BẤM ==========
 def create_main_keyboard():
-    """Tạo bàn phím chính - LUÔN HIỂN THỊ"""
     keyboard = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     buttons = [
-        KeyboardButton("📝 Gửi TK MK"),
-        KeyboardButton("📁 Gửi File TXT"),
-        KeyboardButton("🔍 Lọc TK MK từ TXT"),
-        KeyboardButton("📊 Trạng thái"),
-        KeyboardButton("📥 Tải Hits"),
-        KeyboardButton("📥 Tải Dead"),
-        KeyboardButton("⏹ Dừng check"),
+        KeyboardButton("📝 Gui TK MK"),
+        KeyboardButton("📁 Gui File TXT"),
+        KeyboardButton("🔍 Loc TK MK tu TXT"),
+        KeyboardButton("📊 Trang thai"),
+        KeyboardButton("📥 Tai Hits"),
+        KeyboardButton("📥 Tai Dead"),
+        KeyboardButton("⏹ Dung check"),
         KeyboardButton("👤 Admin"),
-        KeyboardButton("📋 Danh sách Service")
+        KeyboardButton("📋 Danh sach Service")
     ]
     keyboard.add(*buttons)
     return keyboard
 
 def create_service_keyboard():
-    """Bàn phím chọn service"""
     keyboard = InlineKeyboardMarkup(row_width=2)
     buttons = []
     
@@ -216,7 +214,7 @@ def create_service_keyboard():
     
     keyboard.add(*buttons)
     keyboard.row(
-        InlineKeyboardButton("❌ Hủy", callback_data="cancel_select")
+        InlineKeyboardButton("❌ Huy", callback_data="cancel_select")
     )
     return keyboard
 
@@ -224,12 +222,12 @@ def create_admin_keyboard():
     keyboard = InlineKeyboardMarkup(row_width=2)
     buttons = [
         InlineKeyboardButton("👤 Admin: @baohuyno1", url="https://t.me/baohuyno1"),
-        InlineKeyboardButton("📊 Trạng thái", callback_data="admin_status"),
+        InlineKeyboardButton("📊 Trang thai", callback_data="admin_status"),
         InlineKeyboardButton("📥 Hits", callback_data="admin_hits"),
         InlineKeyboardButton("📥 Dead", callback_data="admin_dead"),
-        InlineKeyboardButton("⏹ Dừng check", callback_data="admin_stop"),
-        InlineKeyboardButton("🗑 Xóa pending", callback_data="admin_clear"),
-        InlineKeyboardButton("📋 Danh sách service", callback_data="admin_services")
+        InlineKeyboardButton("⏹ Dung check", callback_data="admin_stop"),
+        InlineKeyboardButton("🗑 Xoa pending", callback_data="admin_clear"),
+        InlineKeyboardButton("📋 Danh sach service", callback_data="admin_services")
     ]
     keyboard.add(*buttons)
     return keyboard
@@ -351,7 +349,7 @@ def format_hit_dep(username, password, data, service=""):
 🆔 UID: {uid}
 👤 Name: {name}
 🌐 Region: {region}
-💰 Sò: {shells}
+💰 So: {shells}
 👑 Rank: {rank}
 ✨ Level: {level}
 💎 Skin: {skins}
@@ -368,7 +366,7 @@ def format_dead_dep(username, password, service=""):
 # ========== CHECK ĐƠN ==========
 def check_single_account(chat_id, username, password, service="lienquan"):
     service_desc = SERVICE_ROUTES.get(service, {}).get("desc", service)
-    safe_send_message(chat_id, f"🔍 Đang check <code>{username}:{password}</code> với {service_desc}...")
+    safe_send_message(chat_id, f"🔍 Dang check <code>{username}:{password}</code> voi {service_desc}...")
     
     result = check_account_api(username, password, service)
     result_type = result.get("result", "unknown")
@@ -384,14 +382,14 @@ def check_single_account(chat_id, username, password, service="lienquan"):
                 f.write(f"{username}:{password}\n")
         safe_send_message(chat_id, format_dead_dep(username, password, service))
     else:
-        safe_send_message(chat_id, f"⚠️ ERROR - {service.upper()}\n🔑 {username}:{password}\n❌ Lỗi khi check")
+        safe_send_message(chat_id, f"⚠️ ERROR - {service.upper()}\n🔑 {username}:{password}\n❌ Loi khi check")
 
 # ========== CHECK NHIỀU ACCOUNT ==========
 def check_accounts_batch(chat_id, accounts, service):
     global checking, stats
     
     if checking:
-        safe_send_message(chat_id, "⚠️ Đang check rồi!")
+        safe_send_message(chat_id, "⚠️ Dang check roi!")
         return
     
     checking = True
@@ -411,8 +409,8 @@ def check_accounts_batch(chat_id, accounts, service):
     icon = SERVICE_ROUTES.get(service, {}).get("icon", "🔍")
     
     safe_send_message(chat_id, f"""
-{icon} <b>BẮT ĐẦU CHECK</b>
-📊 Tổng: <code>{total}</code> accounts
+{icon} <b>BAT DAU CHECK</b>
+📊 Tong: <code>{total}</code> accounts
 🎯 Service: <b>{service_desc}</b>
 ⚡ Threads: <code>{DEFAULT_THREADS}</code>
 """)
@@ -449,7 +447,7 @@ def check_accounts_batch(chat_id, accounts, service):
                     elapsed = time.time() - stats["start_time"]
                     speed = stats["checked"] / elapsed if elapsed > 0 else 0
                     safe_send_message(chat_id, f"""
-📊 <b>TIẾN ĐỘ</b>
+📊 <b>TIEN DO</b>
 ✅ Checked: <code>{stats['checked']}/{total}</code>
 🔴 Hits: <code>{stats['hits']}</code>
 ❌ Dead: <code>{stats['dead']}</code>
@@ -471,13 +469,13 @@ def check_accounts_batch(chat_id, accounts, service):
     elapsed = time.time() - stats["start_time"]
     
     result_msg = f"""
-✅ <b>CHECK HOÀN TẤT!</b>
-📊 Tổng: <code>{stats['total']}</code>
+✅ <b>CHECK HOAN TAT!</b>
+📊 Tong: <code>{stats['total']}</code>
 🔴 HIT: <code>{stats['hits']}</code>
 ❌ DEAD: <code>{stats['dead']}</code>
 ⚠️ Errors: <code>{stats['errors']}</code>
-⏱ Thời gian: <code>{elapsed:.1f}s</code>
-⚡ Tốc độ: <code>{stats['total']/elapsed:.1f}</code> acc/s
+⏱ Thoi gian: <code>{elapsed:.1f}s</code>
+⚡ Toc do: <code>{stats['total']/elapsed:.1f}</code> acc/s
 """
     safe_send_message(chat_id, result_msg)
     
@@ -494,7 +492,7 @@ def handle_callback(call):
     global pending_accounts, waiting_for_accounts, service_selected, checking
     
     if not is_admin(call.message.chat.id):
-        bot.answer_callback_query(call.id, "❌ Bạn không có quyền!")
+        bot.answer_callback_query(call.id, "❌ Ban khong co quyen!")
         return
     
     data = call.data
@@ -503,7 +501,7 @@ def handle_callback(call):
         service = data.replace("select_", "")
         
         if service not in SERVICE_ROUTES:
-            bot.answer_callback_query(call.id, "❌ Service không hợp lệ!")
+            bot.answer_callback_query(call.id, "❌ Service khong hop le!")
             return
         
         service_selected = service
@@ -520,12 +518,12 @@ def handle_callback(call):
         safe_send_message(
             call.message.chat.id,
             f"""
-{icon} <b>ĐÃ CHỌN: {service_desc}</b>
+{icon} <b>DA CHON: {service_desc}</b>
 
-📌 <b>VUI LÒNG GỬI TK MK</b>
-Gửi trực tiếp <code>user:pass</code> hoặc nhiều accounts
+📌 <b>VUI LONG GUI TK MK</b>
+Gui truc tiep <code>user:pass</code> hoac nhieu accounts
 
-<b>Hỗ trợ định dạng:</b>
+<b>Ho tro dinh dang:</b>
 • <code>user:pass</code>
 • <code>user|pass</code>
 • <code>user/pass</code>
@@ -534,10 +532,10 @@ Gửi trực tiếp <code>user:pass</code> hoặc nhiều accounts
 <code>user1:pass123</code>
 <code>user2:pass456</code>
 
-🔄 Bot sẽ tự động check sau khi nhận được tk mk!
+🔄 Bot se tu dong check sau khi nhan duoc tk mk!
 """
         )
-        bot.answer_callback_query(call.id, f"✅ Đã chọn {service_desc}")
+        bot.answer_callback_query(call.id, f"✅ Da chon {service_desc}")
         return
     
     elif data == "cancel_select":
@@ -547,8 +545,8 @@ Gửi trực tiếp <code>user:pass</code> hoặc nhiều accounts
             bot.delete_message(call.message.chat.id, call.message.message_id)
         except:
             pass
-        safe_send_message(call.message.chat.id, "❌ Đã hủy chọn service!")
-        bot.answer_callback_query(call.id, "Đã hủy")
+        safe_send_message(call.message.chat.id, "❌ Da huy chon service!")
+        bot.answer_callback_query(call.id, "Da huy")
         return
     
     elif data == "admin_status":
@@ -556,16 +554,16 @@ Gửi trực tiếp <code>user:pass</code> hoặc nhiều accounts
             elapsed = time.time() - stats.get("start_time", time.time())
             speed = stats["checked"] / elapsed if elapsed > 0 else 0
             safe_send_message(call.message.chat.id, f"""
-📊 <b>TRẠNG THÁI</b>
-🔄 Đang check: <b>YES</b>
+📊 <b>TRANG THAI</b>
+🔄 Dang check: <b>YES</b>
 ✅ Checked: <code>{stats['checked']}/{stats['total']}</code>
 🔴 HIT: <code>{stats['hits']}</code>
 ❌ DEAD: <code>{stats['dead']}</code>
 ⚡ Speed: <code>{speed:.1f}</code> acc/s
-⏱ Thời gian: <code>{elapsed:.0f}s</code>
+⏱ Thoi gian: <code>{elapsed:.0f}s</code>
 """)
         else:
-            safe_send_message(call.message.chat.id, "💤 Bot đang rảnh")
+            safe_send_message(call.message.chat.id, "💤 Bot dang ranh")
         bot.answer_callback_query(call.id)
     
     elif data == "admin_hits":
@@ -573,7 +571,7 @@ Gửi trực tiếp <code>user:pass</code> hoặc nhiều accounts
             with open(OUTPUT_HITS, 'rb') as f:
                 bot.send_document(call.message.chat.id, f, caption="✅ hits.txt")
         except:
-            safe_send_message(call.message.chat.id, "❌ Chưa có hits!")
+            safe_send_message(call.message.chat.id, "❌ Chua co hits!")
         bot.answer_callback_query(call.id)
     
     elif data == "admin_dead":
@@ -581,24 +579,24 @@ Gửi trực tiếp <code>user:pass</code> hoặc nhiều accounts
             with open(OUTPUT_DEAD, 'rb') as f:
                 bot.send_document(call.message.chat.id, f, caption="❌ dead.txt")
         except:
-            safe_send_message(call.message.chat.id, "❌ Chưa có dead!")
+            safe_send_message(call.message.chat.id, "❌ Chua co dead!")
         bot.answer_callback_query(call.id)
     
     elif data == "admin_stop":
         stop_event.set()
         checking = False
-        safe_send_message(call.message.chat.id, "🛑 Đã dừng check!")
+        safe_send_message(call.message.chat.id, "🛑 Da dung check!")
         bot.answer_callback_query(call.id)
     
     elif data == "admin_clear":
         pending_accounts = []
         waiting_for_accounts = False
         service_selected = None
-        safe_send_message(call.message.chat.id, "✅ Đã xóa danh sách pending!")
+        safe_send_message(call.message.chat.id, "✅ Da xoa danh sach pending!")
         bot.answer_callback_query(call.id)
     
     elif data == "admin_services":
-        msg = "📋 <b>DANH SÁCH SERVICE</b>\n\n"
+        msg = "📋 <b>DANH SACH SERVICE</b>\n\n"
         for key, value in SERVICE_ROUTES.items():
             msg += f"{value['icon']} <b>{value['desc']}</b>\n"
             msg += f"   Route: <code>{value['route']}</code>\n\n"
@@ -617,100 +615,99 @@ def handle_text(message):
     
     text = message.text.strip()
     
-    # Xử lý nút bấm
-    if text == "📝 Gửi TK MK":
+    if text == "📝 Gui TK MK":
         safe_send_message(
             message.chat.id,
             """
-📌 <b>CHỌN SERVICE</b>
-👇 Nhấn chọn service muốn check:
+📌 <b>CHON SERVICE</b>
+👇 Nhan chon service muon check:
 """,
             reply_markup=create_service_keyboard()
         )
         return
     
-    elif text == "📁 Gửi File TXT":
+    elif text == "📁 Gui File TXT":
         safe_send_message(message.chat.id, """
-📌 <b>GỬI FILE TXT</b>
+📌 <b>GUI FILE TXT</b>
 
-📌 <b>CÁCH DÙNG:</b>
-1️⃣ Nhấn <b>"📝 Gửi TK MK"</b>
-2️⃣ Chọn service
-3️⃣ Gửi file .txt
+📌 <b>CACH DUNG:</b>
+1️⃣ Nhan <b>"📝 Gui TK MK"</b>
+2️⃣ Chon service
+3️⃣ Gui file .txt
 
-Bot sẽ tự động lọc và check!
+Bot se tu dong loc va check!
 """)
         return
     
-    elif text == "🔍 Lọc TK MK từ TXT":
+    elif text == "🔍 Loc TK MK tu TXT":
         safe_send_message(message.chat.id, """
-🔍 <b>LỌC TK MK TỪ TXT</b>
+🔍 <b>LOC TK MK TU TXT</b>
 
-📌 <b>CÁCH DÙNG:</b>
-1️⃣ Nhấn <b>"📝 Gửi TK MK"</b>
-2️⃣ Chọn service
-3️⃣ Gửi file .txt
+📌 <b>CACH DUNG:</b>
+1️⃣ Nhan <b>"📝 Gui TK MK"</b>
+2️⃣ Chon service
+3️⃣ Gui file .txt
 
-Bot sẽ tự động lọc ra user:pass và check!
+Bot se tu dong loc ra user:pass va check!
 """)
         return
     
-    elif text == "📊 Trạng thái":
+    elif text == "📊 Trang thai":
         if checking:
             elapsed = time.time() - stats.get("start_time", time.time())
             speed = stats["checked"] / elapsed if elapsed > 0 else 0
             safe_send_message(message.chat.id, f"""
-📊 <b>TRẠNG THÁI</b>
-🔄 Đang check: <b>YES</b>
+📊 <b>TRANG THAI</b>
+🔄 Dang check: <b>YES</b>
 ✅ Checked: <code>{stats['checked']}/{stats['total']}</code>
 🔴 HIT: <code>{stats['hits']}</code>
 ❌ DEAD: <code>{stats['dead']}</code>
 ⚡ Speed: <code>{speed:.1f}</code> acc/s
-⏱ Thời gian: <code>{elapsed:.0f}s</code>
+⏱ Thoi gian: <code>{elapsed:.0f}s</code>
 """)
         else:
-            safe_send_message(message.chat.id, "💤 Bot đang rảnh")
+            safe_send_message(message.chat.id, "💤 Bot dang ranh")
         return
     
-    elif text == "📥 Tải Hits":
+    elif text == "📥 Tai Hits":
         try:
             with open(OUTPUT_HITS, 'rb') as f:
                 bot.send_document(message.chat.id, f, caption="✅ hits.txt")
         except:
-            safe_send_message(message.chat.id, "❌ Chưa có hits!")
+            safe_send_message(message.chat.id, "❌ Chua co hits!")
         return
     
-    elif text == "📥 Tải Dead":
+    elif text == "📥 Tai Dead":
         try:
             with open(OUTPUT_DEAD, 'rb') as f:
                 bot.send_document(message.chat.id, f, caption="❌ dead.txt")
         except:
-            safe_send_message(message.chat.id, "❌ Chưa có dead!")
+            safe_send_message(message.chat.id, "❌ Chua co dead!")
         return
     
-    elif text == "⏹ Dừng check":
+    elif text == "⏹ Dung check":
         stop_event.set()
         checking = False
-        safe_send_message(message.chat.id, "🛑 Đã dừng check!")
+        safe_send_message(message.chat.id, "🛑 Da dung check!")
         return
     
     elif text == "👤 Admin":
         safe_send_message(message.chat.id, """
 👤 <b>ADMIN</b>
 📌 Admin: @baohuyno1
-🔗 Liên hệ: https://t.me/baohuyno1
+🔗 Lien he: https://t.me/baohuyno1
 
-📋 <b>CHỨC NĂNG ADMIN:</b>
-• Quản lý bot
-• Xem trạng thái
-• Tải hits/dead
-• Dừng check
-• Xóa pending
+📋 <b>CHUC NANG ADMIN:</b>
+• Quan ly bot
+• Xem trang thai
+• Tai hits/dead
+• Dung check
+• Xoa pending
 """, reply_markup=create_admin_keyboard())
         return
     
-    elif text == "📋 Danh sách Service":
-        msg = "📋 <b>DANH SÁCH SERVICE</b>\n\n"
+    elif text == "📋 Danh sach Service":
+        msg = "📋 <b>DANH SACH SERVICE</b>\n\n"
         for key, value in SERVICE_ROUTES.items():
             msg += f"{value['icon']} <b>{value['desc']}</b>\n"
             msg += f"   Route: <code>{value['route']}</code>\n\n"
@@ -720,16 +717,15 @@ Bot sẽ tự động lọc ra user:pass và check!
     if text.startswith('/'):
         return
     
-    # Xử lý TK MK - chỉ khi đã chọn service
     if waiting_for_accounts and service_selected:
         accounts = loc_tk_mk(text)
         
         if not accounts:
             safe_send_message(message.chat.id, """
-❌ <b>KHÔNG TÌM THẤY!</b>
-Format đúng: <code>user:pass</code> hoặc <code>user|pass</code> hoặc <code>user/pass</code>
+❌ <b>KHONG TIM THAY!</b>
+Format dung: <code>user:pass</code> hoac <code>user|pass</code> hoac <code>user/pass</code>
 
-📌 Ví dụ:
+📌 Vi du:
 <code>ZzkeconzZ:thanhoppa2001</code>
 """)
             return
@@ -746,14 +742,14 @@ Format đúng: <code>user:pass</code> hoặc <code>user|pass</code> hoặc <code
         total = len(accounts)
         
         safe_send_message(message.chat.id, f"""
-📌 <b>ĐÃ NHẬN {total} ACCOUNTS</b>
+📌 <b>DA NHAN {total} ACCOUNTS</b>
 🎯 Service: {icon} {service_desc}
 
-<b>Preview (10 dòng đầu):</b>
+<b>Preview (10 dong dau):</b>
 <code>{preview}</code>
 {"..." if total > 10 else ""}
 
-🔄 Đang check...
+🔄 Dang check...
 """)
         
         if len(accounts) == 1:
@@ -763,9 +759,9 @@ Format đúng: <code>user:pass</code> hoặc <code>user|pass</code> hoặc <code
             threading.Thread(target=check_accounts_batch, args=(message.chat.id, accounts, service)).start()
     else:
         safe_send_message(message.chat.id, """
-📌 <b>VUI LÒNG CHỌN SERVICE TRƯỚC</b>
+📌 <b>VUI LONG CHON SERVICE TRUOC</b>
 
-👇 Nhấn <b>"📝 Gửi TK MK"</b> để chọn service
+👇 Nhan <b>"📝 Gui TK MK"</b> de chon service
 """)
 
 # ========== XỬ LÝ FILE ==========
@@ -778,15 +774,15 @@ def handle_document(message):
     
     if not waiting_for_accounts or not service_selected:
         safe_send_message(message.chat.id, """
-📌 <b>VUI LÒNG CHỌN SERVICE TRƯỚC</b>
+📌 <b>VUI LONG CHON SERVICE TRUOC</b>
 
-👇 Nhấn <b>"📝 Gửi TK MK"</b> để chọn service
+👇 Nhan <b>"📝 Gui TK MK"</b> de chon service
 """)
         return
     
     try:
         if not message.document.file_name.endswith('.txt'):
-            safe_send_message(message.chat.id, "❌ Chỉ hỗ trợ file .txt!")
+            safe_send_message(message.chat.id, "❌ Chi ho tro file .txt!")
             return
         
         file_info = bot.get_file(message.document.file_id)
@@ -794,7 +790,7 @@ def handle_document(message):
         accounts = loc_tk_mk(content)
         
         if not accounts:
-            safe_send_message(message.chat.id, "❌ Không tìm thấy user:pass trong file!")
+            safe_send_message(message.chat.id, "❌ Khong tim thay user:pass trong file!")
             return
         
         pending_accounts = accounts
@@ -813,15 +809,15 @@ def handle_document(message):
         total = len(accounts)
         
         safe_send_message(message.chat.id, f"""
-✅ <b>LỌC XONG!</b>
-📊 Tổng: <code>{total}</code> accounts
+✅ <b>LOC XONG!</b>
+📊 Tong: <code>{total}</code> accounts
 🎯 Service: {icon} {service_desc}
 
-<b>Preview (20 dòng đầu):</b>
+<b>Preview (20 dong dau):</b>
 <code>{preview}</code>
 {"..." if total > 20 else ""}
 
-🔄 Đang check...
+🔄 Dang check...
 """)
         
         if len(accounts) == 1:
@@ -831,9 +827,9 @@ def handle_document(message):
             threading.Thread(target=check_accounts_batch, args=(message.chat.id, accounts, service)).start()
         
     except Exception as e:
-        safe_send_message(message.chat.id, f"❌ Lỗi: {e}")
+        safe_send_message(message.chat.id, f"❌ Loi: {e}")
 
-# ========== LỆNH /start - FIX ==========
+# ========== LỆNH /start ==========
 @bot.message_handler(commands=['start'])
 def cmd_start(message):
     if not is_admin(message.chat.id):
@@ -843,7 +839,6 @@ def cmd_start(message):
     hours = uptime.seconds // 3600
     minutes = (uptime.seconds % 3600) // 60
     
-    # Gửi tin nhắn kèm keyboard - LUÔN HIỂN THỊ NÚT
     try:
         bot.send_message(
             message.chat.id,
@@ -852,31 +847,30 @@ def cmd_start(message):
 👤 Admin: <a href="https://t.me/baohuyno1">@baohuyno1</a>
 ⏱ Uptime: <code>{hours}h {minutes}m</code>
 
-📌 <b>CÁCH DÙNG:</b>
+📌 <b>CACH DUNG:</b>
 
-1️⃣ <b>CHỌN SERVICE</b>
-Nhấn nút <b>"📝 Gửi TK MK"</b>
-→ Chọn service muốn check
+1️⃣ <b>CHON SERVICE</b>
+Nhan nut <b>"📝 Gui TK MK"</b>
+→ Chon service muon check
 
-2️⃣ <b>GỬI TK MK</b>
-Sau khi chọn service, gửi:
-• <code>user:pass</code> (check đơn)
-• Nhiều accounts (check hàng loạt)
-• File .txt chứa danh sách
+2️⃣ <b>GUI TK MK</b>
+Sau khi chon service, gui:
+• <code>user:pass</code> (check don)
+• Nhieu accounts (check hang loat)
+• File .txt chua danh sach
 
-3️⃣ <b>BOT TỰ ĐỘNG CHECK</b>
-Bot sẽ lọc và check ngay lập tức!
+3️⃣ <b>BOT TU DONG CHECK</b>
+Bot se loc va check ngay lap tuc!
 
 ⚡ <b>THREADS:</b> {DEFAULT_THREADS}
 📋 <b>SERVICES:</b> {', '.join(SERVICE_ROUTES.keys())}
 
-💡 <b>BOT 24/7 - LUÔN SẴN SÀNG</b>
+💡 <b>BOT 24/7 - LUON SAN SANG</b>
 """,
             reply_markup=create_main_keyboard()
         )
     except Exception as e:
-        print(f"[!] Lỗi gửi /start: {e}")
-        # Thử gửi không có keyboard
+        print(f"[!] Loi gui /start: {e}")
         bot.send_message(
             message.chat.id,
             f"""
@@ -884,7 +878,7 @@ Bot sẽ lọc và check ngay lập tức!
 👤 Admin: @baohuyno1
 ⏱ Uptime: {hours}h {minutes}m
 
-📌 Bot đã sẵn sàng! Dùng /help để xem hướng dẫn.
+📌 Bot da san sang! Dung /help de xem huong dan.
 """
         )
 
@@ -897,29 +891,29 @@ def cmd_help(message):
     safe_send_message(
         message.chat.id,
         f"""
-📌 <b>HƯỚNG DẪN SỬ DỤNG</b>
+📌 <b>HUONG DAN SU DUNG</b>
 
-<b>1. CHỌN SERVICE:</b>
-Nhấn <b>"📝 Gửi TK MK"</b> → Chọn service
+<b>1. CHON SERVICE:</b>
+Nhan <b>"📝 Gui TK MK"</b> → Chon service
 
-<b>2. GỬI TK MK:</b>
-• Check đơn: <code>user:pass</code>
-• Check hàng loạt: Nhiều accounts
-• Check file: Gửi file .txt
+<b>2. GUI TK MK:</b>
+• Check don: <code>user:pass</code>
+• Check hang loat: Nhieu accounts
+• Check file: Gui file .txt
 
-<b>3. BOT TỰ ĐỘNG CHECK:</b>
-Sau khi gửi tk mk, bot sẽ check ngay!
+<b>3. BOT TU DONG CHECK:</b>
+Sau khi gui tk mk, bot se check ngay!
 
-<b>4. CÁC LỆNH:</b>
-<code>/start</code> - Khởi động bot
-<code>/help</code> - Hướng dẫn
-<code>/status</code> - Xem trạng thái
-<code>/stop</code> - Dừng check
-<code>/hits</code> - Tải hits.txt
-<code>/dead</code> - Tải dead.txt
-<code>/clear</code> - Xóa pending
+<b>4. CAC LENH:</b>
+<code>/start</code> - Khoi dong bot
+<code>/help</code> - Huong dan
+<code>/status</code> - Xem trang thai
+<code>/stop</code> - Dung check
+<code>/hits</code> - Tai hits.txt
+<code>/dead</code> - Tai dead.txt
+<code>/clear</code> - Xoa pending
 
-<b>5. HỖ TRỢ:</b>
+<b>5. HO TRO:</b>
 👤 Admin: @baohuyno1
 """,
         reply_markup=create_main_keyboard()
@@ -934,16 +928,16 @@ def cmd_status(message):
         elapsed = time.time() - stats.get("start_time", time.time())
         speed = stats["checked"] / elapsed if elapsed > 0 else 0
         safe_send_message(message.chat.id, f"""
-📊 <b>TRẠNG THÁI</b>
-🔄 Đang check: <b>YES</b>
+📊 <b>TRANG THAI</b>
+🔄 Dang check: <b>YES</b>
 ✅ Checked: <code>{stats['checked']}/{stats['total']}</code>
 🔴 HIT: <code>{stats['hits']}</code>
 ❌ DEAD: <code>{stats['dead']}</code>
 ⚡ Speed: <code>{speed:.1f}</code> acc/s
-⏱ Thời gian: <code>{elapsed:.0f}s</code>
+⏱ Thoi gian: <code>{elapsed:.0f}s</code>
 """)
     else:
-        safe_send_message(message.chat.id, "💤 Bot đang rảnh")
+        safe_send_message(message.chat.id, "💤 Bot dang ranh")
 
 @bot.message_handler(commands=['stop'])
 def cmd_stop(message):
@@ -953,7 +947,7 @@ def cmd_stop(message):
     global checking
     stop_event.set()
     checking = False
-    safe_send_message(message.chat.id, "🛑 Đã dừng check!")
+    safe_send_message(message.chat.id, "🛑 Da dung check!")
 
 @bot.message_handler(commands=['hits'])
 def cmd_hits(message):
@@ -964,7 +958,7 @@ def cmd_hits(message):
         with open(OUTPUT_HITS, 'rb') as f:
             bot.send_document(message.chat.id, f, caption="✅ hits.txt")
     except:
-        safe_send_message(message.chat.id, "❌ Chưa có hits!")
+        safe_send_message(message.chat.id, "❌ Chua co hits!")
 
 @bot.message_handler(commands=['dead'])
 def cmd_dead(message):
@@ -975,7 +969,7 @@ def cmd_dead(message):
         with open(OUTPUT_DEAD, 'rb') as f:
             bot.send_document(message.chat.id, f, caption="❌ dead.txt")
     except:
-        safe_send_message(message.chat.id, "❌ Chưa có dead!")
+        safe_send_message(message.chat.id, "❌ Chua co dead!")
 
 @bot.message_handler(commands=['clear'])
 def cmd_clear(message):
@@ -986,7 +980,7 @@ def cmd_clear(message):
     pending_accounts = []
     waiting_for_accounts = False
     service_selected = None
-    safe_send_message(message.chat.id, "✅ Đã xóa danh sách pending!")
+    safe_send_message(message.chat.id, "✅ Da xoa danh sach pending!")
 
 # ========== MAIN ==========
 def main():
@@ -997,24 +991,24 @@ def main():
     print(f"[*] Threads: {DEFAULT_THREADS}")
     print(f"[*] Services: {len(SERVICE_ROUTES)}")
     print(f"[*] Start time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print("[*] Chế độ: Chọn service → Gửi tk mk")
+    print("[*] Che do: Chon service -> Gui tk mk")
     print("=" * 60)
     
     try:
         bot.send_message(ADMIN_CHAT_ID, f"""
-🤖 Bot đã khởi động!
+🤖 Bot da khoi dong!
 
-📌 CÁCH DÙNG MỚI:
-1️⃣ Nhấn "📝 Gửi TK MK" → Chọn service
-2️⃣ Gửi tk mk hoặc file .txt
-3️⃣ Bot tự động check!
+📌 CACH DUNG MOI:
+1️⃣ Nhan "📝 Gui TK MK" -> Chon service
+2️⃣ Gui tk mk hoac file .txt
+3️⃣ Bot tu dong check!
 
 👤 Admin: @baohuyno1
 """)
     except:
         pass
     
-    print("[*] Bot đang chạy 24/7...")
+    print("[*] Bot dang chay 24/7...")
     
     while True:
         try:
@@ -1022,16 +1016,16 @@ def main():
         except Exception as e:
             error_msg = str(e)
             if "409" in error_msg or "Conflict" in error_msg:
-                print("[!] Lỗi 409 Conflict - Đang khởi động lại...")
+                print("[!] Loi 409 Conflict - Dang khoi dong lai...")
                 time.sleep(5)
                 continue
             else:
-                print(f"[!] Lỗi: {e}")
+                print(f"[!] Loi: {e}")
                 time.sleep(5)
 
 if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print("\n[!] Bot dừng!")
+        print("\n[!] Bot dung!")
         sys.exit(0)
