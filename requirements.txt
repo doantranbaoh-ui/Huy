@@ -1,6 +1,13 @@
---index-url https://pypi.org/simple/
---trusted-host pypi.org
---trusted-host files.pythonhosted.org
-requests
-colorama
-pyTelegramBotAPI
+# requirements.txt - GARENA CHECKER BOT
+# Cài đặt: pip install -r requirements.txt
+
+# Thư viện chính
+pyTelegramBotAPI==4.13.0
+requests==2.31.0
+
+# Hỗ trợ thêm (tùy chọn)
+# colorama==0.4.6
+# python-dotenv==1.0.0
+# beautifulsoup4==4.12.2
+# lxml==4.9.3
+# aiohttp==3.8.6
