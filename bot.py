@@ -1,6 +1,6 @@
-# bot.py - GARENA CHECKER BOT V4.4 - THÔNG TIN ĐẸP
+# bot.py - GARENA CHECKER BOT V4.6 - CHECK NHIỀU ACC
 # Tác giả: palofsc
-# Mục đích: Bot Telegram check acc với format thông tin đẹp
+# Mục đích: Bot Telegram check acc với lệnh /checkmulti
 
 import subprocess
 import sys
@@ -47,10 +47,10 @@ class RenderHandler(BaseHTTPRequestHandler):
 <html>
 <head><title>Garena Checker Bot</title></head>
 <body style="font-family:Arial;text-align:center;padding:50px;background:#0a0a0a;color:#00ff00;">
-<h1>Garena Checker Bot V4.4</h1>
+<h1>Garena Checker Bot V4.6</h1>
 <p>Status: <b style="color:#00ff00;">ALIVE</b></p>
 <p>Admin: <a href="https://t.me/baohuyno1" style="color:#00ff00;">@baohuyno1</a></p>
-<p>Version: <b>4.4 - THONG TIN DEP</b></p>
+<p>Version: <b>4.6 - CHECK MULTI</b></p>
 </body>
 </html>"""
             self.wfile.write(html.encode('utf-8'))
@@ -581,7 +581,6 @@ def format_hit_info(username, password, service, result_data):
     service_desc = SERVICE_ROUTES.get(service, {}).get("desc", service)
     icon = SERVICE_ROUTES.get(service, {}).get("icon", "✅")
     
-    # Tạo đường kẻ ngang
     line = "─" * 30
     
     msg = f"""
@@ -591,43 +590,94 @@ def format_hit_info(username, password, service, result_data):
 """
     
     if isinstance(result_data, dict):
-        # Danh sách field cần hiển thị
         display_fields = [
             "uid", "region", "shells", "email_verified", "mobile_bound",
             "fb_linked", "account_secured", "password_set",
             "aov_name", "aov_rank", "aov_level", "aov_banned", "aov_total_skins"
         ]
         
-        # Danh sách field bỏ qua
         skip_fields = ["result", "_is_hit", "_raw_response", "_error", "status", "success", "tk", "mk"]
         
         info_lines = []
         
-        # Hiển thị các field quan trọng trước
         for field in display_fields:
             if field in result_data and result_data[field] is not None and result_data[field] != "":
                 value = result_data[field]
                 label = field.replace("_", " ").title()
-                info_lines.append(f"📌 <b>{label}:</b> <code>{value}</code>")
+                field_icon = get_field_icon(field)
+                info_lines.append(f"{field_icon} <b>{label}:</b> <code>{value}</code>")
         
-        # Hiển thị các field còn lại
         for key, value in result_data.items():
             if key not in display_fields and key not in skip_fields and value is not None and value != "" and value != {} and value != []:
                 if isinstance(value, (str, int, float)):
                     label = key.replace("_", " ").title()
-                    info_lines.append(f"📌 <b>{label}:</b> <code>{value}</code>")
+                    field_icon = get_field_icon(key)
+                    info_lines.append(f"{field_icon} <b>{label}:</b> <code>{value}</code>")
                 elif isinstance(value, dict):
                     for sub_key, sub_value in value.items():
                         if sub_value is not None and sub_value != "" and sub_value != {} and sub_value != []:
                             if isinstance(sub_value, (str, int, float)):
                                 sub_label = sub_key.replace("_", " ").title()
-                                info_lines.append(f"📌 <b>{sub_label}:</b> <code>{sub_value}</code>")
+                                sub_icon = get_field_icon(sub_key)
+                                info_lines.append(f"{sub_icon} <b>{sub_label}:</b> <code>{sub_value}</code>")
         
         if info_lines:
             msg += "\n".join(info_lines)
             msg += f"\n{line}"
     
     return msg
+
+def get_field_icon(field_name):
+    """Lấy icon phù hợp cho từng field"""
+    field_name_lower = field_name.lower()
+    
+    icon_map = {
+        "uid": "🆔",
+        "id": "🆔",
+        "region": "🌏",
+        "shells": "💰",
+        "email_verified": "📧",
+        "mobile_bound": "📱",
+        "fb_linked": "👤",
+        "account_secured": "🔒",
+        "password_set": "🔐",
+        "aov_name": "🎮",
+        "aov_rank": "🏆",
+        "aov_level": "📊",
+        "aov_banned": "🚫",
+        "aov_total_skins": "🎨",
+        "name": "👤",
+        "nickname": "👤",
+        "account": "🔑",
+        "info": "ℹ️",
+        "user": "👤",
+        "player": "🎮",
+        "level": "📊",
+        "rank": "🏆",
+        "email": "📧",
+        "phone": "📱",
+        "sdt": "📱",
+        "skin": "🎨",
+        "skins": "🎨",
+        "banned": "🚫",
+        "ban": "🚫",
+        "verified": "✅",
+        "secured": "🔒",
+        "password": "🔐",
+        "proxy": "🌐",
+        "ip": "🌐",
+        "port": "🔌",
+        "time": "⏱",
+        "date": "📅",
+        "status": "📊",
+        "result": "📋",
+        "message": "💬",
+        "error": "⚠️",
+        "success": "✅",
+        "data": "📦"
+    }
+    
+    return icon_map.get(field_name_lower, "▫️")
 
 # ========== CHECK ĐƠN ==========
 def check_single(chat_id, username, password, service="lienquan"):
@@ -682,7 +732,7 @@ def check_batch(chat_id, accounts, service):
 📊 Tong: <code>{total}</code> accounts
 🎯 Service: <b>{service_desc}</b>
 ⚡ Threads: <code>{DEFAULT_THREADS}</code>
-📤 Proxy: <code>{proxy_count}</code>
+🌐 Proxy: <code>{proxy_count}</code>
 """)
     
     def process_single(user, pwd):
@@ -718,7 +768,7 @@ def check_batch(chat_id, accounts, service):
                     safe_send_message(chat_id, f"""
 📊 <b>TIEN DO</b>
 ✅ Checked: <code>{stats['checked']}/{total}</code> ({percent:.1f}%)
-🔴 Hits: <code>{stats['hits']}</code>
+🎯 Hits: <code>{stats['hits']}</code>
 ❌ Dead: <code>{stats['dead']}</code>
 ⚡ Speed: <code>{speed:.1f}</code> acc/s
 """)
@@ -740,7 +790,7 @@ def check_batch(chat_id, accounts, service):
     safe_send_message(chat_id, f"""
 ✅ <b>CHECK HOAN TAT!</b>
 📊 Tong: <code>{stats['total']}</code>
-🔴 HIT: <code>{stats['hits']}</code>
+🎯 HIT: <code>{stats['hits']}</code>
 ❌ DEAD: <code>{stats['dead']}</code>
 ⏱ Thoi gian: <code>{elapsed:.1f}s</code>
 """)
@@ -826,7 +876,7 @@ def check_all_services(chat_id, accounts):
     
     safe_send_message(chat_id, f"""
 ✅ CHECK ALL HOAN TAT!
-🔴 Hits: {stats_all['hits']}
+🎯 Hits: {stats_all['hits']}
 ❌ Dead: {stats_all['dead']}
 ⏱ Time: {elapsed:.1f}s
 """)
@@ -834,20 +884,22 @@ def check_all_services(chat_id, accounts):
 # ========== XỬ LÝ LỆNH ==========
 @bot.message_handler(commands=['start'])
 def cmd_start(message):
-    """Lệnh /start - Ai cũng dùng được"""
+    """Lệnh /start"""
     with proxy_lock:
         proxy_count = len(proxy_list)
     
     safe_send_message(message.chat.id, f"""
-🤖 <b>GARENA CHECKER BOT V4.4</b>
+🤖 <b>GARENA CHECKER BOT V4.6</b>
 👤 Admin: @baohuyno1
-📤 Proxy: {proxy_count}
+🌐 Proxy: {proxy_count}
 
 📌 <b>LENH SU DUNG:</b>
 
 <b>CHECK TAI KHOAN:</b>
 /check user:pass - Check 1 acc (Lien Quan)
 /check user:pass service - Check theo service
+/checkmulti user1:pass1,user2:pass2 - Check nhieu acc
+/checkmulti user1:pass1,user2:pass2 service - Check nhieu acc theo service
 /checkall - Check tat ca acc dang cho
 
 <b>LOAD PROXY:</b>
@@ -879,14 +931,18 @@ def cmd_help(message):
 /check user:pass lienquan
 
 <b>2. CHECK NHIEU ACC:</b>
+/checkmulti user1:pass1,user2:pass2
+/checkmulti user1:pass1,user2:pass2 lienquan
+
+<b>3. CHECK NHIEU ACC TU FILE:</b>
 Gui file .txt chua danh sach user:pass
 Bot tu dong loc va check
 
-<b>3. LOAD PROXY:</b>
+<b>4. LOAD PROXY:</b>
 /proxy - Xem huong dan
 Gui file .txt chua ip:port
 
-<b>4. XEM KET QUA:</b>
+<b>5. XEM KET QUA:</b>
 /hits - File hits
 /dead - File dead
 /report - File report
@@ -923,6 +979,53 @@ Cac service: {', '.join(SERVICE_ROUTES.keys())}
     user, pwd = accounts[0]
     threading.Thread(target=check_single, args=(message.chat.id, user, pwd, service)).start()
 
+@bot.message_handler(commands=['checkmulti'])
+def cmd_checkmulti(message):
+    """Lệnh /checkmulti user1:pass1,user2:pass2 [service]"""
+    parts = message.text.split()
+    if len(parts) < 2:
+        safe_send_message(message.chat.id, """
+❌ CACH DUNG:
+/checkmulti user1:pass1,user2:pass2
+/checkmulti user1:pass1,user2:pass2 lienquan
+
+<b>Ví dụ:</b>
+/checkmulti user1:pass1,user2:pass2,user3:pass3
+/checkmulti user1:pass1,user2:pass2 lienquan
+""")
+        return
+    
+    accounts_str = parts[1]
+    service = parts[2] if len(parts) > 2 else "lienquan"
+    
+    if service not in SERVICE_ROUTES:
+        safe_send_message(message.chat.id, f"""
+❌ SERVICE KHONG HOP LE!
+Cac service: {', '.join(SERVICE_ROUTES.keys())}
+""")
+        return
+    
+    # Tách nhiều acc bằng dấu phẩy
+    accounts_input = accounts_str.replace(',', '\n')
+    
+    accounts, stats_loc = loc_tk_mk_only(accounts_input)
+    
+    if not accounts:
+        safe_send_message(message.chat.id, "❌ Khong tim thay acc hop le! Dung format: user1:pass1,user2:pass2")
+        return
+    
+    total = len(accounts)
+    
+    safe_send_message(message.chat.id, f"""
+📊 <b>CHECK NHIEU ACC</b>
+🎯 Tong: <code>{total}</code> accounts
+🎮 Service: <b>{SERVICE_ROUTES[service]['desc']}</b>
+
+Dang bat dau check...
+""")
+    
+    threading.Thread(target=check_batch, args=(message.chat.id, accounts, service)).start()
+
 @bot.message_handler(commands=['checkall'])
 def cmd_checkall(message):
     """Lệnh /checkall"""
@@ -934,7 +1037,7 @@ def cmd_checkall(message):
         pending_accounts[chat_id] = []
         threading.Thread(target=check_all_services, args=(chat_id, accounts)).start()
     else:
-        safe_send_message(chat_id, "❌ Khong co acc nao dang cho!")
+        safe_send_message(chat_id, "❌ Khong co acc nao dang cho! Gui file .txt hoac dung /checkmulti")
 
 @bot.message_handler(commands=['proxy'])
 def cmd_proxy(message):
@@ -966,9 +1069,9 @@ def cmd_status(message):
 📊 <b>TRANG THAI</b>
 🔄 Dang check: YES
 ✅ Checked: {stats['checked']}/{stats['total']}
-🔴 HIT: {stats['hits']}
+🎯 HIT: {stats['hits']}
 ❌ DEAD: {stats['dead']}
-📤 Proxy: {proxy_count}
+🌐 Proxy: {proxy_count}
 ⚡ Speed: {speed:.1f} acc/s
 """)
     else:
@@ -976,7 +1079,7 @@ def cmd_status(message):
             proxy_count = len(proxy_list)
         safe_send_message(message.chat.id, f"""
 💤 Bot dang ranh
-📤 Proxy: {proxy_count}
+🌐 Proxy: {proxy_count}
 """)
 
 @bot.message_handler(commands=['stop'])
@@ -1034,7 +1137,7 @@ def cmd_report(message):
 # ========== XỬ LÝ TEXT ==========
 @bot.message_handler(content_types=['text'])
 def handle_text(message):
-    """Xử lý tin nhắn văn bản - Ai cũng dùng được"""
+    """Xử lý tin nhắn văn bản"""
     global pending_accounts
     
     text = message.text.strip()
@@ -1049,7 +1152,9 @@ def handle_text(message):
         safe_send_message(chat_id, """
 ❌ KHONG TIM THAY TAI KHOAN!
 
-Dung lenh /check de check 1 acc
+Dung lenh:
+/check user:pass - Check 1 acc
+/checkmulti user1:pass1,user2:pass2 - Check nhieu acc
 Hoac gui file .txt de check nhieu acc
 """)
         return
@@ -1063,7 +1168,7 @@ Hoac gui file .txt de check nhieu acc
     total = len(accounts)
     
     msg = f"""
-📌 DA LOC {total} ACCOUNTS
+📊 DA LOC {total} ACCOUNTS
 ✅ Valid: {stats_loc['valid']}
 ❌ Invalid: {stats_loc['invalid']}
 🔄 Duplicate: {stats_loc['duplicate']}
@@ -1073,7 +1178,7 @@ Preview (10 dong dau):
 
 👇 Dung lenh de check:
 /checkall - Check tat ca service
-/check user:pass service - Check service cu the
+/checkmulti user1:pass1,user2:pass2 service - Check service cu the
 
 Service: lienquan, miniworld, blockmango, deltaforce, hotmail, fc, fullpack
 """
@@ -1083,7 +1188,7 @@ Service: lienquan, miniworld, blockmango, deltaforce, hotmail, fc, fullpack
 # ========== XỬ LÝ FILE ==========
 @bot.message_handler(content_types=['document'])
 def handle_document(message):
-    """Xử lý file tài liệu - Ai cũng dùng được"""
+    """Xử lý file tài liệu"""
     global pending_accounts
     
     chat_id = message.chat.id
@@ -1103,7 +1208,7 @@ def handle_document(message):
             save_proxy_file()
             safe_send_message(chat_id, f"""
 ✅ LOAD PROXY THANH CONG!
-📤 Tong proxy: {proxy_count}
+🌐 Tong proxy: {proxy_count}
 """)
             return
         
@@ -1134,7 +1239,7 @@ Preview (20 dong dau):
 
 👇 Dung lenh de check:
 /checkall - Check tat ca service
-/check user:pass service - Check service cu the
+/checkmulti user1:pass1,user2:pass2 service - Check service cu the
 """
         
         safe_send_message(chat_id, msg)
@@ -1152,7 +1257,7 @@ Preview (20 dong dau):
 def main():
     """Hàm chính khởi động bot"""
     print("=" * 60)
-    print("    GARENA CHECKER BOT V4.4 - THONG TIN DEP")
+    print("    GARENA CHECKER BOT V4.6 - CHECK MULTI")
     print("    ADMIN: @baohuyno1")
     print("    AI CUNG DUNG DUOC")
     print("=" * 60)
