@@ -1,48 +1,35 @@
-# --- keepalive/keepalive.py ---
-"""
-Keep-alive service
-"""
+# File: keep_alive.py (KHÔNG dùng tên keepalive.py)
+from flask import Flask
+from threading import Thread
+import time
+import requests
 
-import asyncio
-import os
-import sys
-import json
-import logging
-from datetime import datetime
+app = Flask(__name__)
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+@app.route('/')
+def home():
+    return "Bot Check Account - Online"
 
-from app.redis_client import RedisManager
+@app.route('/health')
+def health():
+    return {"status": "ok", "bot": "running"}
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+def keep_alive():
+    while True:
+        time.sleep(300)
+        try:
+            requests.get("http://localhost:8080/health", timeout=10)
+        except:
+            pass
 
-class KeepAlive:
-    def __init__(self):
-        self.redis = RedisManager()
-        self.running = False
-        
-    async def start(self):
-        await self.redis.connect()
-        self.running = True
-        logger.info("💓 Keep-alive started")
-        
-        while self.running:
-            await self.redis.client.set(
-                "nexus:keepalive",
-                json.dumps({
-                    "time": datetime.now().isoformat(),
-                    "status": "alive"
-                })
-            )
-            await asyncio.sleep(30)
+def run_flask():
+    app.run(host='0.0.0.0', port=8080)
 
-async def main():
-    service = KeepAlive()
-    try:
-        await service.start()
-    except KeyboardInterrupt:
-        service.running = False
-
-if __name__ == "__main__":
-    asyncio.run(main())
+def start_keepalive():
+    t = Thread(target=run_flask)
+    t.daemon = True
+    t.start()
+    
+    keep = Thread(target=keep_alive)
+    keep.daemon = True
+    keep.start()
