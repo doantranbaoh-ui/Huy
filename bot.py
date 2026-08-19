@@ -1,6 +1,6 @@
-# bot.py - GARENA CHECKER BOT V4.7 - CHECKMULTI FIX
+# bot.py - GARENA CHECKER BOT V4.8 - CHECK FIX ĐA ĐỊNH DẠNG
 # Tác giả: palofsc
-# Mục đích: Bot Telegram check acc với /checkmulti hỗ trợ nhiều dòng
+# Mục đích: Bot Telegram check acc hỗ trợ | hoặc :
 
 import subprocess
 import sys
@@ -47,10 +47,10 @@ class RenderHandler(BaseHTTPRequestHandler):
 <html>
 <head><title>Garena Checker Bot</title></head>
 <body style="font-family:Arial;text-align:center;padding:50px;background:#0a0a0a;color:#00ff00;">
-<h1>Garena Checker Bot V4.7</h1>
+<h1>Garena Checker Bot V4.8</h1>
 <p>Status: <b style="color:#00ff00;">ALIVE</b></p>
 <p>Admin: <a href="https://t.me/baohuyno1" style="color:#00ff00;">@baohuyno1</a></p>
-<p>Version: <b>4.7 - CHECKMULTI FIX</b></p>
+<p>Version: <b>4.8 - CHECK FIX</b></p>
 </body>
 </html>"""
             self.wfile.write(html.encode('utf-8'))
@@ -290,9 +290,9 @@ def save_proxy_file():
                 for proxy in proxy_list:
                     f.write(f"{proxy['full']}\n")
 
-# ========== LỌC TK MK ==========
+# ========== LỌC TK MK - HỖ TRỢ | VÀ : ==========
 def loc_tk_mk_only(content):
-    """Lọc tài khoản chuyên nghiệp"""
+    """Lọc tài khoản chuyên nghiệp, hỗ trợ | và :"""
     accounts = []
     seen = set()
     stats_loc = {"total": 0, "valid": 0, "invalid": 0, "duplicate": 0}
@@ -300,8 +300,14 @@ def loc_tk_mk_only(content):
     if not content:
         return accounts, stats_loc
     
-    pattern_standard = r'(?<![a-zA-Z0-9_])([a-zA-Z0-9][a-zA-Z0-9_.@-]{1,50}):([a-zA-Z0-9_.@!$%^&*()\-]{1,100})(?![a-zA-Z0-9_])'
-    pattern_final = r'FINAL\s*[=:]\s*([a-zA-Z0-9][a-zA-Z0-9_.@-]{1,50}):([a-zA-Z0-9_.@!$%^&*()\-]{1,100})'
+    # Pattern cho dấu : (user:pass)
+    pattern_colon = r'(?<![a-zA-Z0-9_])([a-zA-Z0-9][a-zA-Z0-9_.@-]{1,50}):([a-zA-Z0-9_.@!$%^&*()\-]{1,100})(?![a-zA-Z0-9_])'
+    
+    # Pattern cho dấu | (user|pass)
+    pattern_pipe = r'(?<![a-zA-Z0-9_])([a-zA-Z0-9][a-zA-Z0-9_.@-]{1,50})\|([a-zA-Z0-9_.@!$%^&*()\-]{1,100})(?![a-zA-Z0-9_])'
+    
+    # Pattern FINAL = user:pass
+    pattern_final = r'FINAL\s*[=:]\s*([a-zA-Z0-9][a-zA-Z0-9_.@-]{1,50})[:|]([a-zA-Z0-9_.@!$%^&*()\-]{1,100})'
     
     skip_patterns = [
         r'^https?://', r'^www\.', r'\.com$', r'\.net$', r'\.org$',
@@ -312,6 +318,7 @@ def loc_tk_mk_only(content):
         r'^tuong', r'^skin', r'^authen', r'^so:', r'^qu[âa]n', r'^v[ôo]'
     ]
     
+    # Thử FINAL pattern trước
     final_matches = re.findall(pattern_final, content, re.IGNORECASE)
     if final_matches:
         for user, pwd in final_matches:
@@ -335,7 +342,24 @@ def loc_tk_mk_only(content):
         if not line:
             continue
         
-        matches = re.findall(pattern_standard, line)
+        # Thử pattern dấu : trước
+        matches = re.findall(pattern_colon, line)
+        if matches:
+            for user, pwd in matches:
+                if is_valid_account(user, pwd, skip_patterns):
+                    key = f"{user}:{pwd}"
+                    if key not in seen:
+                        seen.add(key)
+                        accounts.append((user, pwd))
+                        stats_loc["valid"] += 1
+                    else:
+                        stats_loc["duplicate"] += 1
+                else:
+                    stats_loc["invalid"] += 1
+            continue
+        
+        # Thử pattern dấu |
+        matches = re.findall(pattern_pipe, line)
         if matches:
             for user, pwd in matches:
                 if is_valid_account(user, pwd, skip_patterns):
@@ -349,8 +373,9 @@ def loc_tk_mk_only(content):
                 else:
                     stats_loc["invalid"] += 1
     
+    # Nếu không tìm thấy, thử tìm trong toàn bộ nội dung
     if not accounts:
-        all_matches = re.findall(pattern_standard, content)
+        all_matches = re.findall(pattern_colon, content)
         for user, pwd in all_matches:
             if is_valid_account(user, pwd, skip_patterns):
                 key = f"{user}:{pwd}"
@@ -362,6 +387,20 @@ def loc_tk_mk_only(content):
                     stats_loc["duplicate"] += 1
             else:
                 stats_loc["invalid"] += 1
+        
+        if not accounts:
+            all_matches = re.findall(pattern_pipe, content)
+            for user, pwd in all_matches:
+                if is_valid_account(user, pwd, skip_patterns):
+                    key = f"{user}:{pwd}"
+                    if key not in seen:
+                        seen.add(key)
+                        accounts.append((user, pwd))
+                        stats_loc["valid"] += 1
+                    else:
+                        stats_loc["duplicate"] += 1
+                else:
+                    stats_loc["invalid"] += 1
     
     return accounts, stats_loc
 
@@ -889,7 +928,7 @@ def cmd_start(message):
         proxy_count = len(proxy_list)
     
     safe_send_message(message.chat.id, f"""
-🤖 <b>GARENA CHECKER BOT V4.7</b>
+🤖 <b>GARENA CHECKER BOT V4.8</b>
 👤 Admin: @baohuyno1
 🌐 Proxy: {proxy_count}
 
@@ -897,9 +936,9 @@ def cmd_start(message):
 
 <b>CHECK TAI KHOAN:</b>
 /check user:pass - Check 1 acc
+/check user|pass - Check 1 acc (dau |)
 /check user:pass service - Check 1 acc theo service
 /checkmulti user1:pass1,user2:pass2 - Check nhieu acc
-/checkmulti user1:pass1,user2:pass2 service - Check nhieu acc theo service
 /checkall - Check tat ca acc dang cho
 
 <b>SERVICE:</b>
@@ -908,12 +947,13 @@ lienquan, miniworld, blockmango, deltaforce, hotmail, fc, fullpack
 
 @bot.message_handler(commands=['check'])
 def cmd_check(message):
-    """Lệnh /check user:pass [service]"""
+    """Lệnh /check user:pass hoặc user|pass [service]"""
     parts = message.text.split()
     if len(parts) < 2:
         safe_send_message(message.chat.id, """
 ❌ CACH DUNG:
 /check user:pass
+/check user|pass
 /check user:pass lienquan
 """)
         return
@@ -928,10 +968,13 @@ Cac service: {', '.join(SERVICE_ROUTES.keys())}
 """)
         return
     
-    accounts, stats_loc = loc_tk_mk_only(account_str)
+    # Thay | bằng : để lọc
+    account_input = account_str.replace('|', ':')
+    
+    accounts, stats_loc = loc_tk_mk_only(account_input)
     
     if not accounts:
-        safe_send_message(message.chat.id, "❌ Format sai! Dung: user:pass")
+        safe_send_message(message.chat.id, "❌ Format sai! Dung: user:pass hoặc user|pass")
         return
     
     user, pwd = accounts[0]
@@ -939,11 +982,9 @@ Cac service: {', '.join(SERVICE_ROUTES.keys())}
 
 @bot.message_handler(commands=['checkmulti'])
 def cmd_checkmulti(message):
-    """Lệnh /checkmulti - Hỗ trợ nhiều dòng và dấu phẩy"""
-    # Lấy toàn bộ text sau lệnh /checkmulti
+    """Lệnh /checkmulti - Hỗ trợ nhiều định dạng"""
     text = message.text.strip()
     
-    # Bỏ phần /checkmulti
     if text.startswith('/checkmulti'):
         text = text[len('/checkmulti'):].strip()
     
@@ -952,47 +993,42 @@ def cmd_checkmulti(message):
 ❌ CACH DUNG:
 /checkmulti user1:pass1
 user2:pass2
-user3:pass3
+user3|pass3
 
 Hoặc:
-/checkmulti user1:pass1,user2:pass2,user3:pass3
+/checkmulti user1:pass1,user2|pass2,user3:pass3
 
 Hoặc:
 /checkmulti user1:pass1,user2:pass2 lienquan
 """)
         return
     
-    # Tách service nếu có (từ cuối cùng nếu là service hợp lệ)
     lines = text.split('\n')
     service = "lienquan"
     
-    # Kiểm tra dòng cuối có phải service không
     if lines:
         last_line = lines[-1].strip()
         last_word = last_line.split()[-1] if last_line.split() else ""
         
-        # Nếu dòng cuối chỉ có 1 từ và là service hợp lệ
         if last_word in SERVICE_ROUTES and len(last_line.split()) == 1:
             service = last_word
             lines = lines[:-1]
         elif last_word in SERVICE_ROUTES and len(last_line.split()) > 1:
-            # Service nằm cuối dòng có acc
             service = last_word
             lines[-1] = last_line.rsplit(last_word, 1)[0].strip()
     
-    # Gộp tất cả dòng thành 1 chuỗi
     accounts_input = '\n'.join(lines)
-    
-    # Thay dấu phẩy bằng xuống dòng
     accounts_input = accounts_input.replace(',', '\n')
+    
+    # Thay | bằng :
+    accounts_input = accounts_input.replace('|', ':')
     
     accounts, stats_loc = loc_tk_mk_only(accounts_input)
     
     if not accounts:
         safe_send_message(message.chat.id, """
 ❌ KHONG TIM THAY ACC HOP LE!
-Format: user:pass
-Moi acc cach nhau boi dau phay hoac xuong dong
+Format: user:pass hoặc user|pass
 """)
         return
     
@@ -1124,7 +1160,10 @@ def handle_text(message):
     if text.startswith('/'):
         return
     
-    accounts, stats_loc = loc_tk_mk_only(text)
+    # Thay | bằng : để lọc
+    text_input = text.replace('|', ':')
+    
+    accounts, stats_loc = loc_tk_mk_only(text_input)
     
     if not accounts:
         safe_send_message(chat_id, """
@@ -1132,8 +1171,8 @@ def handle_text(message):
 
 Dung lenh:
 /check user:pass - Check 1 acc
+/check user|pass - Check 1 acc (dau |)
 /checkmulti user1:pass1,user2:pass2 - Check nhieu acc
-Hoac gui file .txt de check nhieu acc
 """)
         return
     
@@ -1190,8 +1229,11 @@ def handle_document(message):
 """)
             return
         
+        # Thay | bằng :
+        content_input = content.replace('|', ':')
+        
         # Lọc tài khoản
-        accounts, stats_loc = loc_tk_mk_only(content)
+        accounts, stats_loc = loc_tk_mk_only(content_input)
         
         if not accounts:
             safe_send_message(chat_id, "❌ Khong tim thay user:pass trong file!")
@@ -1235,9 +1277,9 @@ Preview (20 dong dau):
 def main():
     """Hàm chính khởi động bot"""
     print("=" * 60)
-    print("    GARENA CHECKER BOT V4.7 - CHECKMULTI FIX")
+    print("    GARENA CHECKER BOT V4.8 - CHECK FIX")
     print("    ADMIN: @baohuyno1")
-    print("    AI CUNG DUNG DUOC")
+    print("    HO TRO | VA :")
     print("=" * 60)
     print(f"[*] Threads: {DEFAULT_THREADS}")
     print(f"[*] Timeout: {DEFAULT_TIMEOUT}s")
