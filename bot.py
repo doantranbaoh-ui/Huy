@@ -1,11 +1,13 @@
-# bot.py - Garena Checker Bot - Full chức năng lọc tk mk ra txt
+# bot.py - GARENA CHECKER BOT HOÀN CHỈNH
 # Token: 6367532329:AAEem2DziNWKZtFrA8goj5PGTOI4MVT7IKA
 # Admin: 5736655322
+# API: thaituduc / thaituduc - KHÔNG GIỚI HẠN
 # Chạy trên Render không cần requirements.txt
 import subprocess
 import sys
 import importlib
 
+# ========== TỰ ĐỘNG CÀI PACKAGES ==========
 def install_package(package_name):
     try:
         importlib.import_module(package_name)
@@ -84,13 +86,16 @@ stats = {
 bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN, parse_mode="HTML")
 
 def print_info(msg):
-    print(f"[*] {msg}")
+    print(f"{Fore.CYAN}[*]{Style.RESET_ALL} {msg}")
 
 def print_success(msg):
-    print(f"[+] {msg}")
+    print(f"{Fore.GREEN}[+]{Style.RESET_ALL} {msg}")
 
 def print_error(msg):
-    print(f"[!] {msg}")
+    print(f"{Fore.RED}[!]{Style.RESET_ALL} {msg}")
+
+def print_hit(msg):
+    print(f"{Fore.MAGENTA}[HIT]{Style.RESET_ALL} {msg}")
 
 def is_admin(chat_id):
     return str(chat_id) == str(ADMIN_CHAT_ID)
@@ -424,6 +429,7 @@ def start_check(chat_id, service, threads, proxy="", keyword=""):
 📊 Tổng: <code>{stats['total']}</code>
 🔴 Hits: <code>{stats['hits']}</code>
 ❌ Dead: <code>{stats['dead']}</code>
+⚠️ Unknown: <code>{stats['unknown']}</code>
 ⏱ Thời gian: <code>{elapsed:.2f}s</code>
 """
     bot.send_message(chat_id, result_msg)
@@ -619,6 +625,8 @@ def cmd_status(message):
 ✅ Đã check: {stats['checked']}/{stats['total']}
 🔴 Hits: {stats['hits']}
 ❌ Dead: {stats['dead']}
+⚠️ Unknown: {stats['unknown']}
+⚡ Tốc độ: {stats['checked']/elapsed:.2f} acc/s
 """
     bot.send_message(message.chat.id, msg)
 
@@ -733,30 +741,31 @@ def handle_text(message):
 
 # ========== MAIN ==========
 def main():
-    print("=" * 60)
-    print("    GARENA CHECKER BOT")
-    print("    Token: 6367532329:AAEe...IKA")
-    print("    Admin: 5736655322")
-    print("=" * 60)
+    print(f"{Fore.CYAN}{'='*60}")
+    print(f"{Fore.CYAN}    GARENA CHECKER BOT")
+    print(f"{Fore.CYAN}    Token: 6367532329:AAEe...IKA")
+    print(f"{Fore.CYAN}    Admin: 5736655322")
+    print(f"{Fore.CYAN}{'='*60}{Style.RESET_ALL}")
+    print()
     
     try:
         bot.send_message(ADMIN_CHAT_ID, "🤖 Bot đã khởi động!\nDùng /start để xem menu")
-        print("[+] Đã gửi tin nhắn khởi động")
+        print_success("Đã gửi tin nhắn khởi động")
     except Exception as e:
-        print(f"[!] Không gửi được tin nhắn: {e}")
+        print_error(f"Không gửi được tin nhắn: {e}")
     
-    print("[*] Bot đang chạy...")
+    print_info("Bot đang chạy...")
     
     while True:
         try:
             bot.polling(none_stop=True, interval=1, timeout=30)
         except Exception as e:
-            print(f"[!] Lỗi polling: {e}")
+            print_error(f"Lỗi polling: {e}")
             time.sleep(5)
 
 if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print("\n[!] Bot đã dừng!")
+        print_error("\nBot đã dừng!")
         sys.exit(0)
