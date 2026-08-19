@@ -1,8 +1,6 @@
-requests==2.31.0
-colorama==0.4.6
-pyTelegramBotAPI==4.14.0
-flask==3.0.0
-fastapi
-uvicorn
-aiohttp
-redis_client
+--index-url https://pypi.org/simple/
+--trusted-host pypi.org
+--trusted-host files.pythonhosted.org
+requests
+colorama
+pyTelegramBotAPI
