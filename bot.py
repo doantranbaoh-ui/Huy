@@ -1,4 +1,4 @@
-# bot.py - GARENA CHECKER BOT - FULL HOÀN CHỈNH + TREO 24/7
+# bot.py - GARENA CHECKER BOT - FIX LỖI 409 CONFLICT
 import subprocess
 import sys
 import importlib
@@ -9,6 +9,7 @@ import os
 import re
 import telebot
 import requests
+import signal
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
@@ -42,6 +43,9 @@ OUTPUT_HITS = "hits.txt"
 OUTPUT_DEAD = "dead.txt"
 OUTPUT_FILTERED = "filtered_accounts.txt"
 OUTPUT_CHECKED = "checked_accounts.txt"
+
+# File lock để tránh conflict
+LOCK_FILE = "bot.lock"
 
 # ========== DANH SÁCH SERVICE ==========
 SERVICE_ROUTES = {
@@ -93,15 +97,40 @@ stats_lock = threading.Lock()
 api_cache = {}
 cache_lock = threading.Lock()
 bot_start_time = datetime.now()
+running = True
 
-bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN, parse_mode="HTML")
+# ========== TẠO LOCK FILE ==========
+def acquire_lock():
+    """Tạo lock file để tránh nhiều instance"""
+    try:
+        if os.path.exists(LOCK_FILE):
+            # Kiểm tra xem lock file còn hợp lệ không
+            with open(LOCK_FILE, 'r') as f:
+                pid = int(f.read().strip())
+                try:
+                    os.kill(pid, 0)  # Kiểm tra process còn sống
+                    return False  # Process vẫn đang chạy
+                except OSError:
+                    # Process đã chết, xóa lock
+                    os.remove(LOCK_FILE)
+        
+        # Ghi PID vào lock file
+        with open(LOCK_FILE, 'w') as f:
+            f.write(str(os.getpid()))
+        return True
+    except:
+        return True
 
-def is_admin(chat_id):
-    return str(chat_id) == str(ADMIN_CHAT_ID)
+def release_lock():
+    """Xóa lock file"""
+    try:
+        if os.path.exists(LOCK_FILE):
+            os.remove(LOCK_FILE)
+    except:
+        pass
 
 # ========== LỌC TK MK ==========
 def loc_tk_mk(content):
-    """Lọc user:pass từ nội dung"""
     accounts = []
     seen = set()
     lines = content.split('\n')
@@ -173,7 +202,7 @@ def check_account_api(username, password, service):
     
     return {"result": "error", "message": "Request failed"}
 
-# ========== FORMAT KẾT QUẢ ĐẸP ==========
+# ========== FORMAT KẾT QUẢ ==========
 def format_hit_dep(username, password, data, service=""):
     if isinstance(data, str):
         try:
@@ -811,7 +840,7 @@ def handle_document(message):
     except Exception as e:
         bot.reply_to(message, f"❌ Lỗi: {e}")
 
-# ========== LỆNH /start ==========
+# ========== LỆNH ==========
 @bot.message_handler(commands=['start'])
 def cmd_start(message):
     if not is_admin(message.chat.id):
@@ -840,23 +869,12 @@ Gửi file .txt chứa danh sách
 Nhấn nút <b>"🔍 Lọc TK MK từ TXT"</b>
 → Gửi file .txt để lọc
 
-4️⃣ <b>SỬ DỤNG NÚT</b>
-• 📝 Gửi TK MK - Hướng dẫn
-• 📁 Gửi File TXT - Hướng dẫn
-• 🔍 Lọc TK MK từ TXT - Lọc file
-• 📊 Trạng thái - Xem tiến độ
-• 📥 Tải Hits - Tải hits.txt
-• 📥 Tải Dead - Tải dead.txt• ⏹ Dừng check - Dừng check
-• 👤 Admin - Liên hệ admin
-• 📋 Danh sách Service - Xem services
-
 ⚡ <b>THREADS:</b> {DEFAULT_THREADS}
 📋 <b>SERVICES:</b> {', '.join(SERVICE_ROUTES.keys())}
 
 💡 <b>BOT 24/7 - LUÔN SẴN SÀNG</b>
 """, reply_markup=create_main_keyboard())
 
-# ========== LỆNH /help ==========
 @bot.message_handler(commands=['help'])
 def cmd_help(message):
     if not is_admin(message.chat.id):
@@ -892,7 +910,6 @@ Nhấn nút <b>"🔍 Lọc TK MK từ TXT"</b>
 👤 Admin: @baohuyno1
 """, reply_markup=create_main_keyboard())
 
-# ========== LỆNH /loc ==========
 @bot.message_handler(commands=['loc'])
 def cmd_loc(message):
     if not is_admin(message.chat.id):
@@ -918,7 +935,6 @@ def cmd_loc(message):
 <code>trannamtrungzzz/cuong2001</code>
 """)
 
-# ========== LỆNH /status ==========
 @bot.message_handler(commands=['status'])
 def cmd_status(message):
     if not is_admin(message.chat.id):
@@ -939,7 +955,6 @@ def cmd_status(message):
     else:
         bot.reply_to(message, "💤 Bot đang rảnh")
 
-# ========== LỆNH /stop ==========
 @bot.message_handler(commands=['stop'])
 def cmd_stop(message):
     if not is_admin(message.chat.id):
@@ -950,7 +965,6 @@ def cmd_stop(message):
     checking = False
     bot.reply_to(message, "🛑 Đã dừng check!")
 
-# ========== LỆNH /hits ==========
 @bot.message_handler(commands=['hits'])
 def cmd_hits(message):
     if not is_admin(message.chat.id):
@@ -962,7 +976,6 @@ def cmd_hits(message):
     except:
         bot.reply_to(message, "❌ Chưa có hits!")
 
-# ========== LỆNH /dead ==========
 @bot.message_handler(commands=['dead'])
 def cmd_dead(message):
     if not is_admin(message.chat.id):
@@ -974,7 +987,6 @@ def cmd_dead(message):
     except:
         bot.reply_to(message, "❌ Chưa có dead!")
 
-# ========== LỆNH /clear ==========
 @bot.message_handler(commands=['clear'])
 def cmd_clear(message):
     if not is_admin(message.chat.id):
@@ -984,7 +996,6 @@ def cmd_clear(message):
     pending_accounts = []
     bot.reply_to(message, "✅ Đã xóa danh sách pending!")
 
-# ========== LỆNH /services ==========
 @bot.message_handler(commands=['services'])
 def cmd_services(message):
     if not is_admin(message.chat.id):
@@ -998,26 +1009,40 @@ def cmd_services(message):
 
 # ========== GIỮ BOT 24/7 ==========
 def keep_alive():
-    """Giữ bot sống bằng cách ping mỗi 5 phút"""
     while True:
         try:
-            time.sleep(300)  # 5 phút
+            time.sleep(300)
             print(f"[*] Keep alive ping at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         except:
             pass
 
 # ========== MAIN ==========
 def main():
+    # Kiểm tra lock file
+    if not acquire_lock():
+        print("[!] Bot instance khác đang chạy! Thoát...")
+        sys.exit(1)
+    
     print("=" * 60)
     print("    GARENA CHECKER BOT - 24/7")
     print("    ADMIN: @baohuyno1")
     print("=" * 60)
+    print(f"[*] PID: {os.getpid()}")
     print(f"[*] Threads: {DEFAULT_THREADS}")
     print(f"[*] Services: {len(SERVICE_ROUTES)}")
     print(f"[*] Start time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("=" * 60)
     
-    # Chạy keep alive trong thread riêng
+    # Xử lý tín hiệu dừng
+    def signal_handler(sig, frame):
+        print("\n[!] Đang dừng bot...")
+        release_lock()
+        sys.exit(0)
+    
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
+    # Chạy keep alive
     threading.Thread(target=keep_alive, daemon=True).start()
     
     try:
@@ -1037,16 +1062,25 @@ def main():
     
     print("[*] Bot đang chạy 24/7...")
     
+    # Sử dụng polling với timeout ngắn và xử lý lỗi 409
     while True:
         try:
-            bot.polling(none_stop=True, interval=1, timeout=60)
+            bot.polling(none_stop=True, interval=1, timeout=30, long_polling_timeout=30)
         except Exception as e:
-            print(f"[!] Lỗi: {e}")
-            time.sleep(5)
+            error_msg = str(e)
+            if "409" in error_msg or "Conflict" in error_msg:
+                print("[!] Lỗi 409 Conflict - Đang khởi động lại...")
+                time.sleep(5)
+                continue
+            else:
+                print(f"[!] Lỗi: {e}")
+                time.sleep(5)
+                continue
 
 if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
         print("\n[!] Bot dừng!")
+        release_lock()
         sys.exit(0)
