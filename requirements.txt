@@ -5,3 +5,4 @@ flask==3.0.0
 fastapi
 uvicorn
 aiohttp
+redis_client
