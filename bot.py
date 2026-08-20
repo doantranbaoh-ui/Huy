@@ -546,6 +546,15 @@ def save_result(username, password, status, service=""):
         with open(OUTPUT_RESULT, 'a', encoding='utf-8') as f:
             f.write(f"{username}:{password}|{status}|{service}\n")
 
+# ========== CHUYỂN ĐỔI GIÁ TRỊ ==========
+def format_value(value):
+    """Chuyển đổi giá trị True/False thành YES/NO"""
+    if isinstance(value, bool):
+        return "YES" if value else "NO"
+    elif isinstance(value, str) and value.lower() in ["true", "false"]:
+        return "YES" if value.lower() == "true" else "NO"
+    return value
+
 # ========== CHECK API ==========
 def check_account_api(username, password, service):
     """Gọi API kiểm tra tài khoản"""
@@ -726,7 +735,7 @@ def format_hit_info(username, password, service, result_data):
             "shells": ("💰 Shells", "shells"),
             "so": ("💲 Sò", "so"),
             "nap_so": ("💰 Nạp sò", "nap_so"),
-            "email": ("📧 Email", "email"),
+            "email": ("📩 EMAIL", "email"),
             "email_verified": ("📧 Email Verified", "email_verified"),
             "phone": ("📱 SĐT", "phone"),
             "sdt": ("📱 SĐT", "sdt"),
@@ -751,7 +760,13 @@ def format_hit_info(username, password, service, result_data):
             "ss_4": ("✦ SS(4)", "ss_4"),
             "anime_1": ("✦ Anime(1)", "anime_1"),
             "tinh_trang": ("📋 Tình Trạng", "tinh_trang"),
-            "status_account": ("📋 Tình Trạng", "status_account")
+            "status_account": ("📋 Tình Trạng", "status_account"),
+            # FC Mobile fields
+            "fc_name": ("🔥 FC Name", "fc_name"),
+            "fc_uid": ("🆔 FC UID", "fc_uid"),
+            "fc_ovr": ("📊 OVR", "fc_ovr"),
+            "fc_level": ("✨ FC Level", "fc_level"),
+            "fc_rank": ("👑 FC Rank", "fc_rank")
         }
         
         info_lines = []
@@ -760,11 +775,7 @@ def format_hit_info(username, password, service, result_data):
         for key, (label, field) in field_map.items():
             if field in result_data and result_data[field] is not None and result_data[field] != "" and result_data[field] != "N/A":
                 value = result_data[field]
-                # Chuyển True/False thành YES/NO
-                if isinstance(value, bool):
-                    value = "YES" if value else "NO"
-                elif isinstance(value, str) and value.lower() in ["true", "false"]:
-                    value = "YES" if value.lower() == "true" else "NO"
+                value = format_value(value)
                 info_lines.append(f"{label}: {value}")
         
         # Process any remaining fields
@@ -775,23 +786,15 @@ def format_hit_info(username, password, service, result_data):
             if key not in skip_fields and value is not None and value != "" and value != {} and value != []:
                 if isinstance(value, (str, int, float)):
                     label = key.replace("_", " ").title()
-                    # Chuyển True/False thành YES/NO
-                    if isinstance(value, bool):
-                        value = "YES" if value else "NO"
-                    elif isinstance(value, str) and value.lower() in ["true", "false"]:
-                        value = "YES" if value.lower() == "true" else "NO"
-                    info_lines.append(f"🚫 BAND: {value}")
+                    value = format_value(value)
+                    info_lines.append(f"▫️ {label}: {value}")
                 elif isinstance(value, dict):
                     for sub_key, sub_value in value.items():
                         if sub_value is not None and sub_value != "" and sub_value != {} and sub_value != []:
                             if isinstance(sub_value, (str, int, float)):
                                 sub_label = sub_key.replace("_", " ").title()
-                                # Chuyển True/False thành YES/NO
-                                if isinstance(sub_value, bool):
-                                    sub_value = "YES" if sub_value else "NO"
-                                elif isinstance(sub_value, str) and sub_value.lower() in ["true", "false"]:
-                                    sub_value = "YES" if sub_value.lower() == "true" else "NO"
-                                info_lines.append(f"🚫 BAND: {sub_value}")
+                                sub_value = format_value(sub_value)
+                                info_lines.append(f"▫️ {sub_label}: {sub_value}")
         
         if info_lines:
             msg += "\n".join(info_lines)
@@ -849,7 +852,7 @@ def get_field_icon(field_name):
         "data": "📦"
     }
     
-    return icon_map.get(field_name_lower, "🚫 BAND")
+    return icon_map.get(field_name_lower, "▫️")
 
 # ========== CHECK ĐƠN ==========
 def check_single(chat_id, username, password, service="lienquan"):
@@ -866,7 +869,7 @@ def check_single(chat_id, username, password, service="lienquan"):
         hit_msg = format_hit_info(username, password, service, result)
         safe_send_message(chat_id, hit_msg)
     elif result_type == "dead":
-        safe_send_message(chat_id, f"❌ SAi MK - {service_desc}\n🔑 {username}:{password}")
+        safe_send_message(chat_id, f"❌ DEAD - {service_desc}\n🔑 {username}:{password}")
     else:
         safe_send_message(chat_id, f"⚠️ ERROR - {service_desc}\n🔑 {username}:{password}")
 
