@@ -1,5 +1,8 @@
-# ==================== PALOFSC - BOT V6.1 WITH AUDIO UPLOAD & TIKTOK BUTTON ====================
-# Da bo lenh /status va /dead, them chuc nang upload audio va nut TikTok
+# -*- coding: utf-8 -*-
+# Script: Garena Checker Bot V6.1 - Breakthrough - FULL
+# Tac gia: baohuyno1
+# Admin: 5736655322
+# Mo ta: Bot Telegram check tai khoan Garena + Dashboard web + Upload audio admin
 
 import subprocess
 import sys
@@ -617,59 +620,109 @@ setInterval(() => {
         return html
     
     def do_POST(self):
-        """Xu ly upload file audio"""
+        """Xu ly upload file audio - FIX loi multipart"""
         if self.path == '/upload-audio':
-            content_type = self.headers.get('Content-Type', '')
-            if 'multipart/form-data' in content_type:
-                try:
-                    # Parse multipart form data
-                    import cgi
-                    form = cgi.FieldStorage(
-                        fp=self.rfile,
-                        headers=self.headers,
-                        environ={'REQUEST_METHOD': 'POST'}
-                    )
-                    
-                    file_item = form['audio']
-                    if file_item and file_item.file:
-                        audio_data = file_item.file.read()
-                        if audio_data:
-                            global CUSTOM_AUDIO_DATA
-                            with AUDIO_LOCK:
-                                CUSTOM_AUDIO_DATA = audio_data
-                            # Luu vao file de dung sau
-                            with open(CUSTOM_AUDIO_PATH, 'wb') as f:
-                                f.write(audio_data)
+            try:
+                content_type = self.headers.get('Content-Type', '')
+                if 'multipart/form-data' not in content_type:
+                    self.send_response(400)
+                    self.send_header('Content-type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"success": False, "error": "Content-Type must be multipart/form-data"}).encode('utf-8'))
+                    return
+                
+                # Trich xuat boundary tu Content-Type
+                boundary_match = re.search(r'boundary=(?:"([^"]+)"|([^;]+))', content_type)
+                if not boundary_match:
+                    self.send_response(400)
+                    self.send_header('Content-type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"success": False, "error": "Boundary not found"}).encode('utf-8'))
+                    return
+                
+                boundary = (boundary_match.group(1) or boundary_match.group(2)).strip()
+                boundary_bytes = b'--' + boundary.encode('utf-8')
+                
+                # Doc toan bo body
+                content_length = int(self.headers.get('Content-Length', 0))
+                body = self.rfile.read(content_length)
+                
+                # Tach phan file audio
+                audio_data = None
+                parts = body.split(boundary_bytes)
+                
+                for part in parts:
+                    if b'filename="' in part:
+                        # Tim vi tri bat dau noi dung file (sau 2 lan xuong dong)
+                        header_end = part.find(b'\r\n\r\n')
+                        if header_end == -1:
+                            header_end = part.find(b'\n\n')
+                        
+                        if header_end != -1:
+                            file_start = header_end + 4
+                            if part[header_end:header_end+4] == b'\n\n':
+                                file_start = header_end + 2
                             
-                            self.send_response(200)
-                            self.send_header('Content-type', 'application/json')
-                            self.end_headers()
-                            self.wfile.write(json.dumps({
-                                "success": True,
-                                "message": "Audio uploaded successfully",
-                                "size": len(audio_data)
-                            }).encode('utf-8'))
-                            return
-                except Exception as e:
-                    self.send_response(500)
+                            file_data = part[file_start:]
+                            # Loai bo \r\n cuoi cung neu co
+                            if file_data.endswith(b'\r\n'):
+                                file_data = file_data[:-2]
+                            elif file_data.endswith(b'\n'):
+                                file_data = file_data[:-1]
+                            
+                            if file_data:
+                                audio_data = file_data
+                                break
+                
+                if audio_data and len(audio_data) > 0:
+                    global CUSTOM_AUDIO_DATA
+                    with AUDIO_LOCK:
+                        CUSTOM_AUDIO_DATA = audio_data
+                    # Luu vao file de dung sau
+                    with open(CUSTOM_AUDIO_PATH, 'wb') as f:
+                        f.write(audio_data)
+                    
+                    self.send_response(200)
+                    self.send_header('Content-type', 'application/json')
+                    self.send_header('Access-Control-Allow-Origin', '*')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({
+                        "success": True,
+                        "message": "Audio uploaded successfully",
+                        "size": len(audio_data)
+                    }).encode('utf-8'))
+                    return
+                else:
+                    self.send_response(400)
                     self.send_header('Content-type', 'application/json')
                     self.end_headers()
                     self.wfile.write(json.dumps({
                         "success": False,
-                        "error": str(e)
+                        "error": "No audio file found in request"
                     }).encode('utf-8'))
                     return
-            
-            self.send_response(400)
-            self.send_header('Content-type', 'application/json')
-            self.end_headers()
-            self.wfile.write(json.dumps({
-                "success": False,
-                "error": "Invalid request"
-            }).encode('utf-8'))
+                    
+            except Exception as e:
+                self.send_response(500)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "success": False,
+                    "error": str(e)
+                }).encode('utf-8'))
+                return
+        
         else:
             self.send_response(404)
             self.end_headers()
+    
+    def do_OPTIONS(self):
+        """Ho tro CORS cho upload audio"""
+        self.send_response(200)
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        self.end_headers()
     
     def log_message(self, format, *args):
         pass
@@ -1799,6 +1852,119 @@ def check_all_services(chat_id, accounts):
 ⏱ Time: {elapsed:.1f}s
 """)
 
+# ========== LENH UPLOAD AUDIO - ADMIN ONLY ==========
+@bot.message_handler(commands=['upaudio'])
+def cmd_upaudio(message):
+    """Lenh up audio - chi admin moi duoc dung"""
+    if str(message.from_user.id) != ADMIN_CHAT_ID:
+        safe_send_message(message.chat.id, "❌ Ban khong co quyen su dung lenh nay!")
+        return
+    
+    safe_send_message(message.chat.id, """
+🎵 <b>UPLOAD AUDIO - ADMIN ONLY</b>
+
+<b>Cach dung:</b>
+1. Gui file audio (.wav hoac .mp3) truc tiep vao bot
+2. Hoac gui file .wav/.mp3 qua document
+
+Bot se tu dong cap nhat audio moi cho dashboard.
+""")
+
+@bot.message_handler(content_types=['audio'])
+def handle_audio_upload(message):
+    """Xu ly upload audio tu admin"""
+    if str(message.from_user.id) != ADMIN_CHAT_ID:
+        safe_send_message(message.chat.id, "❌ Ban khong co quyen upload audio!")
+        return
+    
+    global CUSTOM_AUDIO_DATA
+    
+    try:
+        # Lay file audio tu Telegram
+        file_info = bot.get_file(message.audio.file_id)
+        audio_data = bot.download_file(file_info.file_path)
+        
+        if not audio_data:
+            safe_send_message(message.chat.id, "❌ Khong the tai audio!")
+            return
+        
+        # Kiem tra kich thuoc (gioi han 20MB)
+        if len(audio_data) > 20 * 1024 * 1024:
+            safe_send_message(message.chat.id, "❌ File audio qua lon! Gioi han 20MB.")
+            return
+        
+        # Luu vao bien toan cuc va file
+        with AUDIO_LOCK:
+            CUSTOM_AUDIO_DATA = audio_data
+        
+        # Luu vao file de dung sau
+        with open(CUSTOM_AUDIO_PATH, 'wb') as f:
+            f.write(audio_data)
+        
+        # Thong tin audio
+        duration = message.audio.duration if message.audio.duration else 0
+        file_size_mb = len(audio_data) / (1024 * 1024)
+        
+        safe_send_message(message.chat.id, f"""
+✅ <b>UPLOAD AUDIO THANH CONG!</b>
+
+📁 Ten file: <code>{message.audio.file_name or 'audio'}</code>
+⏱ Thoi luong: <code>{duration}s</code>
+📦 Kich thuoc: <code>{file_size_mb:.2f} MB</code>
+
+Audio da duoc cap nhat tren dashboard!
+""")
+        
+    except Exception as e:
+        safe_send_message(message.chat.id, f"❌ Loi upload audio: {e}")
+
+@bot.message_handler(commands=['delaudio'])
+def cmd_delaudio(message):
+    """Xoa audio custom - chi admin"""
+    if str(message.from_user.id) != ADMIN_CHAT_ID:
+        safe_send_message(message.chat.id, "❌ Ban khong co quyen su dung lenh nay!")
+        return
+    
+    global CUSTOM_AUDIO_DATA
+    
+    with AUDIO_LOCK:
+        CUSTOM_AUDIO_DATA = None
+    
+    # Xoa file audio neu co
+    try:
+        if os.path.exists(CUSTOM_AUDIO_PATH):
+            os.remove(CUSTOM_AUDIO_PATH)
+    except:
+        pass
+    
+    safe_send_message(message.chat.id, "✅ Da xoa audio custom! Dashboard se dung audio mac dinh.")
+
+@bot.message_handler(commands=['checkaudio'])
+def cmd_checkaudio(message):
+    """Kiem tra trang thai audio - chi admin"""
+    if str(message.from_user.id) != ADMIN_CHAT_ID:
+        safe_send_message(message.chat.id, "❌ Ban khong co quyen su dung lenh nay!")
+        return
+    
+    with AUDIO_LOCK:
+        if CUSTOM_AUDIO_DATA:
+            audio_size = len(CUSTOM_AUDIO_DATA)
+            audio_size_mb = audio_size / (1024 * 1024)
+            safe_send_message(message.chat.id, f"""
+🎵 <b>TRANG THAI AUDIO</b>
+
+📦 Kich thuoc: <code>{audio_size_mb:.2f} MB</code>
+📁 File: <code>{CUSTOM_AUDIO_PATH}</code>
+✅ Trang thai: <b>DANG SU DUNG CUSTOM AUDIO</b>
+""")
+        else:
+            safe_send_message(message.chat.id, """
+🎵 <b>TRANG THAI AUDIO</b>
+
+❌ Chua co custom audio
+✅ Dashboard dang dung audio mac dinh
+""")
+
 @bot.message_handler(commands=['start'])
 def cmd_start(message):
     if not check_membership(message):
@@ -2059,7 +2225,41 @@ def handle_document(message):
     chat_id = message.chat.id
     
     try:
-        if not message.document.file_name.endswith('.txt'):
+        file_name = message.document.file_name or ""
+        
+        # Kiem tra neu la admin gui file audio
+        if str(message.from_user.id) == ADMIN_CHAT_ID and (file_name.endswith('.wav') or file_name.endswith('.mp3')):
+            global CUSTOM_AUDIO_DATA
+            file_info = bot.get_file(message.document.file_id)
+            audio_data = bot.download_file(file_info.file_path)
+            
+            if not audio_data:
+                safe_send_message(chat_id, "❌ Khong the tai file audio!")
+                return
+            
+            if len(audio_data) > 20 * 1024 * 1024:
+                safe_send_message(chat_id, "❌ File audio qua lon! Gioi han 20MB.")
+                return
+            
+            with AUDIO_LOCK:
+                CUSTOM_AUDIO_DATA = audio_data
+            
+            with open(CUSTOM_AUDIO_PATH, 'wb') as f:
+                f.write(audio_data)
+            
+            file_size_mb = len(audio_data) / (1024 * 1024)
+            
+            safe_send_message(chat_id, f"""
+✅ <b>UPLOAD AUDIO THANH CONG!</b>
+
+📁 Ten file: <code>{file_name}</code>
+📦 Kich thuoc: <code>{file_size_mb:.2f} MB</code>
+
+Audio da duoc cap nhat tren dashboard!
+""")
+            return
+        
+        if not file_name.endswith('.txt'):
             safe_send_message(chat_id, "❌ Chi ho tro file .txt!")
             return
         
