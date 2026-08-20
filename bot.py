@@ -46,7 +46,7 @@ class RenderHandler(BaseHTTPRequestHandler):
 <h1>Garena Checker Bot V4.9</h1>
 <p>Status: <b style="color:#00ff00;">ALIVE</b></p>
 <p>Admin: <a href="https://t.me/baohuyno1" style="color:#00ff00;">@baohuyno1</a></p>
-<p>Version: <b>4.9 - FULL INFO</b></p>
+<p>Version: <b>4.9 - FULL INFO FIX</b></p>
 </body>
 </html>"""
             self.wfile.write(html.encode('utf-8'))
@@ -171,19 +171,23 @@ cache_lock = threading.Lock()
 
 bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN, parse_mode="HTML")
 
-# ========== FIX ENCODING ==========
+# ========== FIX ENCODING NÂNG CAO ==========
 def fix_encoding(text):
-    """Sửa lỗi encoding tiếng Việt từ API"""
+    """Sửa lỗi encoding tiếng Việt từ API - phiên bản nâng cao"""
     if not isinstance(text, str):
         return text
     
     # Bảng thay thế các lỗi encoding phổ biến
     replacements = {
+        # Lỗi encoding cơ bản
         'Ã¡': 'á', 'Ã ': 'à', 'áº£': 'ả', 'Ã£': 'ã', 'áº¡': 'ạ',
         'Ä': 'Đ', 'Ä': 'Đ', 'Æ°': 'ư', 'Æ¡': 'ơ', 'Ã´': 'ô',
         'Ã¢': 'â', 'Äƒ': 'ă', 'Ãª': 'ê', 'Ã­': 'í', 'Ã¬': 'ì',
         'á»‹': 'ị', 'á»‰': 'ỉ', 'Ä©': 'ĩ', 'Ã³': 'ó', 'Ã²': 'ò',
         'Ãº': 'ú', 'Ã¹': 'ù', 'Ã½': 'ý', 'á»³': 'ỳ',
+        'á»·': 'ỷ', 'á»µ': 'ỵ',
+        
+        # Lỗi encoding từ API
         'Nghiá»‡p': 'Nghiệp', 'Hoáº£': 'Hoả', 'YÃªu': 'Yêu', 'Háº­u': 'Hậu',
         'Tháº¿': 'Thế', 'Tá»­': 'Tử', 'Nguyá»‡t': 'Nguyệt', 'Tá»™c': 'Tộc',
         'SiÃªu': 'Siêu', 'viá»‡t': 'việt', 'Ngá»™': 'Ngộ', 'KhÃ´ng': 'Không',
@@ -191,46 +195,58 @@ def fix_encoding(text):
         'Giai': 'Giai', 'Ä‘iá»‡u': 'điệu', 'GiÃ¡ng': 'Giáng', 'Sinh': 'Sinh',
         'Äá»“ng': 'Đồng', 'phá»¥c': 'phục', 'Cáº¥p': 'Cấp', 'Tá»‘i': 'Tối', 'ThÆ°á»£ng': 'Thượng',
         'hÃ nh': 'hành', 'K.CÆ°Æ¡ng': 'K.Cương',
+        
+        # Tên tướng và skin cụ thể
+        'Tel\'Annas': "Tel'Annas", 'VÅ©': 'Vũ', 'khÃºc': 'khúc', 'yÃªu': 'yêu', 'há»"': 'hồ',
+        'Airi': 'Airi', 'Kiemono': 'Kiemono',
+        'Murad': 'Murad', 'ChÃ': 'Chí', 'tÃ´n': 'tôn', 'tháº§n': 'thần', 'kiáº¿m': 'kiếm',
+        'Veera': 'Veera', 'PhÃ¹': 'Phù', 'thá»§y': 'thủy', 'Há»™i': 'Hội', 'há»a': 'họa',
+        'Raz': 'Raz', 'Saitama': 'Saitama', 'Cosplay': 'Cosplay',
+        'Lindis': 'Lindis', 'Zephys': 'Zephys', 'Inosuke': 'Inosuke', 'Hashibira': 'Hashibira',
+        'Slimz': 'Slimz', 'Alice': 'Alice', 'Florentino': 'Florentino', 'Hisoka': 'Hisoka',
+        'Qi': 'Qi', 'Annie': 'Annie', 'Leonhart': 'Leonhart',
+        'Ryoma': 'Ryoma', 'Ailing': 'Ailing', 'Samurai': 'Samurai',
+        'NhÃ³c': 'Nhóc', 'tá»³': 'tỳ', 'bÃ¡': 'bá', 'Äáº¡o': 'đạo',
+        'Jujutsu': 'Jujutsu', 'Sorcerer': 'Sorcerer',
+        'Maloch': 'Maloch', 'Äáº¡i': 'Đại', 'TÆ°á»›ng': 'Tướng', 'Robot': 'Robot',
+        'Tulen': 'Tulen', 'TÃ¢n': 'Tân', 'Tháº§n': 'Thần', 'ThiÃªn': 'Thiên', 'HÃ ': 'Hà',
+        'Omen': 'Omen', 'Bijan': 'Bijan',
+        'Triá»‡u': 'Triệu', 'VÃ¢n': 'Vân', 'tÃ i': 'tài',
+        'Krixi': 'Krixi', 'ÄÃªm': 'Đêm', 'Noel': 'Noel',
+        'Violet': 'Violet', 'Äiá»‡p': 'Điệp', 'Vá»¥': 'Vụ', 'Tá»‘c': 'Tốc',
+        'Lá»¯': 'Lữ', 'Bá»‘': 'Bố', 'Cáº­n': 'Cận', 'chiáº¿n': 'chiến',
+        'SEVEN': 'SEVEN',
+        'Thá»©': 'Thứ', 'NgÅ©': 'Ngũ', 'Giá»›i': 'Giới', 'Cáº­t': 'Cật',
+        
+        # Tên người chơi cụ thể
         'vplong01': 'vplong01', 'muaadongtoky': 'muaadongtoky',
         'BảoVy[MãNV:6': 'BảoVy[MãNV:6',
-        'Chưa có': 'Chưa có',
+        'tranhadlamch': 'tranhadlamch',
+        'doideonhumop': 'doideonhumop',
+        
+        # Các từ tiếng Việt khác
+        'Chưa có': 'Chưa có', 'ChÆ°a': 'Chưa', 'cÃ³': 'có',
+        
+        # Lỗi encoding phổ biến khác
         'áº¥': 'ấ', 'áº§': 'ầ', 'áº©': 'ẩ', 'áº«': 'ẫ', 'áº­': 'ậ',
         'áº¯': 'ắ', 'áº±': 'ằ', 'áº³': 'ẳ', 'áºµ': 'ẵ', 'áº·': 'ặ',
         'á»': 'ộ', 'á»': 'ố', 'á»': 'ồ', 'á»': 'ổ', 'á»': 'ỗ',
         'á»Ž': 'ỏ', 'Ãµ': 'õ', 'á»': 'ọ',
         'á»§': 'ủ', 'Å©': 'ũ', 'á»¥': 'ụ',
-        'á»·': 'ỷ', 'á»µ': 'ỵ',
-        'Tel\'Annas': "Tel'Annas", 'VÅ©': 'Vũ', 'khÃºc': 'khúc',
-        'yÃªu': 'yêu', 'há»"': 'hồ',
-        'Airi': 'Airi', 'Kiemono': 'Kiemono',
-        'Murad': 'Murad', 'ChÃ': 'Chí', 'tÃ´n': 'tôn', 'tháº§n': 'thần', 'kiáº¿m': 'kiếm',
-        'Veera': 'Veera', 'PhÃ¹': 'Phù', 'thá»§y': 'thủy', 'Há»™i': 'Hội', 'há»a': 'họa',
-        'Raz': 'Raz', 'Saitama': 'Saitama', 'Cosplay': 'Cosplay',
-        'Lindis': 'Lindis', 'Äá»“ng': 'Đồng', 'phá»¥c': 'phục',
-        'Zephys': 'Zephys', 'Inosuke': 'Inosuke', 'Hashibira': 'Hashibira',
-        'Slimz': 'Slimz', 'SiÃªu': 'Siêu', 'Cáº¥p': 'Cấp', 'Tá»‘i': 'Tối', 'ThÆ°á»£ng': 'Thượng',
-        'Alice': 'Alice', 'Phi': 'Phi', 'hÃ nh': 'hành', 'gia': 'gia',
-        'Florentino': 'Florentino', 'Hisoka': 'Hisoka',
-        'Qi': 'Qi', 'Annie': 'Annie', 'Leonhart': 'Leonhart',
-        'Ryoma': 'Ryoma', 'Ailing': 'Ailing', 'Samurai': 'Samurai',
-        'Ngá»™': 'Ngộ', 'KhÃ´ng': 'Không', 'NhÃ³c': 'Nhóc', 'tá»³': 'tỳ', 'bÃ¡': 'bá', 'Äáº¡o': 'đạo',
-        'Tel\'Annas': "Tel'Annas", 'Jujutsu': 'Jujutsu', 'Sorcerer': 'Sorcerer',
-        'Maloch': 'Maloch', 'Äáº¡i': 'Đại', 'TÆ°á»›ng': 'Tướng', 'Robot': 'Robot',
-        'Tulen': 'Tulen', 'TÃ¢n': 'Tân', 'Tháº§n': 'Thần', 'ThiÃªn': 'Thiên', 'HÃ ': 'Hà',
-        'Omen': 'Omen', 'Äao': 'Đao', 'phá»§': 'phủ', 'táº­n': 'tận', 'tháº¿': 'thế',
-        'Bijan': 'Bijan', 'Giai': 'Giai', 'Ä‘iá»‡u': 'điệu', 'GiÃ¡ng': 'Giáng', 'Sinh': 'Sinh',
-        'Triá»‡u': 'Triệu', 'VÃ¢n': 'Vân', 'Tháº§n': 'Thần', 'tÃ i': 'tài',
-        'Krixi': 'Krixi', 'ÄÃªm': 'Đêm', 'Noel': 'Noel',
-        'Violet': 'Violet', 'Äiá»‡p': 'Điệp', 'Vá»¥': 'Vụ', 'Tháº§n': 'Thần', 'Tá»‘c': 'Tốc',
-        'Lá»¯': 'Lữ', 'Bá»‘': 'Bố', 'Cáº­n': 'Cận', 'chiáº¿n': 'chiến',
-        'SEVEN': 'SEVEN',
-        'Thá»©': 'Thứ', 'NgÅ©': 'Ngũ', 'Giá»›i': 'Giới', 'Cáº­t': 'Cật',
-        'tranhadlamch': 'tranhadlamch',
-        'doideonhumop': 'doideonhumop',
     }
     
     for old, new in replacements.items():
         text = text.replace(old, new)
+    
+    # Thử sửa bằng cách encode/decode nếu còn lỗi
+    if any(char in text for char in ['Ã', 'Ä', 'Æ', 'á»', 'áº']):
+        try:
+            # Thử sửa mojibake
+            fixed = text.encode('latin-1', errors='ignore').decode('utf-8', errors='ignore')
+            if fixed != text and len(fixed) > 0:
+                text = fixed
+        except:
+            pass
     
     return text
 
@@ -825,6 +841,8 @@ def format_hit_info(username, password, service, result_data):
             "banned": ("🚫 BAND", "banned"),
             "ban": ("🚫 BAND", "ban"),
             "aov_banned": ("🚫 BAND", "aov_banned"),
+            "ban_until": ("🚫 BAND Đến", "ban_until"),
+            "ban_expires": ("🚫 BAND Đến", "ban_expires"),
             "last_login": ("⏰ Login cuối", "last_login"),
             "garena_created": ("📅 Tạo GR", "garena_created"),
             "created_at": ("📅 Tạo GR", "created_at"),
@@ -857,7 +875,8 @@ def format_hit_info(username, password, service, result_data):
             # Additional fields
             "last_session_ip": ("🌐 IP", "last_session_ip"),
             "last_session_country": ("🌍 Country", "last_session_country"),
-            "ngay_tao_tk": ("📅 Ngày tạo TK", "ngay_tao_tk")
+            "ngay_tao_tk": ("📅 Ngày tạo TK", "ngay_tao_tk"),
+            "ban_reason": ("🚫 Lý do Band", "ban_reason")
         }
         
         info_lines = []
@@ -891,6 +910,21 @@ def format_hit_info(username, password, service, result_data):
                 # Format tuples
                 if isinstance(value, tuple):
                     value = ", ".join([fix_encoding(str(item)) for item in value])
+                
+                # Format ban fields
+                if field in ["banned", "ban", "aov_banned"]:
+                    if isinstance(value, str) and value.upper() == "NO":
+                        value = "NO"
+                    elif isinstance(value, bool):
+                        value = "YES" if value else "NO"
+                    elif isinstance(value, str) and value.upper() == "YES":
+                        value = "YES"
+                
+                # Format ban_until fields
+                if field in ["ban_until", "ban_expires"]:
+                    if isinstance(value, str):
+                        value = fix_encoding(value)
+                        value = f"[{value}]"
                 
                 info_lines.append(f"{label}: {value}")
         
@@ -1579,7 +1613,7 @@ Preview (20 dong dau):
 def main():
     """Hàm chính khởi động bot"""
     print("=" * 60)
-    print("    GARENA CHECKER BOT V4.9 - FULL INFO")
+    print("    GARENA CHECKER BOT V4.9 - FULL INFO FIX")
     print("    ADMIN: @baohuyno1")
     print("    HO TRO | VA :")
     print("    KENH BAT BUOC: @hakiiosvip")
