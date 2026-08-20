@@ -900,16 +900,16 @@ def format_hit_info(username, password, service, result_data):
                     elif isinstance(value, bool):
                         value = "YES" if value else "NO"
                 
-                # Format list values
+                # Format list values - đóng khung []
                 if isinstance(value, list):
                     if value:
-                        value = ", ".join([fix_encoding(str(item)) for item in value])
+                        value = "[" + ", ".join([fix_encoding(str(item)) for item in value]) + "]"
                     else:
                         value = "[]"
                 
                 # Format tuples
                 if isinstance(value, tuple):
-                    value = ", ".join([fix_encoding(str(item)) for item in value])
+                    value = "[" + ", ".join([fix_encoding(str(item)) for item in value]) + "]"
                 
                 # Format ban fields
                 if field in ["banned", "ban", "aov_banned"]:
@@ -942,7 +942,7 @@ def format_hit_info(username, password, service, result_data):
                     info_lines.append(f"▫️ {label}: {value}")
                 elif isinstance(value, list) and value:
                     label = key.replace("_", " ").title()
-                    list_value = ", ".join([fix_encoding(str(item)) for item in value])
+                    list_value = "[" + ", ".join([fix_encoding(str(item)) for item in value]) + "]"
                     info_lines.append(f"▫️ {label}: {list_value}")
                 elif isinstance(value, dict):
                     for sub_key, sub_value in value.items():
