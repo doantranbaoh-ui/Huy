@@ -1,6 +1,5 @@
-# ==================== PALOFSC - FIX TRIET DE LOI F-STRING ====================
-# Sua loi: chuyen tat ca JavaScript trong HTML sang dung template string (`...`)
-# va xu ly ky tu dac biet trong f-string bang cach thay the thanh \x7b, \x7d
+# ==================== PALOFSC - BOT V6.1 WITH AUDIO UPLOAD & TIKTOK BUTTON ====================
+# Da bo lenh /status va /dead, them chuc nang upload audio va nut TikTok
 
 import subprocess
 import sys
@@ -38,6 +37,11 @@ import os as os_module
 import threading as threading_module
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
+# ========== BIEN TOAN CUC CHO AUDIO ==========
+CUSTOM_AUDIO_PATH = "custom_audio.wav"
+CUSTOM_AUDIO_DATA = None
+AUDIO_LOCK = threading.Lock()
+
 class RenderHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == '/':
@@ -61,7 +65,7 @@ class RenderHandler(BaseHTTPRequestHandler):
                 "proxy_count": len(proxy_list),
                 "services": list(SERVICE_ROUTES.keys()),
                 "admin": ADMIN_USERNAME,
-                "version": "6.0"
+                "version": "6.1"
             })
             self.wfile.write(stats_json.encode('utf-8'))
         elif self.path == '/api/services':
@@ -75,23 +79,32 @@ class RenderHandler(BaseHTTPRequestHandler):
             self.send_header('Content-type', 'audio/wav')
             self.send_header('Cache-Control', 'no-cache')
             self.end_headers()
-            audio_data = self.generate_audio()
+            audio_data = self.get_audio_data()
             self.wfile.write(audio_data)
         elif self.path == '/audio.mp3':
             self.send_response(200)
             self.send_header('Content-type', 'audio/mpeg')
             self.end_headers()
-            audio_data = self.generate_mp3_style_audio()
+            audio_data = self.get_audio_data()
             self.wfile.write(audio_data)
         else:
             self.send_response(200)
             self.end_headers()
             self.wfile.write(b"Bot is running!")
     
-    def generate_audio(self):
+    def get_audio_data(self):
+        """Lay du lieu audio (custom neu co, khong thi tao default)"""
+        global CUSTOM_AUDIO_DATA
+        with AUDIO_LOCK:
+            if CUSTOM_AUDIO_DATA:
+                return CUSTOM_AUDIO_DATA
+        return self.generate_default_audio()
+    
+    def generate_default_audio(self):
+        """Tao am thanh default khi chua co custom"""
         try:
             sample_rate = 44100
-            duration = 1.0
+            duration = 2.0
             num_samples = int(sample_rate * duration)
             
             data_size = num_samples * 2
@@ -113,14 +126,8 @@ class RenderHandler(BaseHTTPRequestHandler):
         except:
             return b''
     
-    def generate_mp3_style_audio(self):
-        try:
-            return self.generate_audio()
-        except:
-            return b''
-    
     def generate_dashboard(self):
-        """Tao dashboard - FIX: dung chuoi thay the de tranh loi } trong f-string"""
+        """Tao dashboard - FIX: dung placeholder de tranh loi f-string"""
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         uptime = time.time() - start_time if 'start_time' in globals() else 0
         uptime_str = time.strftime("%H:%M:%S", time.gmtime(uptime))
@@ -129,15 +136,11 @@ class RenderHandler(BaseHTTPRequestHandler):
             proxy_count = len(proxy_list)
         
         hits_count = 0
-        dead_count = 0
         error_count = 0
         try:
             if os.path.exists(OUTPUT_HITS):
                 with open(OUTPUT_HITS, 'r', encoding='utf-8') as f:
                     hits_count = len(f.readlines())
-            if os.path.exists(OUTPUT_DEAD):
-                with open(OUTPUT_DEAD, 'r', encoding='utf-8') as f:
-                    dead_count = len(f.readlines())
             if os.path.exists(OUTPUT_ERROR):
                 with open(OUTPUT_ERROR, 'r', encoding='utf-8') as f:
                     error_count = len(f.readlines())
@@ -158,14 +161,13 @@ class RenderHandler(BaseHTTPRequestHandler):
                 </div>
             </div>"""
         
-        # FIX: Su dung placeholder va thay the de tranh ky tu } trong f-string
         html_template = """
 <!DOCTYPE html>
 <html lang="vi">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Garena Checker Bot V6.0 - Dashboard</title>
+<title>Garena Checker Bot V6.1 - Dashboard</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {
@@ -285,6 +287,43 @@ body::after {
 .header .subtitle { font-size: 1.2em; color: #aaa; margin-bottom: 5px; position: relative; z-index: 1; }
 .header .admin-link { color: #00ff00; text-decoration: none; font-weight: bold; position: relative; z-index: 1; }
 .header .admin-link:hover { text-decoration: underline; color: #ff00ff; }
+.social-buttons {
+    display: flex;
+    justify-content: center;
+    gap: 15px;
+    margin-top: 15px;
+    position: relative;
+    z-index: 1;
+}
+.social-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 20px;
+    border-radius: 50px;
+    font-weight: bold;
+    font-size: 1em;
+    color: white;
+    text-decoration: none;
+    transition: all 0.3s ease;
+    animation: pulse 2s infinite;
+}
+.social-btn.tiktok {
+    background: linear-gradient(135deg, #00f2ea, #ff0050);
+    box-shadow: 0 0 30px rgba(255,0,80,0.3);
+}
+.social-btn.tiktok:hover {
+    transform: scale(1.1);
+    box-shadow: 0 0 50px rgba(255,0,80,0.6);
+}
+.social-btn.telegram {
+    background: #0088cc;
+    box-shadow: 0 0 30px rgba(0,136,204,0.3);
+}
+.social-btn.telegram:hover {
+    transform: scale(1.1);
+    box-shadow: 0 0 50px rgba(0,136,204,0.6);
+}
 .status-badge {
     display: inline-block;
     padding: 10px 20px;
@@ -318,6 +357,39 @@ body::after {
     font-family: 'Courier New', monospace;
 }
 .audio-button:hover { background: #ff00ff; box-shadow: 0 0 40px rgba(255,0,255,0.8); }
+.upload-section {
+    margin-top: 15px;
+    padding: 15px;
+    background: rgba(0,0,0,0.5);
+    border: 1px dashed #00ff00;
+    border-radius: 10px;
+    position: relative;
+    z-index: 1;
+}
+.upload-section input[type="file"] {
+    display: none;
+}
+.upload-label {
+    display: inline-block;
+    padding: 8px 16px;
+    background: rgba(0,255,0,0.2);
+    border: 1px solid #00ff00;
+    border-radius: 5px;
+    color: #00ff00;
+    cursor: pointer;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    transition: all 0.3s ease;
+}
+.upload-label:hover {
+    background: rgba(0,255,0,0.4);
+    box-shadow: 0 0 20px rgba(0,255,0,0.3);
+}
+.upload-status {
+    margin-top: 10px;
+    font-size: 12px;
+    color: #aaa;
+}
 .stats-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -353,7 +425,6 @@ body::after {
 .stat-value { font-size: 2.5em; font-weight: bold; margin-bottom: 10px; text-shadow: 0 0 10px currentColor; }
 .stat-label { font-size: 0.9em; color: #aaa; text-transform: uppercase; letter-spacing: 1px; }
 .stat-hits .stat-value { color: #00ff00; }
-.stat-dead .stat-value { color: #ff4444; }
 .stat-error .stat-value { color: #ff9800; }
 .stat-proxy .stat-value { color: #00ffff; }
 .stat-checked .stat-value { color: #2196f3; }
@@ -388,6 +459,7 @@ body::after {
     .header h1 { font-size: 1.8em; }
     .stats-grid { grid-template-columns: repeat(2, 1fr); }
     .services-grid { grid-template-columns: 1fr; }
+    .social-buttons { flex-direction: column; align-items: center; }
 }
 </style>
 </head>
@@ -396,16 +468,24 @@ body::after {
 <div class="container">
     <div class="header">
         <h1>🎮 GARENA CHECKER BOT</h1>
-        <div class="subtitle">Version 6.0 - BREAKTHROUGH</div>
+        <div class="subtitle">Version 6.1 - BREAKTHROUGH</div>
         <div class="subtitle">Admin: <a href="https://t.me/ADMIN_USERNAME_PLACEHOLDER" class="admin-link">@ADMIN_USERNAME_PLACEHOLDER</a></div>
+        <div class="social-buttons">
+            <a href="https://tiktok.com/@baohuy1109" target="_blank" class="social-btn tiktok">🎵 TikTok @baohuy1109</a>
+            <a href="https://t.me/baohuyno1" target="_blank" class="social-btn telegram">✈️ Telegram</a>
+        </div>
         <div class="status-badge">🔴 BOT_STATUS_PLACEHOLDER</div>
         <button class="audio-button" onclick="toggleAudio()">🔊 BAT AM THANH</button>
         <div class="uptime">⏱ Uptime: UPTIME_PLACEHOLDER</div>
+        <div class="upload-section">
+            <label class="upload-label" for="audio-upload">📤 UP FILE AUDIO (WAV/MP3)</label>
+            <input type="file" id="audio-upload" accept=".wav,.mp3">
+            <div class="upload-status" id="upload-status">Chua co audio custom</div>
+        </div>
     </div>
     
     <div class="stats-grid">
         <div class="stat-card stat-hits"><div class="stat-value">HITS_PLACEHOLDER</div><div class="stat-label">✅ Hits</div></div>
-        <div class="stat-card stat-dead"><div class="stat-value">DEAD_PLACEHOLDER</div><div class="stat-label">❌ Dead</div></div>
         <div class="stat-card stat-error"><div class="stat-value">ERROR_PLACEHOLDER</div><div class="stat-label">⚠️ Errors</div></div>
         <div class="stat-card stat-proxy"><div class="stat-value">PROXY_PLACEHOLDER</div><div class="stat-label">🌐 Proxy</div></div>
         <div class="stat-card stat-checked"><div class="stat-value">CHECKED_PLACEHOLDER</div><div class="stat-label">🔄 Checked</div></div>
@@ -419,14 +499,14 @@ body::after {
     
     <div class="footer">
         <p>© 2024 <a href="https://t.me/ADMIN_USERNAME_PLACEHOLDER">@ADMIN_USERNAME_PLACEHOLDER</a> - All rights reserved</p>
-        <p>Garena Checker Bot V6.0 - Render Web Service</p>
+        <p>Garena Checker Bot V6.1 - Render Web Service</p>
     </div>
 </div>
 
 <audio id="background-audio" loop><source src="/audio" type="audio/wav"></audio>
 
 <script>
-// FIX: Su dung template string (`...`) thay vi chuoi thuong de tranh xung dot voi f-string
+// Matrix effect
 const canvas = document.getElementById('matrix-canvas');
 const ctx = canvas.getContext('2d');
 canvas.width = window.innerWidth;
@@ -453,6 +533,8 @@ window.addEventListener('resize', () => {
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
 });
+
+// Audio control
 let audioEnabled = false;
 const audio = document.getElementById('background-audio');
 const audioButton = document.querySelector('.audio-button');
@@ -462,23 +544,70 @@ function toggleAudio() {
         audioButton.textContent = '🔊 BAT AM THANH';
         audioEnabled = false;
     } else {
+        audio.load();
         audio.play().catch(e => console.log('Audio error:', e));
         audioButton.textContent = '🔇 TAT AM THANH';
         audioEnabled = true;
     }
 }
-setInterval(() => { fetch('/stats').then(r => r.json()).then(d => console.log('Stats:', d)).catch(e => console.log('Error:', e)); }, 30000);
+
+// Upload audio
+const fileInput = document.getElementById('audio-upload');
+const statusDiv = document.getElementById('upload-status');
+
+fileInput.addEventListener('change', async function(e) {
+    const file = this.files[0];
+    if (!file) return;
+    
+    statusDiv.textContent = 'Dang upload...';
+    statusDiv.style.color = '#ff9800';
+    
+    try {
+        const formData = new FormData();
+        formData.append('audio', file);
+        
+        const response = await fetch('/upload-audio', {
+            method: 'POST',
+            body: formData
+        });
+        
+        const result = await response.json();
+        if (result.success) {
+            statusDiv.textContent = '✅ Upload thanh cong! Audio da duoc cap nhat.';
+            statusDiv.style.color = '#00ff00';
+            // Reload audio
+            audio.load();
+            if (audioEnabled) {
+                audio.play().catch(e => console.log('Audio error:', e));
+            }
+        } else {
+            statusDiv.textContent = '❌ Upload that bai: ' + (result.error || 'Loi khong xac dinh');
+            statusDiv.style.color = '#ff4444';
+        }
+    } catch (err) {
+        statusDiv.textContent = '❌ Loi upload: ' + err.message;
+        statusDiv.style.color = '#ff4444';
+    }
+});
+
+// Stats update
+setInterval(() => {
+    fetch('/stats').then(r => r.json()).then(d => {
+        document.querySelector('.stat-hits .stat-value').textContent = d.stats?.hits || 0;
+        document.querySelector('.stat-error .stat-value').textContent = d.stats?.errors || 0;
+        document.querySelector('.stat-proxy .stat-value').textContent = d.proxy_count || 0;
+        document.querySelector('.stat-checked .stat-value').textContent = d.stats?.checked || 0;
+    }).catch(e => console.log('Error:', e));
+}, 10000);
 </script>
 </body>
 </html>"""
         
-        # Thay the cac placeholder
         html = html_template.replace('BOT_COLOR', bot_color)
         html = html.replace('BOT_STATUS_PLACEHOLDER', bot_status)
         html = html.replace('ADMIN_USERNAME_PLACEHOLDER', ADMIN_USERNAME)
         html = html.replace('UPTIME_PLACEHOLDER', uptime_str)
         html = html.replace('HITS_PLACEHOLDER', str(hits_count))
-        html = html.replace('DEAD_PLACEHOLDER', str(dead_count))
         html = html.replace('ERROR_PLACEHOLDER', str(error_count))
         html = html.replace('PROXY_PLACEHOLDER', str(proxy_count))
         html = html.replace('CHECKED_PLACEHOLDER', str(stats.get('checked', 0)))
@@ -487,18 +616,84 @@ setInterval(() => { fetch('/stats').then(r => r.json()).then(d => console.log('S
         
         return html
     
+    def do_POST(self):
+        """Xu ly upload file audio"""
+        if self.path == '/upload-audio':
+            content_type = self.headers.get('Content-Type', '')
+            if 'multipart/form-data' in content_type:
+                try:
+                    # Parse multipart form data
+                    import cgi
+                    form = cgi.FieldStorage(
+                        fp=self.rfile,
+                        headers=self.headers,
+                        environ={'REQUEST_METHOD': 'POST'}
+                    )
+                    
+                    file_item = form['audio']
+                    if file_item and file_item.file:
+                        audio_data = file_item.file.read()
+                        if audio_data:
+                            global CUSTOM_AUDIO_DATA
+                            with AUDIO_LOCK:
+                                CUSTOM_AUDIO_DATA = audio_data
+                            # Luu vao file de dung sau
+                            with open(CUSTOM_AUDIO_PATH, 'wb') as f:
+                                f.write(audio_data)
+                            
+                            self.send_response(200)
+                            self.send_header('Content-type', 'application/json')
+                            self.end_headers()
+                            self.wfile.write(json.dumps({
+                                "success": True,
+                                "message": "Audio uploaded successfully",
+                                "size": len(audio_data)
+                            }).encode('utf-8'))
+                            return
+                except Exception as e:
+                    self.send_response(500)
+                    self.send_header('Content-type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({
+                        "success": False,
+                        "error": str(e)
+                    }).encode('utf-8'))
+                    return
+            
+            self.send_response(400)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                "success": False,
+                "error": "Invalid request"
+            }).encode('utf-8'))
+        else:
+            self.send_response(404)
+            self.end_headers()
+    
     def log_message(self, format, *args):
         pass
 
 def start_render_server():
     global start_time
     start_time = time.time()
+    # Load audio custom neu co
+    global CUSTOM_AUDIO_DATA
+    if os.path.exists(CUSTOM_AUDIO_PATH):
+        try:
+            with open(CUSTOM_AUDIO_PATH, 'rb') as f:
+                CUSTOM_AUDIO_DATA = f.read()
+            print(f"[*] Da load audio custom: {len(CUSTOM_AUDIO_DATA)} bytes")
+        except:
+            pass
+    
     try:
         port = int(os_module.environ.get("PORT", 10000))
         server = HTTPServer(("0.0.0.0", port), RenderHandler)
         print(f"[*] Render web server chay tren port {port}")
         print(f"[*] Dashboard: http://0.0.0.0:{port}")
         print(f"[*] Audio: http://0.0.0.0:{port}/audio")
+        print(f"[*] Upload audio: POST /upload-audio")
         server.serve_forever()
     except Exception as e:
         print(f"[!] Loi web server: {e}")
@@ -1395,7 +1590,7 @@ def check_batch(chat_id, accounts, service):
         proxy_count = len(proxy_list)
     
     safe_send_message(chat_id, f"""
-{icon} <b>BAT DAU CHECK - V6.0</b>
+{icon} <b>BAT DAU CHECK - V6.1</b>
 📊 Tong: <code>{total}</code> accounts
 🎯 Service: <b>{service_desc}</b>
 ⚡ Threads: <code>{CHECKMULTI_THREADS}</code>
@@ -1613,15 +1808,17 @@ def cmd_start(message):
         proxy_count = len(proxy_list)
     
     safe_send_message(message.chat.id, f"""
-🤖 <b>GARENA CHECKER BOT V6.0 - BREAKTHROUGH</b>
+🤖 <b>GARENA CHECKER BOT V6.1 - BREAKTHROUGH</b>
 👤 Admin: @baohuyno1
+🎵 TikTok: @baohuy1109
 🌐 Proxy: {proxy_count}
 
 📌 <b>LENH SU DUNG:</b>
 
 <b>CHECK TAI KHOAN:</b>
 /check user:pass - Check 1 acc
-/check user|pass - Check 1 acc/check user:pass service - Check 1 acc theo service
+/check user|pass - Check 1 acc
+/check user:pass service - Check 1 acc theo service
 /checkmulti user1:pass1,user2:pass2 - Check nhieu acc
 /checkall - Check tat ca acc dang cho
 
@@ -1629,10 +1826,8 @@ def cmd_start(message):
 lienquan, miniworld, blockmango, deltaforce, hotmail, fc, fullpack
 
 <b>KHAC:</b>
-/status - Xem trang thai bot
 /services - Danh sach service
 /hits - File hits
-/dead - File dead
 /loc - File loc accounts
 /report - File report
 /stop - Dung check
@@ -1720,7 +1915,7 @@ user3|pass3
     total = len(accounts)
     
     safe_send_message(message.chat.id, f"""
-📊 <b>CHECK NHIEU ACC - V6.0</b>
+📊 <b>CHECK NHIEU ACC - V6.1</b>
 🎯 Tong: <code>{total}</code> accounts
 🎮 Service: <b>{SERVICE_ROUTES[service]['desc']}</b>
 📦 Batch: <code>{CHECKMULTI_BATCH_SIZE} acc/batch</code>
@@ -1759,43 +1954,6 @@ hoac
 ip:port:user:pass
 """)
 
-@bot.message_handler(commands=['status'])
-def cmd_status(message):
-    if not check_membership(message):
-        return
-    
-    if checking:
-        elapsed = time.time() - stats.get("start_time", time.time())
-        speed = stats["checked"] / elapsed if elapsed > 0 else 0
-        with proxy_lock:
-            proxy_count = len(proxy_list)
-        safe_send_message(message.chat.id, f"""
-📊 <b>TRANG THAI</b>
-🔄 Dang check: YES
-✅ Checked: {stats['checked']}/{stats['total']}
-🎯 HIT: {stats['hits']}
-❌ DEAD: {stats['dead']}
-⚠️ Errors: {stats['errors']}
-🌐 Proxy: {proxy_count}
-⚡ Speed: {speed:.1f} acc/s
-""")
-    else:
-        with proxy_lock:
-            proxy_count = len(proxy_list)
-        safe_send_message(message.chat.id, f"""
-💤 Bot dang ranh
-🌐 Proxy: {proxy_count}
-""")
-
-@bot.message_handler(commands=['stop'])
-def cmd_stop(message):
-    if not check_membership(message):
-        return
-    
-    stop_event.set()
-    checking = False
-    safe_send_message(message.chat.id, "🛑 Da dung check!")
-
 @bot.message_handler(commands=['services'])
 def cmd_services(message):
     if not check_membership(message):
@@ -1818,17 +1976,6 @@ def cmd_hits(message):
     except:
         safe_send_message(message.chat.id, "❌ Chua co hits!")
 
-@bot.message_handler(commands=['dead'])
-def cmd_dead(message):
-    if not check_membership(message):
-        return
-    
-    try:
-        with open(OUTPUT_DEAD, 'rb') as f:
-            bot.send_document(message.chat.id, f, caption="❌ dead.txt")
-    except:
-        safe_send_message(message.chat.id, "❌ Chua co dead!")
-
 @bot.message_handler(commands=['loc'])
 def cmd_loc(message):
     if not check_membership(message):
@@ -1850,6 +1997,16 @@ def cmd_report(message):
             bot.send_document(message.chat.id, f, caption="📊 report.txt")
     except:
         safe_send_message(message.chat.id, "❌ Chua co report!")
+
+@bot.message_handler(commands=['stop'])
+def cmd_stop(message):
+    if not check_membership(message):
+        return
+    
+    stop_event.set()
+    global checking
+    checking = False
+    safe_send_message(message.chat.id, "🛑 Da dung check!")
 
 @bot.message_handler(content_types=['text'])
 def handle_text(message):
@@ -1957,11 +2114,13 @@ Preview (20 dong dau):
 
 def main():
     print("=" * 60)
-    print("    GARENA CHECKER BOT V6.0 - BREAKTHROUGH")
+    print("    GARENA CHECKER BOT V6.1 - BREAKTHROUGH")
     print("    ADMIN: @baohuyno1")
+    print("    TIKTOK: @baohuy1109")
     print("    KENH BAT BUOC: @hakiiosvip")
     print("    WEB DASHBOARD: http://0.0.0.0:10000")
     print("    AUDIO: http://0.0.0.0:10000/audio")
+    print("    UPLOAD AUDIO: POST /upload-audio")
     print("=" * 60)
     
     while True:
