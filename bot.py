@@ -1,8 +1,13 @@
-# -*- coding: utf-8 -*-
-# Script: Garena Checker Bot V6.1 - Breakthrough - FULL
-# Tac gia: baohuyno1
-# Admin: 5736655322
-# Mo ta: Bot Telegram check tai khoan Garena + Dashboard web + Upload audio admin
+# ========================================================================
+#    GARENA CHECKER BOT V6.1 - FULL CAI TIEN
+# ========================================================================
+#    - Fix audio khong nghe duoc
+#    - Bo nut proxy
+#    - Bo upload audio tren web
+#    - Cai tien hieu ung khi an nut
+#    - Toi uu hieu suat
+#    - Them nhieu tinh nang nho
+# ========================================================================
 
 import subprocess
 import sys
@@ -65,10 +70,10 @@ class RenderHandler(BaseHTTPRequestHandler):
                 "status": "alive",
                 "checking": checking,
                 "stats": stats,
-                "proxy_count": len(proxy_list),
                 "services": list(SERVICE_ROUTES.keys()),
                 "admin": ADMIN_USERNAME,
-                "version": "6.1"
+                "version": "6.1",
+                "audio_custom": CUSTOM_AUDIO_DATA is not None
             })
             self.wfile.write(stats_json.encode('utf-8'))
         elif self.path == '/api/services':
@@ -81,12 +86,15 @@ class RenderHandler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header('Content-type', 'audio/wav')
             self.send_header('Cache-Control', 'no-cache')
+            self.send_header('Access-Control-Allow-Origin', '*')
             self.end_headers()
             audio_data = self.get_audio_data()
             self.wfile.write(audio_data)
         elif self.path == '/audio.mp3':
             self.send_response(200)
             self.send_header('Content-type', 'audio/mpeg')
+            self.send_header('Cache-Control', 'no-cache')
+            self.send_header('Access-Control-Allow-Origin', '*')
             self.end_headers()
             audio_data = self.get_audio_data()
             self.wfile.write(audio_data)
@@ -104,39 +112,45 @@ class RenderHandler(BaseHTTPRequestHandler):
         return self.generate_default_audio()
     
     def generate_default_audio(self):
-        """Tao am thanh default khi chua co custom"""
+        """Tao am thanh default - FIX: am thanh ro rang va chuan WAVE"""
         try:
             sample_rate = 44100
-            duration = 2.0
+            duration = 4.0
             num_samples = int(sample_rate * duration)
             
-            data_size = num_samples * 2
-            header = b'RIFF' + struct.pack('<I', 36 + data_size) + b'WAVE'
-            header += b'fmt ' + struct.pack('<IHHIIHH', 16, 1, 1, sample_rate, sample_rate * 2, 2, 16)
-            header += b'data' + struct.pack('<I', data_size)
-            
-            audio_data = bytearray()
+            # Tao audio data PCM 16-bit voi nhieu tan so de nghe ro
+            audio_buffer = bytearray()
             for i in range(num_samples):
                 t = i / sample_rate
-                value = int(32767 * 0.3 * (
-                    math.sin(2 * math.pi * 440 * t) * math.exp(-2 * t) +
-                    math.sin(2 * math.pi * 880 * t) * math.exp(-4 * t) * 0.5 +
-                    math.sin(2 * math.pi * 220 * t) * math.exp(-1 * t) * 0.3
+                # Ket hop nhieu song sin de tao am thanh phong phu
+                value = int(32767 * 0.4 * (
+                    math.sin(2 * math.pi * 440 * t) * 0.5 +   # A4
+                    math.sin(2 * math.pi * 554 * t) * 0.3 +   # C#5
+                    math.sin(2 * math.pi * 659 * t) * 0.2 +   # E5
+                    math.sin(2 * math.pi * 880 * t) * 0.1     # A5
                 ))
-                audio_data += struct.pack('<h', value)
+                audio_buffer += struct.pack('<h', value)
             
-            return header + bytes(audio_data)
-        except:
+            # Tao WAVE header dung dinh dang
+            data_size = len(audio_buffer)
+            header = b'RIFF'
+            header += struct.pack('<I', 36 + data_size)
+            header += b'WAVE'
+            header += b'fmt '
+            header += struct.pack('<IHHIIHH', 16, 1, 1, sample_rate, sample_rate * 2, 2, 16)
+            header += b'data'
+            header += struct.pack('<I', data_size)
+            
+            return header + bytes(audio_buffer)
+        except Exception as e:
+            print(f"[!] Loi tao audio default: {e}")
             return b''
     
     def generate_dashboard(self):
-        """Tao dashboard - FIX: dung placeholder de tranh loi f-string"""
+        """Tao dashboard - DA BO NUT PROXY VA UPLOAD, CAI TIEN HIEU UNG"""
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         uptime = time.time() - start_time if 'start_time' in globals() else 0
         uptime_str = time.strftime("%H:%M:%S", time.gmtime(uptime))
-        
-        with proxy_lock:
-            proxy_count = len(proxy_list)
         
         hits_count = 0
         error_count = 0
@@ -156,7 +170,7 @@ class RenderHandler(BaseHTTPRequestHandler):
         services_html = ""
         for key, value in SERVICE_ROUTES.items():
             services_html += f"""
-            <div class="service-card">
+            <div class="service-card" data-service="{key}">
                 <div class="service-icon">{value['icon']}</div>
                 <div class="service-info">
                     <div class="service-name">{key}</div>
@@ -180,6 +194,7 @@ body {
     color: #00ff00;
     padding: 20px;
     overflow-x: hidden;
+    user-select: none;
 }
 body::before {
     content: '';
@@ -218,9 +233,11 @@ body::after {
     width: 100%;
     height: 100%;
     z-index: -2;
-    opacity: 0.15;
+    opacity: 0.12;
 }
 .container { max-width: 1200px; margin: 0 auto; position: relative; }
+
+/* ========== ANIMATIONS ========== */
 @keyframes glitch {
     0% { text-shadow: 2px 2px 0 #ff00ff, -2px -2px 0 #00ffff; }
     25% { text-shadow: -2px 2px 0 #ff00ff, 2px -2px 0 #00ffff; }
@@ -242,6 +259,33 @@ body::after {
     0% { top: -100%; }
     100% { top: 100%; }
 }
+@keyframes shimmer {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+}
+@keyframes bounce {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-10px); }
+}
+@keyframes ripple-anim {
+    to { transform: scale(4); opacity: 0; }
+}
+@keyframes glow-pulse {
+    0% { box-shadow: 0 0 5px currentColor; }
+    50% { box-shadow: 0 0 30px currentColor, 0 0 60px currentColor; }
+    100% { box-shadow: 0 0 5px currentColor; }
+}
+@keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-5px); }
+    75% { transform: translateX(5px); }
+}
+@keyframes neon-pulse {
+    0%, 100% { border-color: #00ff00; box-shadow: 0 0 20px rgba(0,255,0,0.3); }
+    50% { border-color: #ff00ff; box-shadow: 0 0 40px rgba(255,0,255,0.6); }
+}
+
+/* ========== HEADER ========== */
 .header {
     text-align: center;
     padding: 40px 20px;
@@ -252,6 +296,12 @@ body::after {
     box-shadow: 0 0 30px rgba(0,255,0,0.3);
     position: relative;
     overflow: hidden;
+    transition: all 0.3s ease;
+    cursor: pointer;
+}
+.header:active {
+    box-shadow: 0 0 60px rgba(0,255,0,0.6);
+    transform: scale(0.99);
 }
 .header::before {
     content: '';
@@ -288,8 +338,21 @@ body::after {
     z-index: 1;
 }
 .header .subtitle { font-size: 1.2em; color: #aaa; margin-bottom: 5px; position: relative; z-index: 1; }
-.header .admin-link { color: #00ff00; text-decoration: none; font-weight: bold; position: relative; z-index: 1; }
-.header .admin-link:hover { text-decoration: underline; color: #ff00ff; }
+.header .admin-link { 
+    color: #00ff00; 
+    text-decoration: none; 
+    font-weight: bold; 
+    position: relative; 
+    z-index: 1;
+    transition: all 0.3s ease;
+}
+.header .admin-link:hover { 
+    text-decoration: underline; 
+    color: #ff00ff;
+    text-shadow: 0 0 20px #ff00ff;
+}
+
+/* ========== SOCIAL BUTTONS ========== */
 .social-buttons {
     display: flex;
     justify-content: center;
@@ -297,6 +360,7 @@ body::after {
     margin-top: 15px;
     position: relative;
     z-index: 1;
+    flex-wrap: wrap;
 }
 .social-btn {
     display: inline-flex;
@@ -309,24 +373,43 @@ body::after {
     color: white;
     text-decoration: none;
     transition: all 0.3s ease;
-    animation: pulse 2s infinite;
+    position: relative;
+    overflow: hidden;
+    cursor: pointer;
+    border: none;
+    outline: none;
+    -webkit-tap-highlight-color: transparent;
 }
 .social-btn.tiktok {
     background: linear-gradient(135deg, #00f2ea, #ff0050);
     box-shadow: 0 0 30px rgba(255,0,80,0.3);
+    animation: pulse 2s infinite;
 }
 .social-btn.tiktok:hover {
     transform: scale(1.1);
     box-shadow: 0 0 50px rgba(255,0,80,0.6);
 }
+.social-btn.tiktok:active {
+    transform: scale(0.92);
+    box-shadow: 0 0 80px rgba(255,0,80,0.9);
+    animation: glow-pulse 0.4s ease;
+}
 .social-btn.telegram {
     background: #0088cc;
     box-shadow: 0 0 30px rgba(0,136,204,0.3);
+    animation: pulse 2s infinite 0.3s;
 }
 .social-btn.telegram:hover {
     transform: scale(1.1);
     box-shadow: 0 0 50px rgba(0,136,204,0.6);
 }
+.social-btn.telegram:active {
+    transform: scale(0.92);
+    box-shadow: 0 0 80px rgba(0,136,204,0.9);
+    animation: glow-pulse 0.4s ease;
+}
+
+/* ========== STATUS BADGE ========== */
 .status-badge {
     display: inline-block;
     padding: 10px 20px;
@@ -340,7 +423,15 @@ body::after {
     animation: pulse 2s infinite;
     position: relative;
     z-index: 1;
+    transition: all 0.3s ease;
+    cursor: default;
 }
+.status-badge:active {
+    transform: scale(0.95);
+    box-shadow: 0 0 40px rgba(0,255,0,0.8);
+}
+
+/* ========== AUDIO BUTTON ========== */
 .audio-button {
     display: inline-block;
     padding: 10px 20px;
@@ -353,46 +444,34 @@ body::after {
     color: white;
     cursor: pointer;
     box-shadow: 0 0 20px rgba(255,0,255,0.5);
-    animation: pulse 2s infinite;
+    animation: pulse 2s infinite 0.6s;
     position: relative;
     z-index: 1;
     border: none;
     font-family: 'Courier New', monospace;
+    transition: all 0.2s ease;
+    -webkit-tap-highlight-color: transparent;
+    overflow: hidden;
 }
-.audio-button:hover { background: #ff00ff; box-shadow: 0 0 40px rgba(255,0,255,0.8); }
-.upload-section {
-    margin-top: 15px;
-    padding: 15px;
-    background: rgba(0,0,0,0.5);
-    border: 1px dashed #00ff00;
-    border-radius: 10px;
-    position: relative;
-    z-index: 1;
+.audio-button:hover {
+    transform: scale(1.05);
+    box-shadow: 0 0 40px rgba(255,0,255,0.8);
 }
-.upload-section input[type="file"] {
-    display: none;
+.audio-button:active {
+    transform: scale(0.88);
+    box-shadow: 0 0 80px rgba(255,0,255,1);
+    animation: glow-pulse 0.3s ease;
 }
-.upload-label {
-    display: inline-block;
-    padding: 8px 16px;
-    background: rgba(0,255,0,0.2);
-    border: 1px solid #00ff00;
-    border-radius: 5px;
-    color: #00ff00;
-    cursor: pointer;
-    font-family: 'Courier New', monospace;
-    font-size: 12px;
-    transition: all 0.3s ease;
+.audio-button .ripple {
+    position: absolute;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.4);
+    transform: scale(0);
+    animation: ripple-anim 0.6s linear;
+    pointer-events: none;
 }
-.upload-label:hover {
-    background: rgba(0,255,0,0.4);
-    box-shadow: 0 0 20px rgba(0,255,0,0.3);
-}
-.upload-status {
-    margin-top: 10px;
-    font-size: 12px;
-    color: #aaa;
-}
+
+/* ========== STATS GRID ========== */
 .stats-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -406,9 +485,11 @@ body::after {
     text-align: center;
     border: 1px solid #00ff00;
     box-shadow: 0 5px 15px rgba(0,0,0,0.3);
-    transition: transform 0.3s ease, box-shadow 0.3s ease;
+    transition: all 0.3s ease;
     position: relative;
     overflow: hidden;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
 }
 .stat-card::before {
     content: '';
@@ -420,19 +501,42 @@ body::after {
     background: linear-gradient(90deg, transparent, #00ff00, transparent);
     animation: shimmer 2s infinite;
 }
-@keyframes shimmer {
-    0% { transform: translateX(-100%); }
-    100% { transform: translateX(100%); }
+.stat-card:hover {
+    transform: translateY(-5px) scale(1.02);
+    box-shadow: 0 10px 25px rgba(0,255,0,0.3);
 }
-.stat-card:hover { transform: translateY(-5px); box-shadow: 0 10px 25px rgba(0,255,0,0.3); }
-.stat-value { font-size: 2.5em; font-weight: bold; margin-bottom: 10px; text-shadow: 0 0 10px currentColor; }
+.stat-card:active {
+    transform: scale(0.95) translateY(-2px);
+    box-shadow: 0 0 50px rgba(0,255,0,0.5);
+    animation: glow-pulse 0.4s ease;
+}
+.stat-card .stat-value { 
+    font-size: 2.5em; 
+    font-weight: bold; 
+    margin-bottom: 10px; 
+    text-shadow: 0 0 10px currentColor;
+    transition: all 0.3s ease;
+}
+.stat-card:active .stat-value {
+    transform: scale(1.2);
+}
 .stat-label { font-size: 0.9em; color: #aaa; text-transform: uppercase; letter-spacing: 1px; }
 .stat-hits .stat-value { color: #00ff00; }
 .stat-error .stat-value { color: #ff9800; }
-.stat-proxy .stat-value { color: #00ffff; }
 .stat-checked .stat-value { color: #2196f3; }
 .stat-time .stat-value { color: #ff00ff; font-size: 1.2em; }
-.section-title { font-size: 1.5em; color: #00ff00; margin-bottom: 20px; text-align: center; text-shadow: 0 0 10px rgba(0,255,0,0.5); animation: flicker 2s infinite; }
+
+/* ========== SECTION TITLE ========== */
+.section-title {
+    font-size: 1.5em;
+    color: #00ff00;
+    margin-bottom: 20px;
+    text-align: center;
+    text-shadow: 0 0 10px rgba(0,255,0,0.5);
+    animation: flicker 2s infinite;
+}
+
+/* ========== SERVICES GRID ========== */
 .services-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
@@ -448,68 +552,141 @@ body::after {
     gap: 15px;
     border: 1px solid #333;
     transition: all 0.3s ease;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    position: relative;
+    overflow: hidden;
 }
-.service-card:hover { border-color: #00ff00; box-shadow: 0 0 20px rgba(0,255,0,0.3); transform: scale(1.05); }
-.service-icon { font-size: 2em; animation: bounce 2s infinite; }
-@keyframes bounce { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
-.service-info { flex: 1; }
-.service-name { font-size: 1.1em; font-weight: bold; color: #fff; margin-bottom: 5px; }
-.service-desc { font-size: 0.85em; color: #aaa; }
-.footer { text-align: center; padding: 20px; color: #666; font-size: 0.9em; border-top: 1px solid #333; margin-top: 30px; }
-.footer a { color: #00ff00; text-decoration: none; }
+.service-card::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 0;
+    height: 0;
+    border-radius: 50%;
+    background: rgba(0,255,0,0.15);
+    transform: translate(-50%, -50%);
+    transition: width 0.6s ease, height 0.6s ease;
+    pointer-events: none;
+}
+.service-card:active::after {
+    width: 400px;
+    height: 400px;
+}
+.service-card:hover {
+    border-color: #00ff00;
+    box-shadow: 0 0 20px rgba(0,255,0,0.3);
+    transform: scale(1.05);
+}
+.service-card:active {
+    transform: scale(0.92);
+    border-color: #ff00ff;
+    box-shadow: 0 0 40px rgba(255,0,255,0.5);
+    animation: glow-pulse 0.3s ease;
+}
+.service-card .service-icon { font-size: 2em; animation: bounce 2s infinite; }
+.service-card .service-info { flex: 1; }
+.service-card .service-name { font-size: 1.1em; font-weight: bold; color: #fff; margin-bottom: 5px; }
+.service-card .service-desc { font-size: 0.85em; color: #aaa; }
+
+/* ========== FOOTER ========== */
+.footer {
+    text-align: center;
+    padding: 20px;
+    color: #666;
+    font-size: 0.9em;
+    border-top: 1px solid #333;
+    margin-top: 30px;
+}
+.footer a { 
+    color: #00ff00; 
+    text-decoration: none;
+    transition: all 0.3s ease;
+}
+.footer a:hover {
+    color: #ff00ff;
+    text-shadow: 0 0 20px #ff00ff;
+}
 .uptime { margin-top: 10px; color: #aaa; font-size: 0.9em; }
+
+/* ========== TOAST NOTIFICATION ========== */
+.toast {
+    position: fixed;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%) translateY(100px);
+    background: rgba(0,0,0,0.9);
+    color: #00ff00;
+    padding: 15px 30px;
+    border-radius: 10px;
+    border: 1px solid #00ff00;
+    box-shadow: 0 0 30px rgba(0,255,0,0.3);
+    font-family: 'Courier New', monospace;
+    font-size: 0.9em;
+    opacity: 0;
+    transition: all 0.5s ease;
+    z-index: 999;
+    pointer-events: none;
+}
+.toast.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}
+
+/* ========== RESPONSIVE ========== */
 @media (max-width: 768px) {
     .header h1 { font-size: 1.8em; }
     .stats-grid { grid-template-columns: repeat(2, 1fr); }
     .services-grid { grid-template-columns: 1fr; }
     .social-buttons { flex-direction: column; align-items: center; }
+    .audio-button { margin-left: 0; }
 }
 </style>
 </head>
 <body>
 <canvas id="matrix-canvas"></canvas>
 <div class="container">
-    <div class="header">
+    <div class="header" id="header">
         <h1>🎮 GARENA CHECKER BOT</h1>
         <div class="subtitle">Version 6.1 - BREAKTHROUGH</div>
-        <div class="subtitle">Admin: <a href="https://t.me/ADMIN_USERNAME_PLACEHOLDER" class="admin-link">@ADMIN_USERNAME_PLACEHOLDER</a></div>
+        <div class="subtitle">Admin: <a href="https://t.me/baohuyno1" class="admin-link">@baohuyno1</a></div>
         <div class="social-buttons">
-            <a href="https://tiktok.com/@baohuy1109" target="_blank" class="social-btn tiktok">🎵 TikTok @baohuy1109</a>
-            <a href="https://t.me/baohuyno1" target="_blank" class="social-btn telegram">✈️ Telegram</a>
+            <a href="https://tiktok.com/@baohuy1109" target="_blank" class="social-btn tiktok" id="tiktok-btn">🎵 TikTok @baohuy1109</a>
+            <a href="https://t.me/baohuyno1" target="_blank" class="social-btn telegram" id="telegram-btn">✈️ Telegram</a>
         </div>
-        <div class="status-badge">🔴 BOT_STATUS_PLACEHOLDER</div>
-        <button class="audio-button" onclick="toggleAudio()">🔊 BAT AM THANH</button>
+        <div class="status-badge" id="status-badge" style="background: BOT_COLOR;">🔴 San sang</div>
+        <button class="audio-button" id="audio-btn">🔊 BAT AM THANH</button>
         <div class="uptime">⏱ Uptime: UPTIME_PLACEHOLDER</div>
-        <div class="upload-section">
-            <label class="upload-label" for="audio-upload">📤 UP FILE AUDIO (WAV/MP3)</label>
-            <input type="file" id="audio-upload" accept=".wav,.mp3">
-            <div class="upload-status" id="upload-status">Chua co audio custom</div>
-        </div>
     </div>
     
     <div class="stats-grid">
-        <div class="stat-card stat-hits"><div class="stat-value">HITS_PLACEHOLDER</div><div class="stat-label">✅ Hits</div></div>
-        <div class="stat-card stat-error"><div class="stat-value">ERROR_PLACEHOLDER</div><div class="stat-label">⚠️ Errors</div></div>
-        <div class="stat-card stat-proxy"><div class="stat-value">PROXY_PLACEHOLDER</div><div class="stat-label">🌐 Proxy</div></div>
-        <div class="stat-card stat-checked"><div class="stat-value">CHECKED_PLACEHOLDER</div><div class="stat-label">🔄 Checked</div></div>
-        <div class="stat-card stat-time"><div class="stat-value">CURRENT_TIME_PLACEHOLDER</div><div class="stat-label">📅 Thoi gian</div></div>
+        <div class="stat-card stat-hits" id="stat-hits"><div class="stat-value">HITS_PLACEHOLDER</div><div class="stat-label">✅ Hits</div></div>
+        <div class="stat-card stat-error" id="stat-error"><div class="stat-value">ERROR_PLACEHOLDER</div><div class="stat-label">⚠️ Errors</div></div>
+        <div class="stat-card stat-checked" id="stat-checked"><div class="stat-value">CHECKED_PLACEHOLDER</div><div class="stat-label">🔄 Checked</div></div>
+        <div class="stat-card stat-time" id="stat-time"><div class="stat-value">CURRENT_TIME_PLACEHOLDER</div><div class="stat-label">📅 Thoi gian</div></div>
     </div>
     
     <div class="section-title">📋 DICH VU HO TRO</div>
-    <div class="services-grid">
+    <div class="services-grid" id="services-grid">
         SERVICES_HTML_PLACEHOLDER
     </div>
     
     <div class="footer">
-        <p>© 2024 <a href="https://t.me/ADMIN_USERNAME_PLACEHOLDER">@ADMIN_USERNAME_PLACEHOLDER</a> - All rights reserved</p>
+        <p>© 2024 <a href="https://t.me/baohuyno1">@baohuyno1</a> - All rights reserved</p>
         <p>Garena Checker Bot V6.1 - Render Web Service</p>
     </div>
 </div>
 
 <audio id="background-audio" loop><source src="/audio" type="audio/wav"></audio>
 
+<!-- Toast Notification -->
+<div class="toast" id="toast"></div>
+
 <script>
-// Matrix effect
+// ========================================================================
+// MATRIX EFFECT
+// ========================================================================
 const canvas = document.getElementById('matrix-canvas');
 const ctx = canvas.getContext('2d');
 canvas.width = window.innerWidth;
@@ -537,71 +714,193 @@ window.addEventListener('resize', () => {
     canvas.height = window.innerHeight;
 });
 
-// Audio control
+// ========================================================================
+// TOAST NOTIFICATION
+// ========================================================================
+function showToast(message, duration = 2000) {
+    const toast = document.getElementById('toast');
+    toast.textContent = message;
+    toast.classList.add('show');
+    clearTimeout(toast._hideTimeout);
+    toast._hideTimeout = setTimeout(() => {
+        toast.classList.remove('show');
+    }, duration);
+}
+
+// ========================================================================
+// AUDIO CONTROL - FIX: dam bao phat duoc
+// ========================================================================
 let audioEnabled = false;
 const audio = document.getElementById('background-audio');
-const audioButton = document.querySelector('.audio-button');
+const audioBtn = document.getElementById('audio-btn');
+
+// Tai lai audio neu gap loi
+audio.addEventListener('error', function(e) {
+    console.log('Audio error, reloading...');
+    audio.load();
+    showToast('⚠️ Loi audio, dang tai lai...', 1500);
+});
+
 function toggleAudio() {
     if (audioEnabled) {
         audio.pause();
-        audioButton.textContent = '🔊 BAT AM THANH';
+        audioBtn.textContent = '🔊 BAT AM THANH';
         audioEnabled = false;
+        createRipple(audioBtn);
+        showToast('🔇 Da tat am thanh', 1000);
     } else {
         audio.load();
-        audio.play().catch(e => console.log('Audio error:', e));
-        audioButton.textContent = '🔇 TAT AM THANH';
-        audioEnabled = true;
+        audio.play().then(() => {
+            audioBtn.textContent = '🔇 TAT AM THANH';
+            audioEnabled = true;
+            createRipple(audioBtn);
+            showToast('🔊 Da bat am thanh', 1000);
+        }).catch(e => {
+            console.log('Audio play error:', e);
+            // Thu lai voi cach khac
+            audio.muted = true;
+            audio.play().then(() => {
+                audio.muted = false;
+                audioBtn.textContent = '🔇 TAT AM THANH';
+                audioEnabled = true;
+                createRipple(audioBtn);
+                showToast('🔊 Da bat am thanh (che do fallback)', 1500);
+            }).catch(e2 => {
+                showToast('❌ Khong the phat audio. Vui long kiem tra ket noi.', 2000);
+            });
+        });
     }
 }
 
-// Upload audio
-const fileInput = document.getElementById('audio-upload');
-const statusDiv = document.getElementById('upload-status');
+audioBtn.addEventListener('click', toggleAudio);
 
-fileInput.addEventListener('change', async function(e) {
-    const file = this.files[0];
-    if (!file) return;
-    
-    statusDiv.textContent = 'Dang upload...';
-    statusDiv.style.color = '#ff9800';
-    
-    try {
-        const formData = new FormData();
-        formData.append('audio', file);
-        
-        const response = await fetch('/upload-audio', {
-            method: 'POST',
-            body: formData
-        });
-        
-        const result = await response.json();
-        if (result.success) {
-            statusDiv.textContent = '✅ Upload thanh cong! Audio da duoc cap nhat.';
-            statusDiv.style.color = '#00ff00';
-            // Reload audio
-            audio.load();
-            if (audioEnabled) {
-                audio.play().catch(e => console.log('Audio error:', e));
-            }
-        } else {
-            statusDiv.textContent = '❌ Upload that bai: ' + (result.error || 'Loi khong xac dinh');
-            statusDiv.style.color = '#ff4444';
-        }
-    } catch (err) {
-        statusDiv.textContent = '❌ Loi upload: ' + err.message;
-        statusDiv.style.color = '#ff4444';
+// Tu dong bat audio khi nguoi dung tuong tac lan dau
+document.addEventListener('click', function firstInteraction() {
+    if (!audioEnabled && !audio.paused) {
+        audio.play().catch(() => {});
     }
+}, { once: true });
+
+// ========================================================================
+// RIPPLE EFFECT
+// ========================================================================
+function createRipple(element) {
+    const ripple = document.createElement('span');
+    const rect = element.getBoundingClientRect();
+    const size = Math.max(rect.width, rect.height);
+    const x = (event ? event.clientX - rect.left : rect.width/2) - size/2;
+    const y = (event ? event.clientY - rect.top : rect.height/2) - size/2;
+    ripple.style.width = ripple.style.height = size + 'px';
+    ripple.style.left = x + 'px';
+    ripple.style.top = y + 'px';
+    ripple.style.position = 'absolute';
+    ripple.style.borderRadius = '50%';
+    ripple.style.background = 'rgba(255,255,255,0.4)';
+    ripple.style.transform = 'scale(0)';
+    ripple.style.animation = 'ripple-anim 0.6s linear';
+    ripple.style.pointerEvents = 'none';
+    element.style.position = 'relative';
+    element.style.overflow = 'hidden';
+    element.appendChild(ripple);
+    setTimeout(() => ripple.remove(), 600);
+}
+
+// Them ripple cho tat ca cac nut
+document.querySelectorAll('.audio-button, .social-btn, .stat-card, .service-card, .status-badge, .header').forEach(el => {
+    el.addEventListener('click', function(e) {
+        const rect = this.getBoundingClientRect();
+        const size = Math.max(rect.width, rect.height);
+        const x = (e.clientX - rect.left) - size/2;
+        const y = (e.clientY - rect.top) - size/2;
+        const ripple = document.createElement('span');
+        ripple.style.width = ripple.style.height = size + 'px';
+        ripple.style.left = x + 'px';
+        ripple.style.top = y + 'px';
+        ripple.style.position = 'absolute';
+        ripple.style.borderRadius = '50%';
+        ripple.style.background = 'rgba(255,255,255,0.3)';
+        ripple.style.transform = 'scale(0)';
+        ripple.style.animation = 'ripple-anim 0.6s linear';
+        ripple.style.pointerEvents = 'none';
+        this.style.position = 'relative';
+        this.style.overflow = 'hidden';
+        this.appendChild(ripple);
+        setTimeout(() => ripple.remove(), 600);
+    });
 });
 
-// Stats update
-setInterval(() => {
+// ========================================================================
+// STATS UPDATE
+// ========================================================================
+function updateStats() {
     fetch('/stats').then(r => r.json()).then(d => {
         document.querySelector('.stat-hits .stat-value').textContent = d.stats?.hits || 0;
         document.querySelector('.stat-error .stat-value').textContent = d.stats?.errors || 0;
-        document.querySelector('.stat-proxy .stat-value').textContent = d.proxy_count || 0;
         document.querySelector('.stat-checked .stat-value').textContent = d.stats?.checked || 0;
+        document.querySelector('.stat-time .stat-value').textContent = new Date().toLocaleTimeString('vi-VN');
+        const badge = document.getElementById('status-badge');
+        const isChecking = d.checking;
+        badge.textContent = isChecking ? '🔴 Dang check' : '🟢 San sang';
+        badge.style.background = isChecking ? '#ff9800' : '#4caf50';
     }).catch(e => console.log('Error:', e));
-}, 10000);
+}
+setInterval(updateStats, 5000);
+updateStats();
+
+// ========================================================================
+// SERVICE CLICK - HIEU UNG + TOAST
+// ========================================================================
+document.querySelectorAll('.service-card').forEach(card => {
+    card.addEventListener('click', function() {
+        const service = this.dataset.service;
+        const name = this.querySelector('.service-name').textContent;
+        // Hieu ung xac nhan
+        this.style.borderColor = '#ff00ff';
+        this.style.boxShadow = '0 0 40px rgba(255,0,255,0.6)';
+        setTimeout(() => {
+            this.style.borderColor = '#333';
+            this.style.boxShadow = 'none';
+        }, 500);
+        showToast(`📋 Da chon service: ${name}`, 1500);
+        console.log('Service clicked:', service);
+    });
+});
+
+// ========================================================================
+= HEADER CLICK - HIEU UNG
+// ========================================================================
+document.getElementById('header').addEventListener('click', function() {
+    this.style.boxShadow = '0 0 80px rgba(0,255,0,0.8)';
+    setTimeout(() => {
+        this.style.boxShadow = '0 0 30px rgba(0,255,0,0.3)';
+    }, 300);
+    showToast('🚀 Garena Checker Bot V6.1', 1000);
+});
+
+// ========================================================================
+// SOCIAL BUTTONS - FEEDBACK
+// ========================================================================
+document.getElementById('tiktok-btn').addEventListener('click', function(e) {
+    createRipple(this);
+    showToast('🎵 Dang mo TikTok...', 1000);
+});
+document.getElementById('telegram-btn').addEventListener('click', function(e) {
+    createRipple(this);
+    showToast('✈️ Dang mo Telegram...', 1000);
+});
+
+// ========================================================================
+// STAT CARDS - FEEDBACK
+// ========================================================================
+document.querySelectorAll('.stat-card').forEach(card => {
+    card.addEventListener('click', function() {
+        const label = this.querySelector('.stat-label').textContent;
+        const value = this.querySelector('.stat-value').textContent;
+        showToast(`📊 ${label}: ${value}`, 1500);
+    });
+});
+
+console.log('Dashboard loaded - All effects enabled!');
 </script>
 </body>
 </html>"""
@@ -612,117 +911,11 @@ setInterval(() => {
         html = html.replace('UPTIME_PLACEHOLDER', uptime_str)
         html = html.replace('HITS_PLACEHOLDER', str(hits_count))
         html = html.replace('ERROR_PLACEHOLDER', str(error_count))
-        html = html.replace('PROXY_PLACEHOLDER', str(proxy_count))
         html = html.replace('CHECKED_PLACEHOLDER', str(stats.get('checked', 0)))
         html = html.replace('CURRENT_TIME_PLACEHOLDER', current_time)
         html = html.replace('SERVICES_HTML_PLACEHOLDER', services_html)
         
         return html
-    
-    def do_POST(self):
-        """Xu ly upload file audio - FIX loi multipart"""
-        if self.path == '/upload-audio':
-            try:
-                content_type = self.headers.get('Content-Type', '')
-                if 'multipart/form-data' not in content_type:
-                    self.send_response(400)
-                    self.send_header('Content-type', 'application/json')
-                    self.end_headers()
-                    self.wfile.write(json.dumps({"success": False, "error": "Content-Type must be multipart/form-data"}).encode('utf-8'))
-                    return
-                
-                # Trich xuat boundary tu Content-Type
-                boundary_match = re.search(r'boundary=(?:"([^"]+)"|([^;]+))', content_type)
-                if not boundary_match:
-                    self.send_response(400)
-                    self.send_header('Content-type', 'application/json')
-                    self.end_headers()
-                    self.wfile.write(json.dumps({"success": False, "error": "Boundary not found"}).encode('utf-8'))
-                    return
-                
-                boundary = (boundary_match.group(1) or boundary_match.group(2)).strip()
-                boundary_bytes = b'--' + boundary.encode('utf-8')
-                
-                # Doc toan bo body
-                content_length = int(self.headers.get('Content-Length', 0))
-                body = self.rfile.read(content_length)
-                
-                # Tach phan file audio
-                audio_data = None
-                parts = body.split(boundary_bytes)
-                
-                for part in parts:
-                    if b'filename="' in part:
-                        # Tim vi tri bat dau noi dung file (sau 2 lan xuong dong)
-                        header_end = part.find(b'\r\n\r\n')
-                        if header_end == -1:
-                            header_end = part.find(b'\n\n')
-                        
-                        if header_end != -1:
-                            file_start = header_end + 4
-                            if part[header_end:header_end+4] == b'\n\n':
-                                file_start = header_end + 2
-                            
-                            file_data = part[file_start:]
-                            # Loai bo \r\n cuoi cung neu co
-                            if file_data.endswith(b'\r\n'):
-                                file_data = file_data[:-2]
-                            elif file_data.endswith(b'\n'):
-                                file_data = file_data[:-1]
-                            
-                            if file_data:
-                                audio_data = file_data
-                                break
-                
-                if audio_data and len(audio_data) > 0:
-                    global CUSTOM_AUDIO_DATA
-                    with AUDIO_LOCK:
-                        CUSTOM_AUDIO_DATA = audio_data
-                    # Luu vao file de dung sau
-                    with open(CUSTOM_AUDIO_PATH, 'wb') as f:
-                        f.write(audio_data)
-                    
-                    self.send_response(200)
-                    self.send_header('Content-type', 'application/json')
-                    self.send_header('Access-Control-Allow-Origin', '*')
-                    self.end_headers()
-                    self.wfile.write(json.dumps({
-                        "success": True,
-                        "message": "Audio uploaded successfully",
-                        "size": len(audio_data)
-                    }).encode('utf-8'))
-                    return
-                else:
-                    self.send_response(400)
-                    self.send_header('Content-type', 'application/json')
-                    self.end_headers()
-                    self.wfile.write(json.dumps({
-                        "success": False,
-                        "error": "No audio file found in request"
-                    }).encode('utf-8'))
-                    return
-                    
-            except Exception as e:
-                self.send_response(500)
-                self.send_header('Content-type', 'application/json')
-                self.end_headers()
-                self.wfile.write(json.dumps({
-                    "success": False,
-                    "error": str(e)
-                }).encode('utf-8'))
-                return
-        
-        else:
-            self.send_response(404)
-            self.end_headers()
-    
-    def do_OPTIONS(self):
-        """Ho tro CORS cho upload audio"""
-        self.send_response(200)
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
-        self.end_headers()
     
     def log_message(self, format, *args):
         pass
@@ -746,7 +939,7 @@ def start_render_server():
         print(f"[*] Render web server chay tren port {port}")
         print(f"[*] Dashboard: http://0.0.0.0:{port}")
         print(f"[*] Audio: http://0.0.0.0:{port}/audio")
-        print(f"[*] Upload audio: POST /upload-audio")
+        print(f"[*] Upload audio chi ho tro qua Telegram (admin)")
         server.serve_forever()
     except Exception as e:
         print(f"[!] Loi web server: {e}")
@@ -782,7 +975,6 @@ OUTPUT_UNKNOWN = "unknown.txt"
 OUTPUT_ERROR = "error.txt"
 OUTPUT_RESULT = "result_full.txt"
 OUTPUT_LOC = "loc_accounts.txt"
-OUTPUT_PROXY = "proxy.txt"
 
 MAX_MESSAGE_LENGTH = 4000
 
@@ -792,7 +984,7 @@ SERVICE_ROUTES = {
         "desc": "Lien Quan + FC Online",
         "icon": "🎮",
         "params": ["tk", "mk"],
-        "extra_params": {"proxy": ""}
+        "extra_params": {}
     },
     "miniworld": {
         "route": "/api/miniworld",
@@ -813,7 +1005,7 @@ SERVICE_ROUTES = {
         "desc": "Delta Force",
         "icon": "🔫",
         "params": ["tk", "mk"],
-        "extra_params": {"proxy": ""}
+        "extra_params": {}
     },
     "hotmail": {
         "route": "/api/hotmail",
@@ -827,22 +1019,20 @@ SERVICE_ROUTES = {
         "desc": "FC Online",
         "icon": "⚽",
         "params": ["tk", "mk"],
-        "extra_params": {"proxy": ""}
+        "extra_params": {}
     },
     "fullpack": {
         "route": "/api/fullpack",
         "desc": "Fullpack (Tat ca)",
         "icon": "📦",
         "params": ["tk", "mk"],
-        "extra_params": {"proxy": ""}
+        "extra_params": {}
     }
 }
 
 checking = False
 stop_event = threading.Event()
 pending_accounts = {}
-proxy_list = []
-proxy_lock = threading.Lock()
 stats = {"total": 0, "checked": 0, "hits": 0, "dead": 0, "errors": 0, "unknown": 0, "start_time": 0}
 file_lock = threading.Lock()
 stats_lock = threading.Lock()
@@ -1018,79 +1208,6 @@ def safe_send_message(chat_id, text, parse_mode="HTML"):
                 bot.send_message(chat_id, text)
             except:
                 pass
-
-def load_proxy_from_text(content):
-    global proxy_list
-    
-    proxies = []
-    lines = content.split('\n')
-    
-    for line in lines:
-        line = line.strip()
-        if not line:
-            continue
-        
-        parts = line.split(':')
-        if len(parts) == 2:
-            ip, port = parts
-            if is_valid_ip_port(ip, port):
-                proxies.append({
-                    "ip": ip, "port": port,
-                    "user": "", "password": "",
-                    "full": f"{ip}:{port}"
-                })
-        elif len(parts) == 4:
-            ip, port, user, password = parts
-            if is_valid_ip_port(ip, port):
-                proxies.append({
-                    "ip": ip, "port": port,
-                    "user": user, "password": password,
-                    "full": f"{ip}:{port}:{user}:{password}"
-                })
-    
-    with proxy_lock:
-        proxy_list = proxies
-    
-    return len(proxies)
-
-def is_valid_ip_port(ip, port):
-    try:
-        port_num = int(port)
-        if port_num < 1 or port_num > 65535:
-            return False
-        ip_parts = ip.split('.')
-        if len(ip_parts) == 4:
-            for part in ip_parts:
-                num = int(part)
-                if num < 0 or num > 255:
-                    return False
-            return True
-        if re.match(r'^[a-zA-Z0-9.-]+$', ip):
-            return True
-        return False
-    except:
-        return False
-
-def get_random_proxy():
-    with proxy_lock:
-        if not proxy_list:
-            return None
-        return random.choice(proxy_list)
-
-def build_proxy_string(proxy):
-    if not proxy:
-        return ""
-    if proxy["user"] and proxy["password"]:
-        return f"{proxy['user']}:{proxy['password']}@{proxy['ip']}:{proxy['port']}"
-    else:
-        return f"{proxy['ip']}:{proxy['port']}"
-
-def save_proxy_file():
-    with file_lock:
-        with open(OUTPUT_PROXY, 'w', encoding='utf-8') as f:
-            with proxy_lock:
-                for proxy in proxy_list:
-                    f.write(f"{proxy['full']}\n")
 
 def loc_tk_mk_only(content):
     accounts = []
@@ -1303,12 +1420,6 @@ def check_account_api(username, password, service, use_delay=True):
     else:
         params["tk"] = username
         params["mk"] = password
-    
-    proxy = get_random_proxy()
-    if proxy:
-        proxy_str = build_proxy_string(proxy)
-        if "proxy" in extra_params or service in ["lienquan", "deltaforce", "fc", "fullpack"]:
-            params["proxy"] = proxy_str
     
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -1639,9 +1750,6 @@ def check_batch(chat_id, accounts, service):
     service_desc = SERVICE_ROUTES.get(service, {}).get("desc", service)
     icon = SERVICE_ROUTES.get(service, {}).get("icon", "🔍")
     
-    with proxy_lock:
-        proxy_count = len(proxy_list)
-    
     safe_send_message(chat_id, f"""
 {icon} <b>BAT DAU CHECK - V6.1</b>
 📊 Tong: <code>{total}</code> accounts
@@ -1649,7 +1757,6 @@ def check_batch(chat_id, accounts, service):
 ⚡ Threads: <code>{CHECKMULTI_THREADS}</code>
 ⏱ Delay: <code>{CHECKMULTI_DELAY}s</code>
 📦 Batch: <code>{CHECKMULTI_BATCH_SIZE} acc/batch</code>
-🌐 Proxy: <code>{proxy_count}</code>
 """)
     
     batches = []
@@ -1970,14 +2077,10 @@ def cmd_start(message):
     if not check_membership(message):
         return
     
-    with proxy_lock:
-        proxy_count = len(proxy_list)
-    
     safe_send_message(message.chat.id, f"""
 🤖 <b>GARENA CHECKER BOT V6.1 - BREAKTHROUGH</b>
 👤 Admin: @baohuyno1
 🎵 TikTok: @baohuy1109
-🌐 Proxy: {proxy_count}
 
 📌 <b>LENH SU DUNG:</b>
 
@@ -2105,20 +2208,6 @@ def cmd_checkall(message):
         threading.Thread(target=check_all_services, args=(chat_id, accounts)).start()
     else:
         safe_send_message(chat_id, "❌ Khong co acc nao dang cho!")
-
-@bot.message_handler(commands=['proxy'])
-def cmd_proxy(message):
-    if not check_membership(message):
-        return
-    
-    safe_send_message(message.chat.id, """
-📤 <b>LOAD PROXY</b>
-
-<b>Gui file .txt voi format:</b>
-ip:port
-hoac
-ip:port:user:pass
-""")
 
 @bot.message_handler(commands=['services'])
 def cmd_services(message):
@@ -2266,13 +2355,6 @@ Audio da duoc cap nhat tren dashboard!
         file_info = bot.get_file(message.document.file_id)
         content = bot.download_file(file_info.file_path).decode('utf-8', errors='ignore')
         
-        proxy_pattern = r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d{1,5}'
-        if re.search(proxy_pattern, content):
-            proxy_count = load_proxy_from_text(content)
-            save_proxy_file()
-            safe_send_message(chat_id, f"✅ LOAD PROXY THANH CONG!\n🌐 Tong proxy: {proxy_count}")
-            return
-        
         content_input = content.replace('|', ':')
         
         accounts, stats_loc = loc_tk_mk_only(content_input)
@@ -2320,7 +2402,7 @@ def main():
     print("    KENH BAT BUOC: @hakiiosvip")
     print("    WEB DASHBOARD: http://0.0.0.0:10000")
     print("    AUDIO: http://0.0.0.0:10000/audio")
-    print("    UPLOAD AUDIO: POST /upload-audio")
+    print("    Upload audio chi ho tro qua Telegram (admin)")
     print("=" * 60)
     
     while True:
