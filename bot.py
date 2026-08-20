@@ -9,6 +9,9 @@ import re
 import telebot
 import requests
 import signal
+import struct
+import math
+import base64
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import defaultdict
@@ -33,7 +36,7 @@ import threading as threading_module
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 class RenderHandler(BaseHTTPRequestHandler):
-    """Xử lý HTTP request để Render giữ bot sống - GIAO DIỆN ĐẸP"""
+    """Xử lý HTTP request để Render giữ bot sống - GIAO DIỆN HACKER ĐẸP"""
     def do_GET(self):
         if self.path == '/':
             self.send_response(200)
@@ -65,13 +68,63 @@ class RenderHandler(BaseHTTPRequestHandler):
             self.end_headers()
             services_json = json.dumps(SERVICE_ROUTES)
             self.wfile.write(services_json.encode('utf-8'))
+        elif self.path == '/audio':
+            self.send_response(200)
+            self.send_header('Content-type', 'audio/wav')
+            self.send_header('Cache-Control', 'no-cache')
+            self.end_headers()
+            audio_data = self.generate_audio()
+            self.wfile.write(audio_data)
+        elif self.path == '/audio.mp3':
+            self.send_response(200)
+            self.send_header('Content-type', 'audio/mpeg')
+            self.end_headers()
+            audio_data = self.generate_mp3_style_audio()
+            self.wfile.write(audio_data)
         else:
             self.send_response(200)
             self.end_headers()
             self.wfile.write(b"Bot is running!")
     
+    def generate_audio(self):
+        """Tạo âm thanh WAV đơn giản - nhạc điện tử"""
+        try:
+            sample_rate = 44100
+            duration = 1.0
+            num_samples = int(sample_rate * duration)
+            
+            # Tạo header WAV
+            data_size = num_samples * 2
+            header = b'RIFF' + struct.pack('<I', 36 + data_size) + b'WAVE'
+            header += b'fmt ' + struct.pack('<IHHIIHH', 16, 1, 1, sample_rate, sample_rate * 2, 2, 16)
+            header += b'data' + struct.pack('<I', data_size)
+            
+            # Tạo dữ liệu âm thanh - nhạc điện tử
+            audio_data = bytearray()
+            for i in range(num_samples):
+                t = i / sample_rate
+                # Kết hợp nhiều tần số tạo hiệu ứng điện tử
+                value = int(32767 * 0.3 * (
+                    math.sin(2 * math.pi * 440 * t) * math.exp(-2 * t) +
+                    math.sin(2 * math.pi * 880 * t) * math.exp(-4 * t) * 0.5 +
+                    math.sin(2 * math.pi * 220 * t) * math.exp(-1 * t) * 0.3
+                ))
+                audio_data += struct.pack('<h', value)
+            
+            return header + bytes(audio_data)
+        except:
+            return b''
+    
+    def generate_mp3_style_audio(self):
+        """Tạo âm thanh đơn giản dạng nhạc điện tử"""
+        try:
+            # Tạo WAV và chuyển đổi cơ bản
+            return self.generate_audio()
+        except:
+            return b''
+    
     def generate_dashboard(self):
-        """Tạo dashboard HTML đẹp"""
+        """Tạo dashboard HTML với hiệu ứng hacker"""
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         uptime = time.time() - start_time if 'start_time' in globals() else 0
         uptime_str = time.strftime("%H:%M:%S", time.gmtime(uptime))
@@ -82,6 +135,7 @@ class RenderHandler(BaseHTTPRequestHandler):
         # Đọc số lượng hits từ file
         hits_count = 0
         dead_count = 0
+        error_count = 0
         try:
             if os.path.exists(OUTPUT_HITS):
                 with open(OUTPUT_HITS, 'r', encoding='utf-8') as f:
@@ -89,6 +143,9 @@ class RenderHandler(BaseHTTPRequestHandler):
             if os.path.exists(OUTPUT_DEAD):
                 with open(OUTPUT_DEAD, 'r', encoding='utf-8') as f:
                     dead_count = len(f.readlines())
+            if os.path.exists(OUTPUT_ERROR):
+                with open(OUTPUT_ERROR, 'r', encoding='utf-8') as f:
+                    error_count = len(f.readlines())
         except:
             pass
         
@@ -122,49 +179,164 @@ class RenderHandler(BaseHTTPRequestHandler):
 }}
 
 body {{
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 50%, #0a0a0a 100%);
+    font-family: 'Courier New', monospace;
+    background: #0a0a0a;
     min-height: 100vh;
-    color: #e0e0e0;
+    color: #00ff00;
     padding: 20px;
+    overflow-x: hidden;
+}}
+
+/* Hiệu ứng matrix background */
+body::before {{
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(rgba(0,255,0,0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0,255,0,0.03) 1px, transparent 1px);
+    background-size: 50px 50px;
+    pointer-events: none;
+    z-index: -1;
+}}
+
+/* Hiệu ứng scanline */
+body::after {{
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0,0,0,0.1) 2px,
+        rgba(0,0,0,0.1) 4px
+    );
+    pointer-events: none;
+    z-index: -1;
+}}
+
+/* Matrix canvas */
+#matrix-canvas {{
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: -2;
+    opacity: 0.15;
 }}
 
 .container {{
     max-width: 1200px;
     margin: 0 auto;
+    position: relative;
+}}
+
+/* Hiệu ứng glitch */
+@keyframes glitch {{
+    0% {{ text-shadow: 2px 2px 0 #ff00ff, -2px -2px 0 #00ffff; }}
+    25% {{ text-shadow: -2px 2px 0 #ff00ff, 2px -2px 0 #00ffff; }}
+    50% {{ text-shadow: 2px -2px 0 #ff00ff, -2px 2px 0 #00ffff; }}
+    75% {{ text-shadow: -2px -2px 0 #ff00ff, 2px 2px 0 #00ffff; }}
+    100% {{ text-shadow: 2px 2px 0 #ff00ff, -2px -2px 0 #00ffff; }}
+}}
+
+@keyframes flicker {{
+    0%, 100% {{ opacity: 1; }}
+    50% {{ opacity: 0.8; }}
+}}
+
+@keyframes pulse {{
+    0% {{ box-shadow: 0 0 20px rgba(0,255,0,0.3); }}
+    50% {{ box-shadow: 0 0 40px rgba(0,255,0,0.8); }}
+    100% {{ box-shadow: 0 0 20px rgba(0,255,0,0.3); }}
+}}
+
+@keyframes rotate {{
+    from {{ transform: rotate(0deg); }}
+    to {{ transform: rotate(360deg); }}
+}}
+
+@keyframes scan {{
+    0% {{ top: -100%; }}
+    100% {{ top: 100%; }}
 }}
 
 .header {{
     text-align: center;
     padding: 40px 20px;
-    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 50%, #0a0a0a 100%);
     border-radius: 20px;
     margin-bottom: 30px;
-    border: 1px solid #333;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    border: 2px solid #00ff00;
+    box-shadow: 0 0 30px rgba(0,255,0,0.3);
+    position: relative;
+    overflow: hidden;
+}}
+
+.header::before {{
+    content: '';
+    position: absolute;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: conic-gradient(
+        from 0deg,
+        transparent,
+        rgba(0,255,0,0.1),
+        transparent,
+        rgba(0,255,0,0.1),
+        transparent
+    );
+    animation: rotate 10s linear infinite;
+}}
+
+/* Scan line hiệu ứng */
+.header::after {{
+    content: '';
+    position: absolute;
+    left: 0;
+    width: 100%;
+    height: 50px;
+    background: linear-gradient(transparent, rgba(0,255,0,0.2), transparent);
+    animation: scan 3s linear infinite;
 }}
 
 .header h1 {{
     font-size: 2.5em;
     color: #00ff00;
     margin-bottom: 10px;
-    text-shadow: 0 0 20px rgba(0,255,0,0.5);
+    animation: glitch 2s infinite, flicker 3s infinite;
+    position: relative;
+    z-index: 1;
 }}
 
 .header .subtitle {{
     font-size: 1.2em;
     color: #aaa;
     margin-bottom: 5px;
+    position: relative;
+    z-index: 1;
 }}
 
 .header .admin-link {{
     color: #00ff00;
     text-decoration: none;
     font-weight: bold;
+    position: relative;
+    z-index: 1;
 }}
 
 .header .admin-link:hover {{
     text-decoration: underline;
+    color: #ff00ff;
 }}
 
 .status-badge {{
@@ -176,14 +348,35 @@ body {{
     margin-top: 15px;
     background: {bot_color};
     color: white;
-    box-shadow: 0 0 20px rgba(0,255,0,0.3);
+    box-shadow: 0 0 20px rgba(0,255,0,0.5);
     animation: pulse 2s infinite;
+    position: relative;
+    z-index: 1;
 }}
 
-@keyframes pulse {{
-    0% {{ box-shadow: 0 0 20px rgba(0,255,0,0.3); }}
-    50% {{ box-shadow: 0 0 40px rgba(0,255,0,0.6); }}
-    100% {{ box-shadow: 0 0 20px rgba(0,255,0,0.3); }}
+/* Audio button */
+.audio-button {{
+    display: inline-block;
+    padding: 10px 20px;
+    border-radius: 50px;
+    font-weight: bold;
+    font-size: 1em;
+    margin-top: 10px;
+    margin-left: 10px;
+    background: #ff00ff;
+    color: white;
+    cursor: pointer;
+    box-shadow: 0 0 20px rgba(255,0,255,0.5);
+    animation: pulse 2s infinite;
+    position: relative;
+    z-index: 1;
+    border: none;
+    font-family: 'Courier New', monospace;
+}}
+
+.audio-button:hover {{
+    background: #ff00ff;
+    box-shadow: 0 0 40px rgba(255,0,255,0.8);
 }}
 
 .stats-grid {{
@@ -198,20 +391,39 @@ body {{
     border-radius: 15px;
     padding: 25px;
     text-align: center;
-    border: 1px solid #333;
+    border: 1px solid #00ff00;
     box-shadow: 0 5px 15px rgba(0,0,0,0.3);
-    transition: transform 0.3s ease;
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+    position: relative;
+    overflow: hidden;
+}}
+
+.stat-card::before {{
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 3px;
+    background: linear-gradient(90deg, transparent, #00ff00, transparent);
+    animation: shimmer 2s infinite;
+}}
+
+@keyframes shimmer {{
+    0% {{ transform: translateX(-100%); }}
+    100% {{ transform: translateX(100%); }}
 }}
 
 .stat-card:hover {{
     transform: translateY(-5px);
-    box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+    box-shadow: 0 10px 25px rgba(0,255,0,0.3);
 }}
 
 .stat-value {{
     font-size: 2.5em;
     font-weight: bold;
     margin-bottom: 10px;
+    text-shadow: 0 0 10px currentColor;
 }}
 
 .stat-label {{
@@ -223,16 +435,18 @@ body {{
 
 .stat-hits .stat-value {{ color: #00ff00; }}
 .stat-dead .stat-value {{ color: #ff4444; }}
-.stat-proxy .stat-value {{ color: #ff9800; }}
+.stat-error .stat-value {{ color: #ff9800; }}
+.stat-proxy .stat-value {{ color: #00ffff; }}
 .stat-checked .stat-value {{ color: #2196f3; }}
-.stat-time .stat-value {{ color: #9c27b0; font-size: 1.5em; }}
+.stat-time .stat-value {{ color: #ff00ff; font-size: 1.2em; }}
 
 .section-title {{
     font-size: 1.5em;
     color: #00ff00;
     margin-bottom: 20px;
     text-align: center;
-    text-shadow: 0 0 10px rgba(0,255,0,0.3);
+    text-shadow: 0 0 10px rgba(0,255,0,0.5);
+    animation: flicker 2s infinite;
 }}
 
 .services-grid {{
@@ -255,11 +469,18 @@ body {{
 
 .service-card:hover {{
     border-color: #00ff00;
-    box-shadow: 0 0 20px rgba(0,255,0,0.2);
+    box-shadow: 0 0 20px rgba(0,255,0,0.3);
+    transform: scale(1.05);
 }}
 
 .service-icon {{
     font-size: 2em;
+    animation: bounce 2s infinite;
+}}
+
+@keyframes bounce {{
+    0%, 100% {{ transform: translateY(0); }}
+    50% {{ transform: translateY(-10px); }}
 }}
 
 .service-info {{
@@ -283,6 +504,8 @@ body {{
     padding: 20px;
     color: #666;
     font-size: 0.9em;
+    border-top: 1px solid #333;
+    margin-top: 30px;
 }}
 
 .footer a {{
@@ -312,12 +535,14 @@ body {{
 </style>
 </head>
 <body>
+<canvas id="matrix-canvas"></canvas>
 <div class="container">
     <div class="header">
         <h1>🎮 GARENA CHECKER BOT</h1>
         <div class="subtitle">Version 6.0 - BREAKTHROUGH</div>
         <div class="subtitle">Admin: <a href="https://t.me/{ADMIN_USERNAME}" class="admin-link">@{ADMIN_USERNAME}</a></div>
         <div class="status-badge">🔴 {bot_status}</div>
+        <button class="audio-button" onclick="toggleAudio()">🔊 BẬT ÂM THANH</button>
         <div class="uptime">⏱ Uptime: {uptime_str}</div>
     </div>
     
@@ -329,6 +554,10 @@ body {{
         <div class="stat-card stat-dead">
             <div class="stat-value">{dead_count}</div>
             <div class="stat-label">❌ Dead</div>
+        </div>
+        <div class="stat-card stat-error">
+            <div class="stat-value">{error_count}</div>
+            <div class="stat-label">⚠️ Errors</div>
         </div>
         <div class="stat-card stat-proxy">
             <div class="stat-value">{proxy_count}</div>
@@ -354,6 +583,82 @@ body {{
         <p>Garena Checker Bot V6.0 - Render Web Service</p>
     </div>
 </div>
+
+<audio id="background-audio" loop>
+    <source src="/audio" type="audio/wav">
+</audio>
+
+<script>
+// Matrix rain effect
+const canvas = document.getElementById('matrix-canvas');
+const ctx = canvas.getContext('2d');
+
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
+
+const matrixChars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@#$%^&*()_+{}[]|;:,.<>?/~`';
+const fontSize = 14;
+const columns = canvas.width / fontSize;
+const drops = [];
+
+for (let i = 0; i < columns; i++) {{
+    drops[i] = Math.random() * -100;
+}}
+
+function drawMatrix() {{
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    ctx.fillStyle = '#00ff00';
+    ctx.font = fontSize + 'px monospace';
+    
+    for (let i = 0; i < drops.length; i++) {{
+        const text = matrixChars.charAt(Math.floor(Math.random() * matrixChars.length));
+        ctx.fillText(text, i * fontSize, drops[i] * fontSize);
+        
+        if (drops[i] * fontSize > canvas.height && Math.random() > 0.975) {{
+            drops[i] = 0;
+        }}
+        
+        drops[i]++;
+    }}
+}}
+
+setInterval(drawMatrix, 50);
+
+// Resize handler
+window.addEventListener('resize', () => {{
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+}});
+
+// Audio control
+let audioEnabled = false;
+const audio = document.getElementById('background-audio');
+const audioButton = document.querySelector('.audio-button');
+
+function toggleAudio() {{
+    if (audioEnabled) {{
+        audio.pause();
+        audioButton.textContent = '🔊 BẬT ÂM THANH';
+        audioEnabled = false;
+    }} else {{
+        audio.play().catch(e => console.log('Audio error:', e));
+        audioButton.textContent = '🔇 TẮT ÂM THANH';
+        audioEnabled = true;
+    }}
+}}
+
+// Auto refresh stats
+setInterval(() => {{
+    fetch('/stats')
+        .then(response => response.json())
+        .then(data => {{
+            console.log('Stats updated:', data);
+        }})
+        .catch(err => console.log('Error fetching stats:', err));
+}}, 30000);
+</script>
 </body>
 </html>"""
         
@@ -371,6 +676,7 @@ def start_render_server():
         server = HTTPServer(("0.0.0.0", port), RenderHandler)
         print(f"[*] Render web server chay tren port {port}")
         print(f"[*] Dashboard: http://0.0.0.0:{port}")
+        print(f"[*] Audio: http://0.0.0.0:{port}/audio")
         server.serve_forever()
     except Exception as e:
         print(f"[!] Loi web server: {e}")
@@ -399,7 +705,7 @@ DEFAULT_DELAY = 0.3
 
 CHECKMULTI_THREADS = 30
 CHECKMULTI_DELAY = 0.5
-CHECKMULTI_BATCH_SIZE = 20
+CHECKMULTI_BATCH_SIZE = 10
 CHECKMULTI_BATCH_DELAY = 3.0
 
 OUTPUT_HITS = "hits.txt"
@@ -1293,7 +1599,7 @@ def check_single(chat_id, username, password, service="lienquan"):
 
 # ========== CHECK NHIỀU ==========
 def check_batch(chat_id, accounts, service):
-    """Kiểm tra nhiều tài khoản với delay và batch"""
+    """Kiểm tra nhiều tài khoản với delay và batch 10 acc"""
     global checking, stats
     
     if checking:
@@ -1326,7 +1632,7 @@ def check_batch(chat_id, accounts, service):
 🎯 Service: <b>{service_desc}</b>
 ⚡ Threads: <code>{CHECKMULTI_THREADS}</code>
 ⏱ Delay: <code>{CHECKMULTI_DELAY}s</code>
-📦 Batch: <code>{CHECKMULTI_BATCH_SIZE}</code>
+📦 Batch: <code>{CHECKMULTI_BATCH_SIZE} acc/batch</code>
 🌐 Proxy: <code>{proxy_count}</code>
 """)
     
@@ -1371,6 +1677,11 @@ def check_batch(chat_id, accounts, service):
         
         batch_num += 1
         
+        safe_send_message(chat_id, f"""
+📦 <b>BATCH {batch_num}/{total_batches}</b>
+🔍 Dang check {len(batch)} accounts...
+""")
+        
         with ThreadPoolExecutor(max_workers=CHECKMULTI_THREADS) as executor:
             futures = {executor.submit(process_single, user, pwd): (user, pwd) 
                        for user, pwd in batch}
@@ -1388,6 +1699,7 @@ def check_batch(chat_id, accounts, service):
 📊 <b>TIEN DO - {stats['checked']}/{total}</b> ({percent:.1f}%)
 ✅ Hits: <code>{stats['hits']}</code>
 ❌ Dead: <code>{stats['dead']}</code>
+⚠️ Errors: <code>{stats['errors']}</code>
 ⚡ Speed: <code>{speed:.1f}</code> acc/s
 """)
         
@@ -1473,16 +1785,50 @@ def check_all_services(chat_id, accounts):
             else:
                 stats_all["errors"] += 1
     
-    all_tasks = [(user, pwd, service) for user, pwd in accounts for service in SERVICE_ROUTES.keys()]
+    # Chia thành batch 10 accounts
+    batches = []
+    for i in range(0, len(accounts), CHECKMULTI_BATCH_SIZE):
+        batch_accounts = accounts[i:i + CHECKMULTI_BATCH_SIZE]
+        batches.append(batch_accounts)
     
-    with ThreadPoolExecutor(max_workers=DEFAULT_THREADS) as executor:
-        futures = {executor.submit(process_all, user, pwd, service): (user, pwd, service) 
-                   for user, pwd, service in all_tasks}
+    batch_num = 0
+    total_batches = len(batches)
+    
+    for batch_accounts in batches:
+        if stop_event.is_set():
+            break
         
-        for future in as_completed(futures):
-            if stop_event.is_set():
-                executor.shutdown(wait=False)
-                break
+        batch_num += 1
+        
+        safe_send_message(chat_id, f"""
+📦 <b>BATCH {batch_num}/{total_batches}</b>
+🔍 Dang check {len(batch_accounts)} accounts x {total_services} services...
+""")
+        
+        all_tasks = [(user, pwd, service) for user, pwd in batch_accounts for service in SERVICE_ROUTES.keys()]
+        
+        with ThreadPoolExecutor(max_workers=DEFAULT_THREADS) as executor:
+            futures = {executor.submit(process_all, user, pwd, service): (user, pwd, service) 
+                       for user, pwd, service in all_tasks}
+            
+            for future in as_completed(futures):
+                if stop_event.is_set():
+                    executor.shutdown(wait=False)
+                    break
+        
+        elapsed = time.time() - stats_all["start_time"]
+        speed = stats_all["checked"] / elapsed if elapsed > 0 else 0
+        percent = (stats_all["checked"] / stats_all["total"]) * 100
+        
+        safe_send_message(chat_id, f"""
+📊 <b>TIEN DO - {stats_all['checked']}/{stats_all['total']}</b> ({percent:.1f}%)
+🎯 Hits: <code>{stats_all['hits']}</code>
+❌ Dead: <code>{stats_all['dead']}</code>
+⚡ Speed: <code>{speed:.1f}</code> acc/s
+""")
+        
+        if batch_num < total_batches:
+            time.sleep(CHECKMULTI_BATCH_DELAY)
     
     checking = False
     elapsed = time.time() - stats_all["start_time"]
@@ -1491,6 +1837,7 @@ def check_all_services(chat_id, accounts):
 ✅ CHECK ALL HOAN TAT!
 🎯 Hits: {stats_all['hits']}
 ❌ Dead: {stats_all['dead']}
+⚠️ Errors: {stats_all['errors']}
 ⏱ Time: {elapsed:.1f}s
 """)
 
@@ -1520,6 +1867,15 @@ def cmd_start(message):
 
 <b>SERVICE:</b>
 lienquan, miniworld, blockmango, deltaforce, hotmail, fc, fullpack
+
+<b>KHAC:</b>
+/status - Xem trang thai bot
+/services - Danh sach service
+/hits - File hits
+/dead - File dead
+/loc - File loc accounts
+/report - File report
+/stop - Dung check
 """)
 
 @bot.message_handler(commands=['check'])
@@ -1609,6 +1965,7 @@ user3|pass3
 📊 <b>CHECK NHIEU ACC - V6.0</b>
 🎯 Tong: <code>{total}</code> accounts
 🎮 Service: <b>{SERVICE_ROUTES[service]['desc']}</b>
+📦 Batch: <code>{CHECKMULTI_BATCH_SIZE} acc/batch</code>
 
 Dang bat dau check...
 """)
@@ -1663,6 +2020,7 @@ def cmd_status(message):
 ✅ Checked: {stats['checked']}/{stats['total']}
 🎯 HIT: {stats['hits']}
 ❌ DEAD: {stats['dead']}
+⚠️ Errors: {stats['errors']}
 🌐 Proxy: {proxy_count}
 ⚡ Speed: {speed:.1f} acc/s
 """)
@@ -1863,6 +2221,7 @@ def main():
     print("    ADMIN: @baohuyno1")
     print("    KENH BAT BUOC: @hakiiosvip")
     print("    WEB DASHBOARD: http://0.0.0.0:10000")
+    print("    AUDIO: http://0.0.0.0:10000/audio")
     print("=" * 60)
     
     while True:
