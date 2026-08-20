@@ -94,7 +94,6 @@ DEFAULT_TIMEOUT = 60
 DEFAULT_RETRIES = 3
 DEFAULT_DELAY = 0.3
 
-# Delay config cho checkmulti
 CHECKMULTI_THREADS = 30
 CHECKMULTI_DELAY = 0.5
 CHECKMULTI_BATCH_SIZE = 20
@@ -175,7 +174,6 @@ stats_lock = threading.Lock()
 cache_results = {}
 cache_lock = threading.Lock()
 
-# Rate limiter
 rate_lock = threading.Lock()
 last_request_time = 0
 
@@ -193,22 +191,19 @@ def rate_limit(delay=DEFAULT_DELAY):
             time.sleep(sleep_time)
         last_request_time = time.time()
 
-# ========== FIX ENCODING NÂNG CAO ==========
+# ========== FIX ENCODING ==========
 def fix_encoding(text):
-    """Sửa lỗi encoding tiếng Việt từ API - phiên bản nâng cao"""
+    """Sửa lỗi encoding tiếng Việt từ API"""
     if not isinstance(text, str):
         return text
     
-    # Bảng thay thế các lỗi encoding phổ biến
     replacements = {
-        # Lỗi encoding cơ bản
         'Ã¡': 'á', 'Ã ': 'à', 'áº£': 'ả', 'Ã£': 'ã', 'áº¡': 'ạ',
         'Ä': 'Đ', 'Ä': 'Đ', 'Æ°': 'ư', 'Æ¡': 'ơ', 'Ã´': 'ô',
         'Ã¢': 'â', 'Äƒ': 'ă', 'Ãª': 'ê', 'Ã­': 'í', 'Ã¬': 'ì',
         'á»‹': 'ị', 'á»‰': 'ỉ', 'Ä©': 'ĩ', 'Ã³': 'ó', 'Ã²': 'ò',
         'Ãº': 'ú', 'Ã¹': 'ù', 'Ã½': 'ý', 'á»³': 'ỳ',
         'á»·': 'ỷ', 'á»µ': 'ỵ',
-        # Lỗi encoding từ API
         'Nghiá»‡p': 'Nghiệp', 'Hoáº£': 'Hoả', 'YÃªu': 'Yêu', 'Háº­u': 'Hậu',
         'Tháº¿': 'Thế', 'Tá»­': 'Tử', 'Nguyá»‡t': 'Nguyệt', 'Tá»™c': 'Tộc',
         'SiÃªu': 'Siêu', 'viá»‡t': 'việt', 'Ngá»™': 'Ngộ', 'KhÃ´ng': 'Không',
@@ -216,7 +211,6 @@ def fix_encoding(text):
         'Giai': 'Giai', 'Ä‘iá»‡u': 'điệu', 'GiÃ¡ng': 'Giáng', 'Sinh': 'Sinh',
         'Äá»“ng': 'Đồng', 'phá»¥c': 'phục', 'Cáº¥p': 'Cấp', 'Tá»‘i': 'Tối', 'ThÆ°á»£ng': 'Thượng',
         'hÃ nh': 'hành', 'K.CÆ°Æ¡ng': 'K.Cương',
-        # Tên tướng và skin
         'Tel\'Annas': "Tel'Annas", 'VÅ©': 'Vũ', 'khÃºc': 'khúc', 'yÃªu': 'yêu',
         'Airi': 'Airi', 'Murad': 'Murad', 'Veera': 'Veera', 'Raz': 'Raz',
         'Lindis': 'Lindis', 'Zephys': 'Zephys', 'Slimz': 'Slimz', 'Alice': 'Alice',
@@ -225,9 +219,7 @@ def fix_encoding(text):
         'Maloch': 'Maloch', 'Tulen': 'Tulen', 'Omen': 'Omen', 'Bijan': 'Bijan',
         'Triá»‡u': 'Triệu', 'Krixi': 'Krixi', 'Violet': 'Violet', 'Lá»¯': 'Lữ',
         'SEVEN': 'SEVEN', 'Thá»©': 'Thứ',
-        # Từ tiếng Việt
         'Chưa có': 'Chưa có', 'ChÆ°a': 'Chưa', 'cÃ³': 'có',
-        # Lỗi encoding khác
         'áº¥': 'ấ', 'áº§': 'ầ', 'áº©': 'ẩ', 'áº«': 'ẫ', 'áº­': 'ậ',
         'áº¯': 'ắ', 'áº±': 'ằ', 'áº³': 'ẳ', 'áºµ': 'ẵ', 'áº·': 'ặ',
         'á»': 'ộ', 'á»Ž': 'ỏ', 'Ãµ': 'õ', 'á»§': 'ủ', 'Å©': 'ũ', 'á»¥': 'ụ',
@@ -435,9 +427,9 @@ def save_proxy_file():
                 for proxy in proxy_list:
                     f.write(f"{proxy['full']}\n")
 
-# ========== LỌC TK MK - CHỈ LẤY TK:MK ==========
+# ========== LỌC TK MK - LOẠI BỎ HOÀN TOÀN TIME ==========
 def loc_tk_mk_only(content):
-    """Lọc tài khoản, chỉ lấy tk:mk hoặc tk|mk, bỏ qua mọi thứ khác"""
+    """Lọc tài khoản, CHỈ lấy tk:mk hoặc tk|mk, LOẠI BỎ time và các dòng không phải acc"""
     accounts = []
     seen = set()
     stats_loc = {"total": 0, "valid": 0, "invalid": 0, "duplicate": 0}
@@ -445,24 +437,57 @@ def loc_tk_mk_only(content):
     if not content:
         return accounts, stats_loc
     
-    # Pattern cho dấu : (user:pass) - hỗ trợ email
+    # Pattern cho dấu : (user:pass) - hỗ trợ email và ký tự đặc biệt
     pattern_colon = r'(?<![a-zA-Z0-9_])([a-zA-Z0-9][a-zA-Z0-9_.@+-]{1,80}):([a-zA-Z0-9_.@!$%^&*()\-+]{1,100})(?![a-zA-Z0-9_])'
     
     # Pattern cho dấu | (user|pass)
     pattern_pipe = r'(?<![a-zA-Z0-9_])([a-zA-Z0-9][a-zA-Z0-9_.@+-]{1,80})\|([a-zA-Z0-9_.@!$%^&*()\-+]{1,100})(?![a-zA-Z0-9_])'
     
+    # Pattern nhận diện dòng toàn thời gian
+    full_time_line_patterns = [
+        r'^\d{1,2}:\d{2}(:\d{2})?$',
+        r'^\d{1,2}:\d{2}(:\d{2})?\s*(AM|PM|am|pm)?$',
+        r'^\d{1,2}:\d{2}\s*[-–—]\s*\d{1,2}:\d{2}$',
+        r'^\d{1,2}\.\d{2}(\.\d{2})?$',
+        r'^\d{1,2}-\d{2}(-\d{2})?$',
+        r'^\d{1,2}/\d{2}(/\d{2,4})?$',
+        r'^\d{4}-\d{2}-\d{2}$',
+        r'^\d{4}/\d{2}/\d{2}$',
+        r'^\d{2}-\d{2}-\d{4}$',
+        r'^\d{2}/\d{2}/\d{4}$',
+        r'^\d{1,2}h\d{2}(p\d{2})?$',
+        r'^\d{1,2}giờ\d{2}$',
+        r'^\d+:\d+$',
+        r'^\d+\.\d+$',
+        r'^\d+-\d+$',
+        r'^\d+$',
+    ]
+    
+    # Từ khóa loại bỏ
+    skip_keywords = [
+        'time', 'date', 'ngay', 'thoi_gian', 'thoigian', 'gio', 'giờ', 
+        'phut', 'phút', 'giay', 'giây', 'am', 'pm', 'utc', 'gmt',
+        'created_at', 'last_login', 'last_session', 'timestamp', 'datetime',
+        'expires', 'expire', 'valid_until', 'valid_till', 'end_time', 'start_time'
+    ]
+    
+    # Từ khóa loại bỏ ở đầu dòng
     skip_patterns = [
-        r'^\d{1,2}:\d{2}$',  # Bỏ qua timestamp
-        r'^\d{4}-\d{2}-\d{2}',  # Bỏ qua ngày tháng
+        r'^time[\s:]', r'^date[\s:]', r'^ngay[\s:]', r'^thoi_gian[\s:]', 
+        r'^thoigian[\s:]', r'^gio[\s:]', r'^giờ[\s:]', r'^phut[\s:]', 
+        r'^phút[\s:]', r'^giay[\s:]', r'^giây[\s:]', r'^timestamp[\s:]',
+        r'^datetime[\s:]', r'^created[\s:_-]', r'^last_login[\s:]',
+        r'^last_session[\s:]', r'^expires[\s:]', r'^expire[\s:]',
+        r'^valid_until[\s:]', r'^valid_till[\s:]', r'^end_time[\s:]',
+        r'^start_time[\s:]',
         r'^https?://', r'^www\.',
         r'^shop', r'^share', r'^final', r'^name', r'^level', r'^rank',
-        r'^status', r'^time', r'^date', r'^email', r'^phone', r'^sdt',
+        r'^status', r'^email', r'^phone', r'^sdt',
         r'^cccd', r'^fb', r'^ban', r'^ss', r'^sss', r'^anime', r'^other',
         r'^tinh', r'^quan_huy', r'^lich_su', r'^vo_game', r'^quoc_gia',
         r'^tuong', r'^skin', r'^authen', r'^so:', r'^qu[âa]n', r'^v[ôo]'
     ]
     
-    # Tách từng dòng
     lines = content.split('\n')
     stats_loc["total"] = len(lines)
     
@@ -471,16 +496,28 @@ def loc_tk_mk_only(content):
         if not line:
             continue
         
-        # Bỏ qua dòng chỉ có thời gian
-        if re.match(r'^\d{1,2}:\d{2}$', line):
+        # BỎ QUA DÒNG TOÀN THỜI GIAN
+        is_time_line = False
+        for time_pattern in full_time_line_patterns:
+            if re.match(time_pattern, line, re.IGNORECASE):
+                is_time_line = True
+                break
+        
+        if is_time_line:
             continue
-        if re.match(r'^\d{1,2}:\d{2}:\d{2}$', line):
-            continue
+        
+        # BỎ QUA DÒNG CHỨA TỪ KHÓA THỜI GIAN
+        line_lower = line.lower()
+        if any(keyword in line_lower for keyword in skip_keywords):
+            if re.match(r'^[\d\s:./-]+$', line):
+                continue
         
         # Thử pattern dấu : trước
         matches = re.findall(pattern_colon, line)
         if matches:
             for user, pwd in matches:
+                if is_time_value(user) or is_time_value(pwd):
+                    continue
                 if is_valid_account(user, pwd, skip_patterns):
                     key = f"{user}:{pwd}"
                     if key not in seen:
@@ -497,6 +534,8 @@ def loc_tk_mk_only(content):
         matches = re.findall(pattern_pipe, line)
         if matches:
             for user, pwd in matches:
+                if is_time_value(user) or is_time_value(pwd):
+                    continue
                 if is_valid_account(user, pwd, skip_patterns):
                     key = f"{user}:{pwd}"
                     if key not in seen:
@@ -512,6 +551,8 @@ def loc_tk_mk_only(content):
     if not accounts:
         all_matches = re.findall(pattern_colon, content)
         for user, pwd in all_matches:
+            if is_time_value(user) or is_time_value(pwd):
+                continue
             if is_valid_account(user, pwd, skip_patterns):
                 key = f"{user}:{pwd}"
                 if key not in seen:
@@ -526,6 +567,8 @@ def loc_tk_mk_only(content):
         if not accounts:
             all_matches = re.findall(pattern_pipe, content)
             for user, pwd in all_matches:
+                if is_time_value(user) or is_time_value(pwd):
+                    continue
                 if is_valid_account(user, pwd, skip_patterns):
                     key = f"{user}:{pwd}"
                     if key not in seen:
@@ -539,21 +582,78 @@ def loc_tk_mk_only(content):
     
     return accounts, stats_loc
 
+def is_time_value(value):
+    """Kiểm tra chuỗi có phải là giá trị thời gian không"""
+    if not value:
+        return False
+    
+    value = str(value).strip()
+    
+    # Pattern nhận diện time
+    time_patterns = [
+        r'^\d{1,2}:\d{2}(:\d{2})?$',
+        r'^\d{1,2}:\d{2}(:\d{2})?\s*(AM|PM|am|pm)$',
+        r'^\d{1,2}\.\d{2}(\.\d{2})?$',
+        r'^\d{1,2}-\d{2}(-\d{2})?$',
+        r'^\d{1,2}/\d{2}(/\d{2,4})?$',
+        r'^\d{4}-\d{2}-\d{2}$',
+        r'^\d{4}/\d{2}/\d{2}$',
+        r'^\d{2}-\d{2}-\d{4}$',
+        r'^\d{2}/\d{2}/\d{4}$',
+        r'^\d{1,2}h\d{2}(p\d{2})?$',
+        r'^\d{1,2}giờ\d{2}$',
+        r'^\d{1,2}:\d{2}:\d{2}\.\d+$',
+        r'^\d+:\d+$',
+        r'^\d+\.\d+$',
+        r'^\d+-\d+$',
+        r'^\d{10,13}$',
+        r'^\d{1,2}\s*(AM|PM|am|pm)$',
+    ]
+    
+    for pattern in time_patterns:
+        if re.match(pattern, value, re.IGNORECASE):
+            return True
+    
+    # Kiểm tra từ khóa thời gian
+    time_keywords = [
+        'time', 'date', 'ngay', 'thoi_gian', 'thoigian', 'gio', 'giờ',
+        'phut', 'phút', 'giay', 'giây', 'timestamp', 'datetime',
+        'created_at', 'last_login', 'last_session', 'expires', 'expire',
+        'valid_until', 'valid_till', 'end_time', 'start_time'
+    ]
+    
+    value_lower = value.lower()
+    for keyword in time_keywords:
+        if keyword in value_lower:
+            if re.search(r'\d', value):
+                return True
+    
+    return False
+
 def is_valid_account(user, pwd, skip_patterns):
-    """Kiểm tra tài khoản hợp lệ - bỏ qua thời gian"""
+    """Kiểm tra tài khoản hợp lệ - loại bỏ time"""
     if len(user) < 2 or len(pwd) < 1:
         return False
     
     if len(user) > 80 or len(pwd) > 100:
         return False
     
-    # Bỏ qua nếu user là thời gian
-    if re.match(r'^\d{1,2}:\d{2}$', user):
+    # Bỏ qua nếu user hoặc pwd là thời gian
+    if is_time_value(user) or is_time_value(pwd):
         return False
     
     user_lower = user.lower()
     for pattern in skip_patterns:
         if re.match(pattern, user_lower):
+            return False
+    
+    # Bỏ qua các từ khóa thời gian trong user
+    time_keywords = ['time', 'date', 'ngay', 'thoi_gian', 'thoigian', 'gio', 'giờ', 
+                     'phut', 'phút', 'giay', 'giây', 'timestamp', 'datetime',
+                     'created', 'login', 'session', 'expires', 'expire', 'valid']
+    
+    for keyword in time_keywords:
+        if keyword in user_lower:
             return False
     
     if not re.match(r'^[a-zA-Z0-9][a-zA-Z0-9_.@+-]*$', user):
@@ -562,7 +662,10 @@ def is_valid_account(user, pwd, skip_patterns):
     if not re.match(r'^[a-zA-Z0-9_.@!$%^&*()\-+]+$', pwd):
         return False
     
-    if user.lower() in ['http', 'https', 'www', 'com', 'net', 'org', 'shop', 'share', 'final', 'name', 'level', 'rank', 'status', 'time', 'date', 'email', 'phone', 'sdt', 'cccd', 'fb', 'ban', 'ss', 'sss', 'anime', 'other']:
+    if user.lower() in ['http', 'https', 'www', 'com', 'net', 'org', 'shop', 'share', 
+                        'final', 'name', 'level', 'rank', 'status', 'time', 'date', 
+                        'email', 'phone', 'sdt', 'cccd', 'fb', 'ban', 'ss', 'sss', 
+                        'anime', 'other', 'am', 'pm', 'utc', 'gmt']:
         return False
     
     return True
@@ -850,7 +953,6 @@ def format_hit_info(username, password, service, result_data):
             if field in result_data and result_data[field] is not None and result_data[field] != "" and result_data[field] != "N/A":
                 value = result_data[field]
                 
-                # Bỏ qua các giá trị 0 hoặc rỗng
                 if isinstance(value, (int, float)) and value == 0:
                     continue
                 if isinstance(value, str) and value in ["0", "00", "000"]:
@@ -952,7 +1054,7 @@ def check_single(chat_id, username, password, service="lienquan"):
     else:
         safe_send_message(chat_id, f"⚠️ ERROR - {service_desc}\n🔑 {username}:{password}")
 
-# ========== CHECK NHIỀU (CHECKMULTI) ==========
+# ========== CHECK NHIỀU ==========
 def check_batch(chat_id, accounts, service):
     """Kiểm tra nhiều tài khoản với delay và batch"""
     global checking, stats
@@ -1181,12 +1283,6 @@ def cmd_start(message):
 
 <b>SERVICE:</b>
 lienquan, miniworld, blockmango, deltaforce, hotmail, fc, fullpack
-
-⚡ <b>CHECKMULTI V6.0:</b>
-- Threads: {CHECKMULTI_THREADS}
-- Delay: {CHECKMULTI_DELAY}s/request
-- Batch: {CHECKMULTI_BATCH_SIZE} acc/batch
-- Batch Delay: {CHECKMULTI_BATCH_DELAY}s
 """)
 
 @bot.message_handler(commands=['check'])
@@ -1243,12 +1339,6 @@ def cmd_checkmulti(message):
 /checkmulti user1:pass1
 user2:pass2
 user3|pass3
-
-Hoặc:
-/checkmulti user1:pass1,user2|pass2,user3:pass3
-
-Hoặc:
-/checkmulti user1:pass1,user2:pass2 lienquan
 """)
         return
     
@@ -1273,10 +1363,7 @@ Hoặc:
     accounts, stats_loc = loc_tk_mk_only(accounts_input)
     
     if not accounts:
-        safe_send_message(message.chat.id, """
-❌ KHONG TIM THAY ACC HOP LE!
-Format: user:pass hoặc user|pass
-""")
+        safe_send_message(message.chat.id, "❌ KHONG TIM THAY ACC HOP LE!")
         return
     
     total = len(accounts)
@@ -1285,8 +1372,6 @@ Format: user:pass hoặc user|pass
 📊 <b>CHECK NHIEU ACC - V6.0</b>
 🎯 Tong: <code>{total}</code> accounts
 🎮 Service: <b>{SERVICE_ROUTES[service]['desc']}</b>
-⚡ Threads: <code>{CHECKMULTI_THREADS}</code>
-⏱ Delay: <code>{CHECKMULTI_DELAY}s</code>
 
 Dang bat dau check...
 """)
@@ -1449,14 +1534,12 @@ def handle_text(message):
     pending_accounts[chat_id] = accounts
     save_loc_file(accounts)
     
+    # Chỉ hiện tk:mk không kèm thời gian
     preview = '\n'.join([f"{u}:{p}" for u, p in accounts[:10]])
     total = len(accounts)
     
     msg = f"""
 📊 DA LOC {total} ACCOUNTS
-✅ Valid: {stats_loc['valid']}
-❌ Invalid: {stats_loc['invalid']}
-🔄 Duplicate: {stats_loc['duplicate']}
 
 Preview (10 dong dau):
 {preview}
@@ -1464,8 +1547,6 @@ Preview (10 dong dau):
 👇 Dung lenh de check:
 /checkall - Check tat ca service
 /checkmulti user1:pass1,user2:pass2 service - Check service cu the
-
-Service: lienquan, miniworld, blockmango, deltaforce, hotmail, fc, fullpack
 """
     
     safe_send_message(chat_id, msg)
@@ -1494,10 +1575,7 @@ def handle_document(message):
         if re.search(proxy_pattern, content):
             proxy_count = load_proxy_from_text(content)
             save_proxy_file()
-            safe_send_message(chat_id, f"""
-✅ LOAD PROXY THANH CONG!
-🌐 Tong proxy: {proxy_count}
-""")
+            safe_send_message(chat_id, f"✅ LOAD PROXY THANH CONG!\n🌐 Tong proxy: {proxy_count}")
             return
         
         content_input = content.replace('|', ':')
@@ -1513,15 +1591,13 @@ def handle_document(message):
         pending_accounts[chat_id] = accounts
         save_loc_file(accounts)
         
+        # Chỉ hiện tk:mk
         preview = '\n'.join([f"{u}:{p}" for u, p in accounts[:20]])
         total = len(accounts)
         
         msg = f"""
 ✅ LOC XONG!
 📊 Tong: {total} accounts
-✅ Valid: {stats_loc['valid']}
-❌ Invalid: {stats_loc['invalid']}
-🔄 Duplicate: {stats_loc['duplicate']}
 
 Preview (20 dong dau):
 {preview}
@@ -1548,16 +1624,7 @@ def main():
     print("=" * 60)
     print("    GARENA CHECKER BOT V6.0 - BREAKTHROUGH")
     print("    ADMIN: @baohuyno1")
-    print("    HO TRO | VA :")
     print("    KENH BAT BUOC: @hakiiosvip")
-    print("=" * 60)
-    print(f"[*] Threads: {CHECKMULTI_THREADS}")
-    print(f"[*] Delay: {CHECKMULTI_DELAY}s")
-    print(f"[*] Batch Size: {CHECKMULTI_BATCH_SIZE}")
-    print(f"[*] Batch Delay: {CHECKMULTI_BATCH_DELAY}s")
-    print(f"[*] Services: {len(SERVICE_ROUTES)}")
-    print(f"[*] API Base: {API_BASE}")
-    print(f"[*] Required Channel: {REQUIRED_CHANNEL}")
     print("=" * 60)
     
     while True:
