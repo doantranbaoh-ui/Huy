@@ -1,9 +1,10 @@
 # ========================================================================
-#    GARENA CHECKER BOT V6.1 - BO LUU TK MK SAU KHI CHECK
+#    GARENA CHECKER BOT V6.1 - FIX AM THANH HOAT DONG LUON
 # ========================================================================
-#    - Da bo chuc nang luu account vao file hits.txt, dead.txt, error.txt
-#    - Van hien thi ket qua tren Telegram
-#    - Van luu file loc_accounts.txt de tham khao
+#    - Am thanh tu dong phat khi vao trang
+#    - Bo nut bat/tat am thanh
+#    - Am thanh nen chay lien tuc
+#    - Fix loi audio khong nghe duoc
 # ========================================================================
 
 import subprocess
@@ -108,19 +109,22 @@ class RenderHandler(BaseHTTPRequestHandler):
         return self.generate_default_audio()
     
     def generate_default_audio(self):
+        """Tao am thanh default - FIX: am thanh ro rang va chuan WAVE"""
         try:
             sample_rate = 44100
-            duration = 4.0
+            duration = 10.0  # Am thanh dai hon de nghe ro
             num_samples = int(sample_rate * duration)
             
             audio_buffer = bytearray()
             for i in range(num_samples):
                 t = i / sample_rate
-                value = int(32767 * 0.4 * (
-                    math.sin(2 * math.pi * 440 * t) * 0.5 +
+                # Tao nhieu tan so de nghe ro
+                value = int(32767 * 0.3 * (
+                    math.sin(2 * math.pi * 440 * t) * 0.4 +
                     math.sin(2 * math.pi * 554 * t) * 0.3 +
                     math.sin(2 * math.pi * 659 * t) * 0.2 +
-                    math.sin(2 * math.pi * 880 * t) * 0.1
+                    math.sin(2 * math.pi * 880 * t) * 0.15 +
+                    math.sin(2 * math.pi * 1100 * t) * 0.1
                 ))
                 audio_buffer += struct.pack('<h', value)
             
@@ -255,14 +259,6 @@ body::after {
     0%, 100% { transform: translateY(0); }
     50% { transform: translateY(-10px); }
 }
-@keyframes ripple-anim {
-    to { transform: scale(4); opacity: 0; }
-}
-@keyframes glow-pulse {
-    0% { box-shadow: 0 0 5px currentColor; }
-    50% { box-shadow: 0 0 30px currentColor, 0 0 60px currentColor; }
-    100% { box-shadow: 0 0 5px currentColor; }
-}
 .header {
     text-align: center;
     padding: 40px 20px;
@@ -274,11 +270,6 @@ body::after {
     position: relative;
     overflow: hidden;
     transition: all 0.3s ease;
-    cursor: pointer;
-}
-.header:active {
-    box-shadow: 0 0 60px rgba(0,255,0,0.6);
-    transform: scale(0.99);
 }
 .header::before {
     content: '';
@@ -367,7 +358,6 @@ body::after {
 .social-btn.tiktok:active {
     transform: scale(0.92);
     box-shadow: 0 0 80px rgba(255,0,80,0.9);
-    animation: glow-pulse 0.4s ease;
 }
 .social-btn.telegram {
     background: #0088cc;
@@ -381,7 +371,6 @@ body::after {
 .social-btn.telegram:active {
     transform: scale(0.92);
     box-shadow: 0 0 80px rgba(0,136,204,0.9);
-    animation: glow-pulse 0.4s ease;
 }
 .status-badge {
     display: inline-block;
@@ -396,42 +385,28 @@ body::after {
     animation: pulse 2s infinite;
     position: relative;
     z-index: 1;
-    transition: all 0.3s ease;
-    cursor: default;
 }
-.status-badge:active {
-    transform: scale(0.95);
-    box-shadow: 0 0 40px rgba(0,255,0,0.8);
-}
-.audio-button {
+.audio-indicator {
     display: inline-block;
-    padding: 10px 20px;
+    padding: 8px 16px;
     border-radius: 50px;
-    font-weight: bold;
-    font-size: 1em;
+    font-size: 0.9em;
     margin-top: 10px;
-    margin-left: 10px;
-    background: #ff00ff;
-    color: white;
-    cursor: pointer;
-    box-shadow: 0 0 20px rgba(255,0,255,0.5);
-    animation: pulse 2s infinite 0.6s;
+    background: rgba(0,255,0,0.2);
+    border: 1px solid #00ff00;
+    color: #00ff00;
     position: relative;
     z-index: 1;
-    border: none;
-    font-family: 'Courier New', monospace;
-    transition: all 0.2s ease;
-    -webkit-tap-highlight-color: transparent;
-    overflow: hidden;
+    animation: pulse 2s infinite;
 }
-.audio-button:hover {
-    transform: scale(1.05);
-    box-shadow: 0 0 40px rgba(255,0,255,0.8);
-}
-.audio-button:active {
-    transform: scale(0.88);
-    box-shadow: 0 0 80px rgba(255,0,255,1);
-    animation: glow-pulse 0.3s ease;
+.audio-indicator .dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    background: #00ff00;
+    border-radius: 50%;
+    margin-right: 8px;
+    animation: pulse 1s infinite;
 }
 .stats-grid {
     display: grid;
@@ -469,10 +444,8 @@ body::after {
 .stat-card:active {
     transform: scale(0.95) translateY(-2px);
     box-shadow: 0 0 50px rgba(0,255,0,0.5);
-    animation: glow-pulse 0.4s ease;
 }
-.stat-value { font-size: 2.5em; font-weight: bold; margin-bottom: 10px; text-shadow: 0 0 10px currentColor; transition: all 0.3s ease; }
-.stat-card:active .stat-value { transform: scale(1.2); }
+.stat-value { font-size: 2.5em; font-weight: bold; margin-bottom: 10px; text-shadow: 0 0 10px currentColor; }
 .stat-label { font-size: 0.9em; color: #aaa; text-transform: uppercase; letter-spacing: 1px; }
 .stat-hits .stat-value { color: #00ff00; }
 .stat-error .stat-value { color: #ff9800; }
@@ -506,23 +479,6 @@ body::after {
     position: relative;
     overflow: hidden;
 }
-.service-card::after {
-    content: '';
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    width: 0;
-    height: 0;
-    border-radius: 50%;
-    background: rgba(0,255,0,0.15);
-    transform: translate(-50%, -50%);
-    transition: width 0.6s ease, height 0.6s ease;
-    pointer-events: none;
-}
-.service-card:active::after {
-    width: 400px;
-    height: 400px;
-}
 .service-card:hover {
     border-color: #00ff00;
     box-shadow: 0 0 20px rgba(0,255,0,0.3);
@@ -532,7 +488,6 @@ body::after {
     transform: scale(0.92);
     border-color: #ff00ff;
     box-shadow: 0 0 40px rgba(255,0,255,0.5);
-    animation: glow-pulse 0.3s ease;
 }
 .service-icon { font-size: 2em; animation: bounce 2s infinite; }
 .service-info { flex: 1; }
@@ -549,34 +504,11 @@ body::after {
 .footer a { color: #00ff00; text-decoration: none; transition: all 0.3s ease; }
 .footer a:hover { color: #ff00ff; text-shadow: 0 0 20px #ff00ff; }
 .uptime { margin-top: 10px; color: #aaa; font-size: 0.9em; }
-.toast {
-    position: fixed;
-    bottom: 30px;
-    left: 50%;
-    transform: translateX(-50%) translateY(100px);
-    background: rgba(0,0,0,0.9);
-    color: #00ff00;
-    padding: 15px 30px;
-    border-radius: 10px;
-    border: 1px solid #00ff00;
-    box-shadow: 0 0 30px rgba(0,255,0,0.3);
-    font-family: 'Courier New', monospace;
-    font-size: 0.9em;
-    opacity: 0;
-    transition: all 0.5s ease;
-    z-index: 999;
-    pointer-events: none;
-}
-.toast.show {
-    opacity: 1;
-    transform: translateX(-50%) translateY(0);
-}
 @media (max-width: 768px) {
     .header h1 { font-size: 1.8em; }
     .stats-grid { grid-template-columns: repeat(2, 1fr); }
     .services-grid { grid-template-columns: 1fr; }
     .social-buttons { flex-direction: column; align-items: center; }
-    .audio-button { margin-left: 0; }
 }
 </style>
 </head>
@@ -592,7 +524,7 @@ body::after {
             <a href="https://t.me/baohuyno1" target="_blank" class="social-btn telegram" id="telegram-btn">✈️ Telegram</a>
         </div>
         <div class="status-badge" id="status-badge" style="background: BOT_COLOR;">🔴 San sang</div>
-        <button class="audio-button" id="audio-btn">🔊 BAT AM THANH</button>
+        <div class="audio-indicator"><span class="dot"></span> 🔊 AM THANH DANG PHAT</div>
         <div class="uptime">⏱ Uptime: UPTIME_PLACEHOLDER</div>
     </div>
     
@@ -614,9 +546,10 @@ body::after {
     </div>
 </div>
 
-<audio id="background-audio" loop><source src="/audio" type="audio/wav"></audio>
-
-<div class="toast" id="toast"></div>
+<!-- AM THANH TU DONG PHAT -->
+<audio id="bg-audio" loop autoplay>
+    <source src="/audio" type="audio/wav">
+</audio>
 
 <script>
 // Matrix effect
@@ -647,54 +580,35 @@ window.addEventListener('resize', () => {
     canvas.height = window.innerHeight;
 });
 
-// Toast
-function showToast(message, duration) {
-    duration = duration || 1500;
-    const toast = document.getElementById('toast');
-    toast.textContent = message;
-    toast.classList.add('show');
-    clearTimeout(toast._hide);
-    toast._hide = setTimeout(() => { toast.classList.remove('show'); }, duration);
+// ========== AUDIO - TU DONG PHAT ==========
+const audio = document.getElementById('bg-audio');
+
+// Dam bao am thanh phat
+function ensureAudio() {
+    audio.volume = 0.3;
+    audio.loop = true;
+    
+    audio.play().then(() => {
+        console.log('🎵 Audio playing automatically');
+    }).catch(e => {
+        console.log('Auto-play blocked, retrying...');
+        // Thu lai sau khi user tuong tac
+        document.addEventListener('click', function playOnce() {
+            audio.play().catch(() => {});
+            document.removeEventListener('click', playOnce);
+        }, { once: true });
+    });
 }
 
-// Audio control
-let audioEnabled = false;
-const audio = document.getElementById('background-audio');
-const audioBtn = document.getElementById('audio-btn');
-
+// Tai lai neu loi
 audio.addEventListener('error', function(e) {
     console.log('Audio error, reloading...');
     audio.load();
-    showToast('⚠️ Loi audio, dang tai lai...', 1500);
+    setTimeout(ensureAudio, 500);
 });
 
-function toggleAudio() {
-    if (audioEnabled) {
-        audio.pause();
-        audioBtn.textContent = '🔊 BAT AM THANH';
-        audioEnabled = false;
-        showToast('🔇 Da tat am thanh', 1000);
-    } else {
-        audio.load();
-        audio.play().then(() => {
-            audioBtn.textContent = '🔇 TAT AM THANH';
-            audioEnabled = true;
-            showToast('🔊 Da bat am thanh', 1000);
-        }).catch(e => {
-            console.log('Audio play error:', e);
-            audio.muted = true;
-            audio.play().then(() => {
-                audio.muted = false;
-                audioBtn.textContent = '🔇 TAT AM THANH';
-                audioEnabled = true;
-                showToast('🔊 Da bat am thanh (fallback)', 1500);
-            }).catch(e2 => {
-                showToast('❌ Khong the phat audio', 2000);
-            });
-        });
-    }
-}
-audioBtn.addEventListener('click', toggleAudio);
+// Khoi dong am thanh
+setTimeout(ensureAudio, 300);
 
 // Stats update
 function updateStats() {
@@ -722,7 +636,7 @@ document.querySelectorAll('.service-card').forEach(card => {
             this.style.borderColor = '#333';
             this.style.boxShadow = 'none';
         }, 500);
-        showToast('📋 Da chon: ' + name, 1500);
+        console.log('Service clicked:', service, name);
     });
 });
 
@@ -732,27 +646,10 @@ document.getElementById('header').addEventListener('click', function() {
     setTimeout(() => {
         this.style.boxShadow = '0 0 30px rgba(0,255,0,0.3)';
     }, 300);
-    showToast('🚀 Garena Checker Bot V6.1', 1000);
 });
 
-// Social buttons
-document.getElementById('tiktok-btn').addEventListener('click', function() {
-    showToast('🎵 Dang mo TikTok...', 1000);
-});
-document.getElementById('telegram-btn').addEventListener('click', function() {
-    showToast('✈️ Dang mo Telegram...', 1000);
-});
-
-// Stat cards
-document.querySelectorAll('.stat-card').forEach(card => {
-    card.addEventListener('click', function() {
-        const label = this.querySelector('.stat-label').textContent;
-        const value = this.querySelector('.stat-value').textContent;
-        showToast('📊 ' + label + ': ' + value, 1500);
-    });
-});
-
-console.log('Dashboard loaded - No save mode active!');
+console.log('🎵 Dashboard loaded - Audio is playing automatically!');
+console.log('🔊 No mute button - sound always on!');
 </script>
 </body>
 </html>"""
@@ -790,7 +687,7 @@ def start_render_server():
         print(f"[*] Render web server chay tren port {port}")
         print(f"[*] Dashboard: http://0.0.0.0:{port}")
         print(f"[*] Audio: http://0.0.0.0:{port}/audio")
-        print(f"[*] CHE DO KHONG LUU ACCOUNT!")
+        print(f"[*] AM THANH TU DONG PHAT KHI MO TRANG")
         server.serve_forever()
     except Exception as e:
         print(f"[!] Loi web server: {e}")
@@ -820,7 +717,6 @@ CHECKMULTI_DELAY = 0.5
 CHECKMULTI_BATCH_SIZE = 10
 CHECKMULTI_BATCH_DELAY = 3.0
 
-# VAN GIU FILE LOC DE THAM KHAO, NHUNG KHONG LUU KET QUA CHECK
 OUTPUT_HITS = "hits.txt"
 OUTPUT_DEAD = "dead.txt"
 OUTPUT_UNKNOWN = "unknown.txt"
@@ -1220,9 +1116,8 @@ def save_loc_file(accounts):
             for user, pwd in accounts:
                 f.write(f"{user}:{pwd}\n")
 
-# ========== DA BO CHUC NANG LUU KET QUA ==========
+# KHONG LUU KET QUA CHECK
 def save_result(username, password, status, service=""):
-    # KHONG LUU GI CA - CHI HIEN THI TREN TELEGRAM
     pass
 
 def format_value(value):
@@ -1555,9 +1450,6 @@ def check_single(chat_id, username, password, service="lienquan"):
     result = check_account_api(username, password, service, use_delay=False)
     result_type = result.get("result", "unknown")
     
-    # KHONG LUU KET QUA - CHI HIEN THI
-    # save_result(username, password, result_type, service)  # DA BO
-    
     if result_type == "hit":
         hit_msg = format_hit_info(username, password, service, result)
         safe_send_message(chat_id, hit_msg)
@@ -1615,9 +1507,6 @@ def check_batch(chat_id, accounts, service):
         
         result = check_account_api(user, pwd, service, use_delay=False)
         result_type = result.get("result", "unknown")
-        
-        # KHONG LUU KET QUA
-        # save_result(user, pwd, result_type, service)  # DA BO
         
         with stats_lock:
             stats["checked"] += 1
@@ -1721,9 +1610,6 @@ def check_all_services(chat_id, accounts):
         
         result = check_account_api(user, pwd, service, use_delay=False)
         result_type = result.get("result", "unknown")
-        
-        # KHONG LUU KET QUA
-        # save_result(user, pwd, result_type, service)  # DA BO
         
         with stats_lock:
             stats_all["checked"] += 1
@@ -1924,6 +1810,7 @@ lienquan, miniworld, blockmango, deltaforce, hotmail, fc, fullpack
 /stop - Dung check
 
 ⚠️ <b>LUU Y:</b> Bot KHONG luu account sau khi check!
+🔊 Am thanh tu dong phat tren dashboard!
 """)
 
 @bot.message_handler(commands=['check'])
@@ -2190,7 +2077,8 @@ def main():
     print("    KENH BAT BUOC: @hakiiosvip")
     print("    WEB DASHBOARD: http://0.0.0.0:10000")
     print("    AUDIO: http://0.0.0.0:10000/audio")
-    print("    ===== CHE DO KHONG LUU ACCOUNT ===== ")
+    print("    ===== AM THANH TU DONG PHAT ===== ")
+    print("    ===== KHONG LUU ACCOUNT ===== ")
     print("=" * 60)
     
     while True:
