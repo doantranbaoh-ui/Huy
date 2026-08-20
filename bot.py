@@ -760,6 +760,11 @@ def format_hit_info(username, password, service, result_data):
         for key, (label, field) in field_map.items():
             if field in result_data and result_data[field] is not None and result_data[field] != "" and result_data[field] != "N/A":
                 value = result_data[field]
+                # Chuyển True/False thành YES/NO
+                if isinstance(value, bool):
+                    value = "YES" if value else "NO"
+                elif isinstance(value, str) and value.lower() in ["true", "false"]:
+                    value = "YES" if value.lower() == "true" else "NO"
                 info_lines.append(f"{label}: {value}")
         
         # Process any remaining fields
@@ -770,13 +775,23 @@ def format_hit_info(username, password, service, result_data):
             if key not in skip_fields and value is not None and value != "" and value != {} and value != []:
                 if isinstance(value, (str, int, float)):
                     label = key.replace("_", " ").title()
-                    info_lines.append(f"▫️ {label}: {value}")
+                    # Chuyển True/False thành YES/NO
+                    if isinstance(value, bool):
+                        value = "YES" if value else "NO"
+                    elif isinstance(value, str) and value.lower() in ["true", "false"]:
+                        value = "YES" if value.lower() == "true" else "NO"
+                    info_lines.append(f"🚫 BAND: {value}")
                 elif isinstance(value, dict):
                     for sub_key, sub_value in value.items():
                         if sub_value is not None and sub_value != "" and sub_value != {} and sub_value != []:
                             if isinstance(sub_value, (str, int, float)):
                                 sub_label = sub_key.replace("_", " ").title()
-                                info_lines.append(f"▫️ {sub_label}: {sub_value}")
+                                # Chuyển True/False thành YES/NO
+                                if isinstance(sub_value, bool):
+                                    sub_value = "YES" if sub_value else "NO"
+                                elif isinstance(sub_value, str) and sub_value.lower() in ["true", "false"]:
+                                    sub_value = "YES" if sub_value.lower() == "true" else "NO"
+                                info_lines.append(f"🚫 BAND: {sub_value}")
         
         if info_lines:
             msg += "\n".join(info_lines)
@@ -834,7 +849,7 @@ def get_field_icon(field_name):
         "data": "📦"
     }
     
-    return icon_map.get(field_name_lower, "▫️")
+    return icon_map.get(field_name_lower, "🚫 BAND")
 
 # ========== CHECK ĐƠN ==========
 def check_single(chat_id, username, password, service="lienquan"):
