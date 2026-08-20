@@ -41,12 +41,12 @@ class RenderHandler(BaseHTTPRequestHandler):
             self.end_headers()
             html = """<!DOCTYPE html>
 <html>
-<head><title>Garena Checker Bot</title></head>
+<head><title>Garena Checker Bot V6.0</title></head>
 <body style="font-family:Arial;text-align:center;padding:50px;background:#0a0a0a;color:#00ff00;">
-<h1>Garena Checker Bot V5.1</h1>
+<h1>Garena Checker Bot V6.0</h1>
 <p>Status: <b style="color:#00ff00;">ALIVE</b></p>
 <p>Admin: <a href="https://t.me/baohuyno1" style="color:#00ff00;">@baohuyno1</a></p>
-<p>Version: <b>5.1 - ULTIMATE FIX</b></p>
+<p>Version: <b>6.0 - BREAKTHROUGH</b></p>
 </body>
 </html>"""
             self.wfile.write(html.encode('utf-8'))
@@ -92,13 +92,13 @@ API_PASSWORD = "thaituduc"
 DEFAULT_THREADS = 50
 DEFAULT_TIMEOUT = 60
 DEFAULT_RETRIES = 3
-DEFAULT_DELAY = 0.5
+DEFAULT_DELAY = 0.3
 
 # Delay config cho checkmulti
-CHECKMULTI_THREADS = 20
-CHECKMULTI_DELAY = 1.0
-CHECKMULTI_BATCH_SIZE = 10
-CHECKMULTI_BATCH_DELAY = 5.0
+CHECKMULTI_THREADS = 30
+CHECKMULTI_DELAY = 0.5
+CHECKMULTI_BATCH_SIZE = 20
+CHECKMULTI_BATCH_DELAY = 3.0
 
 OUTPUT_HITS = "hits.txt"
 OUTPUT_DEAD = "dead.txt"
@@ -172,7 +172,6 @@ proxy_lock = threading.Lock()
 stats = {"total": 0, "checked": 0, "hits": 0, "dead": 0, "errors": 0, "unknown": 0}
 file_lock = threading.Lock()
 stats_lock = threading.Lock()
-bot_start_time = datetime.now()
 cache_results = {}
 cache_lock = threading.Lock()
 
@@ -209,7 +208,6 @@ def fix_encoding(text):
         'á»‹': 'ị', 'á»‰': 'ỉ', 'Ä©': 'ĩ', 'Ã³': 'ó', 'Ã²': 'ò',
         'Ãº': 'ú', 'Ã¹': 'ù', 'Ã½': 'ý', 'á»³': 'ỳ',
         'á»·': 'ỷ', 'á»µ': 'ỵ',
-        
         # Lỗi encoding từ API
         'Nghiá»‡p': 'Nghiệp', 'Hoáº£': 'Hoả', 'YÃªu': 'Yêu', 'Háº­u': 'Hậu',
         'Tháº¿': 'Thế', 'Tá»­': 'Tử', 'Nguyá»‡t': 'Nguyệt', 'Tá»™c': 'Tộc',
@@ -218,47 +216,28 @@ def fix_encoding(text):
         'Giai': 'Giai', 'Ä‘iá»‡u': 'điệu', 'GiÃ¡ng': 'Giáng', 'Sinh': 'Sinh',
         'Äá»“ng': 'Đồng', 'phá»¥c': 'phục', 'Cáº¥p': 'Cấp', 'Tá»‘i': 'Tối', 'ThÆ°á»£ng': 'Thượng',
         'hÃ nh': 'hành', 'K.CÆ°Æ¡ng': 'K.Cương',
-        
-        # Tên tướng và skin cụ thể
-        'Tel\'Annas': "Tel'Annas", 'VÅ©': 'Vũ', 'khÃºc': 'khúc', 'yÃªu': 'yêu', 'há»"': 'hồ',
-        'Airi': 'Airi', 'Kiemono': 'Kiemono',
-        'Murad': 'Murad', 'ChÃ': 'Chí', 'tÃ´n': 'tôn', 'tháº§n': 'thần', 'kiáº¿m': 'kiếm',
-        'Veera': 'Veera', 'PhÃ¹': 'Phù', 'thá»§y': 'thủy', 'Há»™i': 'Hội', 'há»a': 'họa',
-        'Raz': 'Raz', 'Saitama': 'Saitama', 'Cosplay': 'Cosplay',
-        'Lindis': 'Lindis', 'Zephys': 'Zephys', 'Inosuke': 'Inosuke', 'Hashibira': 'Hashibira',
-        'Slimz': 'Slimz', 'Alice': 'Alice', 'Florentino': 'Florentino', 'Hisoka': 'Hisoka',
-        'Qi': 'Qi', 'Annie': 'Annie', 'Leonhart': 'Leonhart',
-        'Ryoma': 'Ryoma', 'Ailing': 'Ailing', 'Samurai': 'Samurai',
-        'NhÃ³c': 'Nhóc', 'tá»³': 'tỳ', 'bÃ¡': 'bá', 'Äáº¡o': 'đạo',
-        'Jujutsu': 'Jujutsu', 'Sorcerer': 'Sorcerer',
-        'Maloch': 'Maloch', 'Äáº¡i': 'Đại', 'TÆ°á»›ng': 'Tướng', 'Robot': 'Robot',
-        'Tulen': 'Tulen', 'TÃ¢n': 'Tân', 'Tháº§n': 'Thần', 'ThiÃªn': 'Thiên', 'HÃ ': 'Hà',
-        'Omen': 'Omen', 'Bijan': 'Bijan',
-        'Triá»‡u': 'Triệu', 'VÃ¢n': 'Vân', 'tÃ i': 'tài',
-        'Krixi': 'Krixi', 'ÄÃªm': 'Đêm', 'Noel': 'Noel',
-        'Violet': 'Violet', 'Äiá»‡p': 'Điệp', 'Vá»¥': 'Vụ', 'Tá»‘c': 'Tốc',
-        'Lá»¯': 'Lữ', 'Bá»‘': 'Bố', 'Cáº­n': 'Cận', 'chiáº¿n': 'chiến',
-        'SEVEN': 'SEVEN',
-        'Thá»©': 'Thứ', 'NgÅ©': 'Ngũ', 'Giá»›i': 'Giới', 'Cáº­t': 'Cật',
-        
-        # Các từ tiếng Việt khác
+        # Tên tướng và skin
+        'Tel\'Annas': "Tel'Annas", 'VÅ©': 'Vũ', 'khÃºc': 'khúc', 'yÃªu': 'yêu',
+        'Airi': 'Airi', 'Murad': 'Murad', 'Veera': 'Veera', 'Raz': 'Raz',
+        'Lindis': 'Lindis', 'Zephys': 'Zephys', 'Slimz': 'Slimz', 'Alice': 'Alice',
+        'Florentino': 'Florentino', 'Qi': 'Qi', 'Annie': 'Annie', 'Ryoma': 'Ryoma',
+        'NhÃ³c': 'Nhóc', 'Jujutsu': 'Jujutsu', 'Sorcerer': 'Sorcerer',
+        'Maloch': 'Maloch', 'Tulen': 'Tulen', 'Omen': 'Omen', 'Bijan': 'Bijan',
+        'Triá»‡u': 'Triệu', 'Krixi': 'Krixi', 'Violet': 'Violet', 'Lá»¯': 'Lữ',
+        'SEVEN': 'SEVEN', 'Thá»©': 'Thứ',
+        # Từ tiếng Việt
         'Chưa có': 'Chưa có', 'ChÆ°a': 'Chưa', 'cÃ³': 'có',
-        
-        # Lỗi encoding phổ biến khác
+        # Lỗi encoding khác
         'áº¥': 'ấ', 'áº§': 'ầ', 'áº©': 'ẩ', 'áº«': 'ẫ', 'áº­': 'ậ',
         'áº¯': 'ắ', 'áº±': 'ằ', 'áº³': 'ẳ', 'áºµ': 'ẵ', 'áº·': 'ặ',
-        'á»': 'ộ', 'á»': 'ố', 'á»': 'ồ', 'á»': 'ổ', 'á»': 'ỗ',
-        'á»Ž': 'ỏ', 'Ãµ': 'õ', 'á»': 'ọ',
-        'á»§': 'ủ', 'Å©': 'ũ', 'á»¥': 'ụ',
+        'á»': 'ộ', 'á»Ž': 'ỏ', 'Ãµ': 'õ', 'á»§': 'ủ', 'Å©': 'ũ', 'á»¥': 'ụ',
     }
     
     for old, new in replacements.items():
         text = text.replace(old, new)
     
-    # Thử sửa bằng cách encode/decode nếu còn lỗi
     if any(char in text for char in ['Ã', 'Ä', 'Æ', 'á»', 'áº']):
         try:
-            # Thử sửa mojibake
             fixed = text.encode('latin-1', errors='ignore').decode('utf-8', errors='ignore')
             if fixed != text and len(fixed) > 0:
                 text = fixed
@@ -286,7 +265,6 @@ def check_membership(message):
     if is_user_member(user_id):
         return True
     
-    # Tạo nút bấm tham gia kênh
     markup = telebot.types.InlineKeyboardMarkup()
     join_button = telebot.types.InlineKeyboardButton(
         text="📢 THAM GIA KÊNH BẮT BUỘC",
@@ -325,16 +303,11 @@ def callback_check_join(call):
     user_id = call.from_user.id
     
     if is_user_member(user_id):
-        bot.answer_callback_query(call.id, "✅ Xác nhận thành công! Bạn có thể sử dụng bot.")
+        bot.answer_callback_query(call.id, "✅ Xác nhận thành công!")
         bot.delete_message(call.message.chat.id, call.message.message_id)
         safe_send_message(
             call.message.chat.id,
-            f"""
-✅ <b>XÁC NHẬN THÀNH CÔNG!</b>
-
-Chào mừng bạn đến với bot!
-Dùng /start để xem hướng dẫn sử dụng.
-"""
+            "✅ <b>XÁC NHẬN THÀNH CÔNG!</b>\n\nChào mừng bạn đến với bot!\nDùng /start để xem hướng dẫn."
         )
     else:
         bot.answer_callback_query(call.id, "❌ Bạn chưa tham gia kênh!", show_alert=True)
@@ -354,7 +327,6 @@ def safe_send_message(chat_id, text, parse_mode="HTML"):
     if not text:
         return
     
-    # Fix encoding trước khi gửi
     text = fix_encoding(text)
     
     if len(text) > MAX_MESSAGE_LENGTH:
@@ -402,20 +374,16 @@ def load_proxy_from_text(content):
             ip, port = parts
             if is_valid_ip_port(ip, port):
                 proxies.append({
-                    "ip": ip,
-                    "port": port,
-                    "user": "",
-                    "password": "",
+                    "ip": ip, "port": port,
+                    "user": "", "password": "",
                     "full": f"{ip}:{port}"
                 })
         elif len(parts) == 4:
             ip, port, user, password = parts
             if is_valid_ip_port(ip, port):
                 proxies.append({
-                    "ip": ip,
-                    "port": port,
-                    "user": user,
-                    "password": password,
+                    "ip": ip, "port": port,
+                    "user": user, "password": password,
                     "full": f"{ip}:{port}:{user}:{password}"
                 })
     
@@ -430,7 +398,6 @@ def is_valid_ip_port(ip, port):
         port_num = int(port)
         if port_num < 1 or port_num > 65535:
             return False
-        
         ip_parts = ip.split('.')
         if len(ip_parts) == 4:
             for part in ip_parts:
@@ -438,10 +405,8 @@ def is_valid_ip_port(ip, port):
                 if num < 0 or num > 255:
                     return False
             return True
-        
         if re.match(r'^[a-zA-Z0-9.-]+$', ip):
             return True
-        
         return False
     except:
         return False
@@ -457,7 +422,6 @@ def build_proxy_string(proxy):
     """Tạo chuỗi proxy cho API"""
     if not proxy:
         return ""
-    
     if proxy["user"] and proxy["password"]:
         return f"{proxy['user']}:{proxy['password']}@{proxy['ip']}:{proxy['port']}"
     else:
@@ -471,9 +435,9 @@ def save_proxy_file():
                 for proxy in proxy_list:
                     f.write(f"{proxy['full']}\n")
 
-# ========== LỌC TK MK - HỖ TRỢ | VÀ : ==========
+# ========== LỌC TK MK - CHỈ LẤY TK:MK ==========
 def loc_tk_mk_only(content):
-    """Lọc tài khoản chuyên nghiệp, hỗ trợ | và :"""
+    """Lọc tài khoản, chỉ lấy tk:mk hoặc tk|mk, bỏ qua mọi thứ khác"""
     accounts = []
     seen = set()
     stats_loc = {"total": 0, "valid": 0, "invalid": 0, "duplicate": 0}
@@ -481,14 +445,16 @@ def loc_tk_mk_only(content):
     if not content:
         return accounts, stats_loc
     
-    # Pattern cho dấu : (user:pass)
-    pattern_colon = r'(?<![a-zA-Z0-9_])([a-zA-Z0-9][a-zA-Z0-9_.@-]{1,80}):([a-zA-Z0-9_.@!$%^&*()\-]{1,100})(?![a-zA-Z0-9_])'
+    # Pattern cho dấu : (user:pass) - hỗ trợ email
+    pattern_colon = r'(?<![a-zA-Z0-9_])([a-zA-Z0-9][a-zA-Z0-9_.@+-]{1,80}):([a-zA-Z0-9_.@!$%^&*()\-+]{1,100})(?![a-zA-Z0-9_])'
     
     # Pattern cho dấu | (user|pass)
-    pattern_pipe = r'(?<![a-zA-Z0-9_])([a-zA-Z0-9][a-zA-Z0-9_.@-]{1,80})\|([a-zA-Z0-9_.@!$%^&*()\-]{1,100})(?![a-zA-Z0-9_])'
+    pattern_pipe = r'(?<![a-zA-Z0-9_])([a-zA-Z0-9][a-zA-Z0-9_.@+-]{1,80})\|([a-zA-Z0-9_.@!$%^&*()\-+]{1,100})(?![a-zA-Z0-9_])'
     
     skip_patterns = [
-        r'^https?://', r'^www\.', r'\.com$', r'\.net$', r'\.org$',
+        r'^\d{1,2}:\d{2}$',  # Bỏ qua timestamp
+        r'^\d{4}-\d{2}-\d{2}',  # Bỏ qua ngày tháng
+        r'^https?://', r'^www\.',
         r'^shop', r'^share', r'^final', r'^name', r'^level', r'^rank',
         r'^status', r'^time', r'^date', r'^email', r'^phone', r'^sdt',
         r'^cccd', r'^fb', r'^ban', r'^ss', r'^sss', r'^anime', r'^other',
@@ -496,12 +462,19 @@ def loc_tk_mk_only(content):
         r'^tuong', r'^skin', r'^authen', r'^so:', r'^qu[âa]n', r'^v[ôo]'
     ]
     
+    # Tách từng dòng
     lines = content.split('\n')
     stats_loc["total"] = len(lines)
     
     for line in lines:
         line = line.strip()
         if not line:
+            continue
+        
+        # Bỏ qua dòng chỉ có thời gian
+        if re.match(r'^\d{1,2}:\d{2}$', line):
+            continue
+        if re.match(r'^\d{1,2}:\d{2}:\d{2}$', line):
             continue
         
         # Thử pattern dấu : trước
@@ -567,11 +540,15 @@ def loc_tk_mk_only(content):
     return accounts, stats_loc
 
 def is_valid_account(user, pwd, skip_patterns):
-    """Kiểm tra tài khoản hợp lệ"""
+    """Kiểm tra tài khoản hợp lệ - bỏ qua thời gian"""
     if len(user) < 2 or len(pwd) < 1:
         return False
     
     if len(user) > 80 or len(pwd) > 100:
+        return False
+    
+    # Bỏ qua nếu user là thời gian
+    if re.match(r'^\d{1,2}:\d{2}$', user):
         return False
     
     user_lower = user.lower()
@@ -579,10 +556,10 @@ def is_valid_account(user, pwd, skip_patterns):
         if re.match(pattern, user_lower):
             return False
     
-    if not re.match(r'^[a-zA-Z0-9][a-zA-Z0-9_.@-]*$', user):
+    if not re.match(r'^[a-zA-Z0-9][a-zA-Z0-9_.@+-]*$', user):
         return False
     
-    if not re.match(r'^[a-zA-Z0-9_.@!$%^&*()\-]+$', pwd):
+    if not re.match(r'^[a-zA-Z0-9_.@!$%^&*()\-+]+$', pwd):
         return False
     
     if user.lower() in ['http', 'https', 'www', 'com', 'net', 'org', 'shop', 'share', 'final', 'name', 'level', 'rank', 'status', 'time', 'date', 'email', 'phone', 'sdt', 'cccd', 'fb', 'ban', 'ss', 'sss', 'anime', 'other']:
@@ -592,7 +569,7 @@ def is_valid_account(user, pwd, skip_patterns):
 
 # ========== LƯU FILE ==========
 def save_loc_file(accounts):
-    """Lưu danh sách đã lọc vào file - chỉ tk:mk"""
+    """Lưu danh sách đã lọc vào file - CHỈ TK:MK"""
     with file_lock:
         with open(OUTPUT_LOC, 'w', encoding='utf-8') as f:
             for user, pwd in accounts:
@@ -680,7 +657,6 @@ def check_account_api(username, password, service, use_delay=True):
                 try:
                     result_data = resp.json()
                     
-                    # Fix encoding cho tất cả giá trị string
                     if isinstance(result_data, dict):
                         for key, value in result_data.items():
                             if isinstance(value, str):
@@ -812,7 +788,6 @@ def format_hit_info(username, password, service, result_data):
     msg += f"🔑 <b>Account:</b> <code>{username}:{password}</code>\n"
     
     if isinstance(result_data, dict):
-        # Map field names to labels with icons
         field_map = {
             "uid": ("👤 UID", "uid"),
             "name": ("👤 Name", "name"),
@@ -858,13 +833,11 @@ def format_hit_info(username, password, service, result_data):
             "authen": ("🛡 Authen", "authen"),
             "tinh_trang": ("📋 Tình Trạng", "tinh_trang"),
             "status_account": ("📋 Tình Trạng", "status_account"),
-            # FC Mobile fields
             "fc_name": ("🔥 FC Name", "fc_name"),
             "fc_uid": ("🆔 FC UID", "fc_uid"),
             "fc_ovr": ("📊 OVR", "fc_ovr"),
             "fc_level": ("✨ FC Level", "fc_level"),
             "fc_rank": ("👑 FC Rank", "fc_rank"),
-            # Additional fields
             "last_session_ip": ("🌐 IP", "last_session_ip"),
             "last_session_country": ("🌍 Country", "last_session_country"),
             "ngay_tao_tk": ("📅 Ngày tạo TK", "ngay_tao_tk"),
@@ -873,7 +846,6 @@ def format_hit_info(username, password, service, result_data):
         
         info_lines = []
         
-        # Process known fields in order
         for key, (label, field) in field_map.items():
             if field in result_data and result_data[field] is not None and result_data[field] != "" and result_data[field] != "N/A":
                 value = result_data[field]
@@ -884,11 +856,9 @@ def format_hit_info(username, password, service, result_data):
                 if isinstance(value, str) and value in ["0", "00", "000"]:
                     continue
                 
-                # Fix encoding
                 if isinstance(value, str):
                     value = fix_encoding(value)
                 
-                # Format boolean values for specific fields
                 if field in ["email_verified", "mobile_bound", "fb_linked", "password_set", "account_secured"]:
                     value = format_value(value)
                 
@@ -898,21 +868,18 @@ def format_hit_info(username, password, service, result_data):
                     elif isinstance(value, bool):
                         value = "YES" if value else "NO"
                 
-                # Format list values - đóng khung []
                 if isinstance(value, list):
                     if value:
                         value = "[" + ", ".join([fix_encoding(str(item)) for item in value]) + "]"
                     else:
-                        continue  # Bỏ qua list rỗng
+                        continue
                 
-                # Format tuples
                 if isinstance(value, tuple):
                     if value:
                         value = "[" + ", ".join([fix_encoding(str(item)) for item in value]) + "]"
                     else:
                         continue
                 
-                # Format ban fields
                 if field in ["banned", "ban", "aov_banned"]:
                     if isinstance(value, str) and value.upper() == "NO":
                         value = "NO"
@@ -921,7 +888,6 @@ def format_hit_info(username, password, service, result_data):
                     elif isinstance(value, str) and value.upper() == "YES":
                         value = "YES"
                 
-                # Format ban_until fields
                 if field in ["ban_until", "ban_expires"]:
                     if isinstance(value, str):
                         value = fix_encoding(value)
@@ -929,13 +895,11 @@ def format_hit_info(username, password, service, result_data):
                 
                 info_lines.append(f"{label}: {value}")
         
-        # Process any remaining fields
         skip_fields = set(field_map.keys())
         skip_fields.update(["result", "_is_hit", "_raw_response", "_error", "status", "success", "tk", "mk", "data", "message", "username"])
         
         for key, value in result_data.items():
             if key not in skip_fields and value is not None and value != "" and value != {} and value != []:
-                # Bỏ qua các giá trị 0
                 if isinstance(value, (int, float)) and value == 0:
                     continue
                 if isinstance(value, str) and value in ["0", "00", "000"]:
@@ -988,7 +952,7 @@ def check_single(chat_id, username, password, service="lienquan"):
     else:
         safe_send_message(chat_id, f"⚠️ ERROR - {service_desc}\n🔑 {username}:{password}")
 
-# ========== CHECK NHIỀU (CHECKMULTI) - SUPER VIP ==========
+# ========== CHECK NHIỀU (CHECKMULTI) ==========
 def check_batch(chat_id, accounts, service):
     """Kiểm tra nhiều tài khoản với delay và batch"""
     global checking, stats
@@ -1018,16 +982,15 @@ def check_batch(chat_id, accounts, service):
         proxy_count = len(proxy_list)
     
     safe_send_message(chat_id, f"""
-{icon} <b>BAT DAU CHECK - SUPER VIP</b>
+{icon} <b>BAT DAU CHECK - V6.0</b>
 📊 Tong: <code>{total}</code> accounts
 🎯 Service: <b>{service_desc}</b>
 ⚡ Threads: <code>{CHECKMULTI_THREADS}</code>
 ⏱ Delay: <code>{CHECKMULTI_DELAY}s</code>
-📦 Batch Size: <code>{CHECKMULTI_BATCH_SIZE}</code>
+📦 Batch: <code>{CHECKMULTI_BATCH_SIZE}</code>
 🌐 Proxy: <code>{proxy_count}</code>
 """)
     
-    # Chia accounts thành các batch
     batches = []
     for i in range(0, total, CHECKMULTI_BATCH_SIZE):
         batch = accounts[i:i + CHECKMULTI_BATCH_SIZE]
@@ -1041,7 +1004,6 @@ def check_batch(chat_id, accounts, service):
         if stop_event.is_set():
             return
         
-        # Apply delay trước mỗi request
         rate_limit(CHECKMULTI_DELAY)
         
         result = check_account_api(user, pwd, service, use_delay=False)
@@ -1064,14 +1026,12 @@ def check_batch(chat_id, accounts, service):
             else:
                 stats["errors"] += 1
     
-    # Xử lý từng batch
     for batch in batches:
         if stop_event.is_set():
             break
         
         batch_num += 1
         
-        # Check batch hiện tại
         with ThreadPoolExecutor(max_workers=CHECKMULTI_THREADS) as executor:
             futures = {executor.submit(process_single, user, pwd): (user, pwd) 
                        for user, pwd in batch}
@@ -1081,7 +1041,6 @@ def check_batch(chat_id, accounts, service):
                     executor.shutdown(wait=False)
                     break
         
-        # Cập nhật progress
         elapsed = time.time() - stats["start_time"]
         speed = stats["checked"] / elapsed if elapsed > 0 else 0
         percent = (stats["checked"] / total) * 100
@@ -1093,7 +1052,6 @@ def check_batch(chat_id, accounts, service):
 ⚡ Speed: <code>{speed:.1f}</code> acc/s
 """)
         
-        # Delay giữa các batch
         if batch_num < total_batches:
             time.sleep(CHECKMULTI_BATCH_DELAY)
     
@@ -1208,7 +1166,7 @@ def cmd_start(message):
         proxy_count = len(proxy_list)
     
     safe_send_message(message.chat.id, f"""
-🤖 <b>GARENA CHECKER BOT V5.1 - ULTIMATE FIX</b>
+🤖 <b>GARENA CHECKER BOT V6.0 - BREAKTHROUGH</b>
 👤 Admin: @baohuyno1
 🌐 Proxy: {proxy_count}
 
@@ -1216,15 +1174,15 @@ def cmd_start(message):
 
 <b>CHECK TAI KHOAN:</b>
 /check user:pass - Check 1 acc
-/check user|pass - Check 1 acc (dau |)
+/check user|pass - Check 1 acc
 /check user:pass service - Check 1 acc theo service
-/checkmulti user1:pass1,user2:pass2 - Check nhieu acc (Super VIP)
+/checkmulti user1:pass1,user2:pass2 - Check nhieu acc
 /checkall - Check tat ca acc dang cho
 
 <b>SERVICE:</b>
 lienquan, miniworld, blockmango, deltaforce, hotmail, fc, fullpack
 
-⚡ <b>CHECKMULTI SUPER VIP:</b>
+⚡ <b>CHECKMULTI V6.0:</b>
 - Threads: {CHECKMULTI_THREADS}
 - Delay: {CHECKMULTI_DELAY}s/request
 - Batch: {CHECKMULTI_BATCH_SIZE} acc/batch
@@ -1233,7 +1191,7 @@ lienquan, miniworld, blockmango, deltaforce, hotmail, fc, fullpack
 
 @bot.message_handler(commands=['check'])
 def cmd_check(message):
-    """Lệnh /check user:pass hoặc user|pass [service]"""
+    """Lệnh /check"""
     if not check_membership(message):
         return
     
@@ -1257,7 +1215,6 @@ Cac service: {', '.join(SERVICE_ROUTES.keys())}
 """)
         return
     
-    # Thay | bằng : để lọc
     account_input = account_str.replace('|', ':')
     
     accounts, stats_loc = loc_tk_mk_only(account_input)
@@ -1271,7 +1228,7 @@ Cac service: {', '.join(SERVICE_ROUTES.keys())}
 
 @bot.message_handler(commands=['checkmulti'])
 def cmd_checkmulti(message):
-    """Lệnh /checkmulti - Super VIP với delay và batch"""
+    """Lệnh /checkmulti"""
     if not check_membership(message):
         return
     
@@ -1311,8 +1268,6 @@ Hoặc:
     
     accounts_input = '\n'.join(lines)
     accounts_input = accounts_input.replace(',', '\n')
-    
-    # Thay | bằng :
     accounts_input = accounts_input.replace('|', ':')
     
     accounts, stats_loc = loc_tk_mk_only(accounts_input)
@@ -1327,12 +1282,11 @@ Format: user:pass hoặc user|pass
     total = len(accounts)
     
     safe_send_message(message.chat.id, f"""
-📊 <b>CHECK NHIEU ACC - SUPER VIP</b>
+📊 <b>CHECK NHIEU ACC - V6.0</b>
 🎯 Tong: <code>{total}</code> accounts
 🎮 Service: <b>{SERVICE_ROUTES[service]['desc']}</b>
 ⚡ Threads: <code>{CHECKMULTI_THREADS}</code>
 ⏱ Delay: <code>{CHECKMULTI_DELAY}s</code>
-📦 Batch: <code>{CHECKMULTI_BATCH_SIZE}</code> acc/batch
 
 Dang bat dau check...
 """)
@@ -1363,8 +1317,6 @@ def cmd_proxy(message):
     
     safe_send_message(message.chat.id, """
 📤 <b>LOAD PROXY</b>
-
-📡 Proxy cá nhân: 1
 
 <b>Gửi file .txt với format:</b>
 ip:port
@@ -1485,13 +1437,11 @@ def handle_text(message):
     if text.startswith('/'):
         return
     
-    # Thay | bằng : để lọc
     text_input = text.replace('|', ':')
     
     accounts, stats_loc = loc_tk_mk_only(text_input)
     
     if not accounts:
-        # Không gửi thông báo lỗi để tránh phiền người dùng
         return
     
     if chat_id not in pending_accounts:
@@ -1550,10 +1500,8 @@ def handle_document(message):
 """)
             return
         
-        # Thay | bằng :
         content_input = content.replace('|', ':')
         
-        # Lọc tài khoản
         accounts, stats_loc = loc_tk_mk_only(content_input)
         
         if not accounts:
@@ -1598,7 +1546,7 @@ Preview (20 dong dau):
 def main():
     """Hàm chính khởi động bot"""
     print("=" * 60)
-    print("    GARENA CHECKER BOT V5.1 - ULTIMATE FIX")
+    print("    GARENA CHECKER BOT V6.0 - BREAKTHROUGH")
     print("    ADMIN: @baohuyno1")
     print("    HO TRO | VA :")
     print("    KENH BAT BUOC: @hakiiosvip")
