@@ -1,5 +1,12 @@
-# ==================== PALOFSC - KEEPALIVE HACKER LASER V3 ====================
-# Code day du: web server hieu ung laser, matrix, am thanh, keep alive
+# ========================================================================
+#    KEEPALIVE HACKER LASER EFFECTS V3 - CAI TIEN HOAN CHINH
+# ========================================================================
+#    - Hieu ung laser hien thi khi an vao cac nut
+#    - Am thanh phat khi an nut
+#    - Hieu ung tia laser truc tiep tu con tro chuot
+#    - Dashboard hien thi thong ke
+#    - Tu dong khoi dong bot
+# ========================================================================
 
 import os
 import sys
@@ -142,6 +149,30 @@ class HackerHandler(BaseHTTPRequestHandler):
             audio_data = self.generate_techno_audio()
             self.wfile.write(audio_data)
         
+        elif self.path == '/audio-click':
+            self.send_response(200)
+            self.send_header('Content-type', 'audio/wav')
+            self.send_header('Cache-Control', 'no-cache')
+            self.end_headers()
+            audio_data = self.generate_click_audio()
+            self.wfile.write(audio_data)
+        
+        elif self.path == '/audio-laser':
+            self.send_response(200)
+            self.send_header('Content-type', 'audio/wav')
+            self.send_header('Cache-Control', 'no-cache')
+            self.end_headers()
+            audio_data = self.generate_laser_audio()
+            self.wfile.write(audio_data)
+        
+        elif self.path == '/audio-explosion':
+            self.send_response(200)
+            self.send_header('Content-type', 'audio/wav')
+            self.send_header('Cache-Control', 'no-cache')
+            self.end_headers()
+            audio_data = self.generate_explosion_audio()
+            self.wfile.write(audio_data)
+        
         elif self.path == '/stats-page':
             self.send_response(200)
             self.send_header('Content-type', 'text/html; charset=utf-8')
@@ -244,6 +275,81 @@ class HackerHandler(BaseHTTPRequestHandler):
                 melody = math.sin(2 * math.pi * melody_freq * t) * 0.2 * math.exp(-0.5 * (t % beat_interval))
                 
                 value = int(32767 * 0.4 * (bass + hi_hat + melody))
+                audio_data += struct.pack('<h', value)
+            
+            return header + bytes(audio_data)
+        except:
+            return b''
+    
+    def generate_click_audio(self):
+        """Tao am thanh click khi an nut"""
+        try:
+            sample_rate = 44100
+            duration = 0.1
+            num_samples = int(sample_rate * duration)
+            
+            data_size = num_samples * 2
+            header = b'RIFF' + struct.pack('<I', 36 + data_size) + b'WAVE'
+            header += b'fmt ' + struct.pack('<IHHIIHH', 16, 1, 1, sample_rate, sample_rate * 2, 2, 16)
+            header += b'data' + struct.pack('<I', data_size)
+            
+            audio_data = bytearray()
+            for i in range(num_samples):
+                t = i / sample_rate
+                value = int(32767 * 0.5 * math.exp(-t * 100) * (
+                    math.sin(2 * math.pi * 1000 * t) * 0.5 +
+                    math.sin(2 * math.pi * 2000 * t) * 0.3
+                ))
+                audio_data += struct.pack('<h', value)
+            
+            return header + bytes(audio_data)
+        except:
+            return b''
+    
+    def generate_laser_audio(self):
+        """Tao am thanh laser ban ra"""
+        try:
+            sample_rate = 44100
+            duration = 0.3
+            num_samples = int(sample_rate * duration)
+            
+            data_size = num_samples * 2
+            header = b'RIFF' + struct.pack('<I', 36 + data_size) + b'WAVE'
+            header += b'fmt ' + struct.pack('<IHHIIHH', 16, 1, 1, sample_rate, sample_rate * 2, 2, 16)
+            header += b'data' + struct.pack('<I', data_size)
+            
+            audio_data = bytearray()
+            for i in range(num_samples):
+                t = i / sample_rate
+                freq = 2000 - 1500 * (t / duration)
+                value = int(32767 * 0.4 * math.exp(-t * 10) * math.sin(2 * math.pi * freq * t))
+                audio_data += struct.pack('<h', value)
+            
+            return header + bytes(audio_data)
+        except:
+            return b''
+    
+    def generate_explosion_audio(self):
+        """Tao am thanh no"""
+        try:
+            sample_rate = 44100
+            duration = 0.5
+            num_samples = int(sample_rate * duration)
+            
+            data_size = num_samples * 2
+            header = b'RIFF' + struct.pack('<I', 36 + data_size) + b'WAVE'
+            header += b'fmt ' + struct.pack('<IHHIIHH', 16, 1, 1, sample_rate, sample_rate * 2, 2, 16)
+            header += b'data' + struct.pack('<I', data_size)
+            
+            audio_data = bytearray()
+            for i in range(num_samples):
+                t = i / sample_rate
+                value = int(32767 * 0.5 * math.exp(-t * 8) * (
+                    math.sin(2 * math.pi * 200 * t) * 0.3 +
+                    math.sin(2 * math.pi * 400 * t) * 0.5 +
+                    math.sin(2 * math.pi * 800 * t) * 0.3 +
+                    math.sin(2 * math.pi * 1600 * t) * 0.1
+                ))
                 audio_data += struct.pack('<h', value)
             
             return header + bytes(audio_data)
@@ -354,6 +460,12 @@ class HackerHandler(BaseHTTPRequestHandler):
             border-radius: 50%;
             display: inline-block;
             animation: btnGlow 1s infinite;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .terminal-btn:hover {
+            transform: scale(1.3);
         }
         
         .btn-red { 
@@ -396,6 +508,13 @@ class HackerHandler(BaseHTTPRequestHandler):
             color: #00ff00;
             text-shadow: 0 0 20px rgba(0, 255, 0, 0.8), 0 0 40px rgba(0, 255, 0, 0.5);
             animation: glitchText 2s infinite;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .title:hover {
+            transform: scale(1.05);
+            text-shadow: 0 0 40px #00ff00, 0 0 80px #00ff00;
         }
         
         @keyframes glitchText {
@@ -484,12 +603,19 @@ class HackerHandler(BaseHTTPRequestHandler):
             font-size: 14px;
             transition: all 0.3s ease;
             text-align: center;
+            cursor: pointer;
         }
         
         .status-item:hover {
             background: rgba(0, 255, 0, 0.15);
             border-color: #00ff00;
             box-shadow: 0 0 20px rgba(0, 255, 0, 0.3);
+            transform: scale(1.05);
+        }
+        
+        .status-item:active {
+            transform: scale(0.92);
+            box-shadow: 0 0 40px rgba(0, 255, 0, 0.8);
         }
         
         .status-label {
@@ -526,16 +652,38 @@ class HackerHandler(BaseHTTPRequestHandler):
             font-family: 'Courier New', monospace;
             font-size: 12px;
             transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
         }
         
         .audio-btn:hover {
             background: rgba(0, 255, 0, 0.3);
             box-shadow: 0 0 20px rgba(0, 255, 0, 0.5);
+            transform: scale(1.05);
+        }
+        
+        .audio-btn:active {
+            transform: scale(0.88);
+            box-shadow: 0 0 40px rgba(0, 255, 0, 0.8);
         }
         
         .audio-btn.active {
             background: #00ff00;
             color: #000;
+            box-shadow: 0 0 30px #00ff00;
+        }
+        
+        .audio-btn .ripple {
+            position: absolute;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.3);
+            transform: scale(0);
+            animation: rippleAnim 0.6s linear;
+            pointer-events: none;
+        }
+        
+        @keyframes rippleAnim {
+            to { transform: scale(4); opacity: 0; }
         }
         
         .hacker-log {
@@ -547,6 +695,19 @@ class HackerHandler(BaseHTTPRequestHandler):
             max-height: 150px;
             overflow-y: auto;
             font-size: 12px;
+        }
+        
+        .hacker-log::-webkit-scrollbar {
+            width: 4px;
+        }
+        
+        .hacker-log::-webkit-scrollbar-track {
+            background: #000;
+        }
+        
+        .hacker-log::-webkit-scrollbar-thumb {
+            background: #00ff00;
+            border-radius: 2px;
         }
         
         .admin-link {
@@ -565,6 +726,47 @@ class HackerHandler(BaseHTTPRequestHandler):
             text-shadow: 0 0 10px #00ff00, 0 0 20px #00ff00, 0 0 30px #00ff00;
         }
         
+        .laser-burst {
+            position: fixed;
+            pointer-events: none;
+            z-index: 999;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #00ff00;
+            box-shadow: 0 0 50px #00ff00, 0 0 100px #00ff00;
+            animation: burstAnim 0.5s ease-out forwards;
+        }
+        
+        @keyframes burstAnim {
+            0% { transform: scale(0); opacity: 1; }
+            100% { transform: scale(10); opacity: 0; }
+        }
+        
+        .toast {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%) translateY(100px);
+            background: rgba(0, 0, 0, 0.9);
+            color: #00ff00;
+            padding: 15px 30px;
+            border-radius: 10px;
+            border: 1px solid #00ff00;
+            box-shadow: 0 0 30px rgba(0, 255, 0, 0.3);
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            opacity: 0;
+            transition: all 0.5s ease;
+            z-index: 999;
+            pointer-events: none;
+        }
+        
+        .toast.show {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
+        
         @media (max-width: 600px) {
             .container {
                 margin: 15px;
@@ -574,10 +776,11 @@ class HackerHandler(BaseHTTPRequestHandler):
                 font-size: 1.5em;
             }
             .status-grid {
-                grid-template-columns: 1fr;
+                grid-template-columns: 1fr 1fr;
             }
             .audio-buttons {
-                flex-direction: column;
+                flex-direction: row;
+                flex-wrap: wrap;
             }
         }
     </style>
@@ -588,14 +791,14 @@ class HackerHandler(BaseHTTPRequestHandler):
     <div class="container">
         <div class="terminal-header">
             <div class="terminal-buttons">
-                <span class="terminal-btn btn-red"></span>
-                <span class="terminal-btn btn-yellow"></span>
-                <span class="terminal-btn btn-green"></span>
+                <span class="terminal-btn btn-red" onclick="clickEffect(this, 'explosion')"></span>
+                <span class="terminal-btn btn-yellow" onclick="clickEffect(this, 'laser')"></span>
+                <span class="terminal-btn btn-green" onclick="clickEffect(this, 'click')"></span>
             </div>
             <div class="terminal-title">LASER SECURITY - ENCRYPTED V3</div>
         </div>
         
-        <div class="title">GARENA CHECKER</div>
+        <div class="title" onclick="clickEffect(this, 'explosion')">GARENA CHECKER</div>
         
         <div class="laser-line"></div>
         
@@ -605,36 +808,39 @@ class HackerHandler(BaseHTTPRequestHandler):
         </div>
         
         <div class="status-grid">
-            <div class="status-item stat-hits">
+            <div class="status-item stat-hits" onclick="clickEffect(this, 'laser')">
                 <div class="status-label">HITS</div>
                 <div class="status-value">""" + str(hits) + """</div>
             </div>
-            <div class="status-item stat-dead">
+            <div class="status-item stat-dead" onclick="clickEffect(this, 'laser')">
                 <div class="status-label">DEAD</div>
                 <div class="status-value">""" + str(dead) + """</div>
             </div>
-            <div class="status-item stat-errors">
+            <div class="status-item stat-errors" onclick="clickEffect(this, 'laser')">
                 <div class="status-label">ERRORS</div>
                 <div class="status-value">""" + str(errors) + """</div>
             </div>
-            <div class="status-item">
+            <div class="status-item" onclick="clickEffect(this, 'click')">
                 <div class="status-label">STATUS</div>
                 <div class="status-value" id="status">ALIVE</div>
             </div>
-            <div class="status-item">
+            <div class="status-item" onclick="clickEffect(this, 'click')">
                 <div class="status-label">UPTIME</div>
                 <div class="status-value" id="uptime" style="font-size: 14px;">Calculating...</div>
             </div>
-            <div class="status-item">
+            <div class="status-item" onclick="clickEffect(this, 'laser')">
                 <div class="status-label">ADMIN</div>
-                <div class="status-value" style="font-size: 14px;"><a href="https://t.me/baohuyno1" class="admin-link">@baohuyno1</a></div>
+                <div class="status-value" style="font-size: 14px;"><a href="https://t.me/baohuyno1" class="admin-link" onclick="event.stopPropagation();">@baohuyno1</a></div>
             </div>
         </div>
         
         <div class="audio-buttons">
-            <button class="audio-btn" onclick="playAudio('/audio', this)">🔊 HACKER SOUND</button>
-            <button class="audio-btn" onclick="playAudio('/audio2', this)">🔊 CYBER SOUND</button>
-            <button class="audio-btn" onclick="playAudio('/audio3', this)">🔊 TECHNO SOUND</button>
+            <button class="audio-btn" onclick="playAudio('/audio', this)">🔊 HACKER</button>
+            <button class="audio-btn" onclick="playAudio('/audio2', this)">🔊 CYBER</button>
+            <button class="audio-btn" onclick="playAudio('/audio3', this)">🔊 TECHNO</button>
+            <button class="audio-btn" onclick="playClick()">🔊 CLICK</button>
+            <button class="audio-btn" onclick="playLaser()">🔊 LASER</button>
+            <button class="audio-btn" onclick="playExplosion()">💥 EXPLOSION</button>
             <button class="audio-btn" onclick="stopAudio()">🔇 STOP</button>
         </div>
         
@@ -643,11 +849,24 @@ class HackerHandler(BaseHTTPRequestHandler):
         </div>
     </div>
     
+    <div class="toast" id="toast"></div>
+    
     <audio id="bg-audio" loop>
         <source src="/audio2" type="audio/wav">
     </audio>
     
     <script>
+        // ========== TOAST ==========
+        function showToast(msg, duration = 1500) {
+            const toast = document.getElementById('toast');
+            toast.textContent = msg;
+            toast.classList.add('show');
+            clearTimeout(toast._hide);
+            toast._hide = setTimeout(() => {
+                toast.classList.remove('show');
+            }, duration);
+        }
+        
         // ========== MATRIX BACKGROUND ==========
         const matrixCanvas = document.getElementById('matrixCanvas');
         const matrixCtx = matrixCanvas.getContext('2d');
@@ -693,37 +912,33 @@ class HackerHandler(BaseHTTPRequestHandler):
         laserCanvas.height = window.innerHeight;
         
         const lasers = [];
-        const laserColors = ['#00ff00', '#00ffff', '#ff00ff', '#ffff00', '#ff0000', '#ffffff'];
+        const laserColors = ['#00ff00', '#00ffff', '#ff00ff', '#ffff00', '#ff0000', '#ffffff', '#ff8800', '#00ff88'];
         
         class LaserBeam {
-            constructor() {
-                this.reset();
-            }
-            
-            reset() {
-                this.x = Math.random() * laserCanvas.width;
-                this.y = Math.random() * laserCanvas.height;
-                this.targetX = Math.random() * laserCanvas.width;
-                this.targetY = Math.random() * laserCanvas.height;
+            constructor(x, y, targetX, targetY) {
+                this.x = x || Math.random() * laserCanvas.width;
+                this.y = y || Math.random() * laserCanvas.height;
+                this.targetX = targetX || Math.random() * laserCanvas.width;
+                this.targetY = targetY || Math.random() * laserCanvas.height;
                 this.color = laserColors[Math.floor(Math.random() * laserColors.length)];
-                this.width = Math.random() * 2 + 0.5;
+                this.width = Math.random() * 3 + 0.5;
                 this.speed = Math.random() * 5 + 2;
                 this.life = 0;
-                this.maxLife = Math.random() * 50 + 30;
+                this.maxLife = Math.random() * 60 + 30;
                 this.particles = [];
             }
             
             update() {
                 this.life++;
                 
-                if (Math.random() > 0.5) {
+                if (Math.random() > 0.4) {
                     this.particles.push({
                         x: this.x + (this.targetX - this.x) * Math.random(),
                         y: this.y + (this.targetY - this.y) * Math.random(),
-                        vx: (Math.random() - 0.5) * 2,
-                        vy: (Math.random() - 0.5) * 2,
+                        vx: (Math.random() - 0.5) * 3,
+                        vy: (Math.random() - 0.5) * 3,
                         life: 0,
-                        maxLife: Math.random() * 20 + 10
+                        maxLife: Math.random() * 25 + 10
                     });
                 }
                 
@@ -738,13 +953,16 @@ class HackerHandler(BaseHTTPRequestHandler):
                 }
                 
                 if (this.life > this.maxLife) {
-                    this.reset();
+                    const index = lasers.indexOf(this);
+                    if (index > -1) {
+                        lasers.splice(index, 1);
+                    }
                 }
             }
             
             draw(ctx) {
                 const progress = this.life / this.maxLife;
-                const alpha = progress < 0.2 ? progress * 5 : progress > 0.8 ? (1 - progress) * 5 : 1;
+                const alpha = progress < 0.1 ? progress * 10 : progress > 0.9 ? (1 - progress) * 10 : 1;
                 
                 const gradient = ctx.createLinearGradient(this.x, this.y, this.targetX, this.targetY);
                 gradient.addColorStop(0, this.color + '00');
@@ -754,26 +972,34 @@ class HackerHandler(BaseHTTPRequestHandler):
                 ctx.strokeStyle = gradient;
                 ctx.lineWidth = this.width;
                 ctx.globalAlpha = alpha;
+                ctx.shadowColor = this.color;
+                ctx.shadowBlur = 10;
                 ctx.beginPath();
                 ctx.moveTo(this.x, this.y);
                 ctx.lineTo(this.targetX, this.targetY);
                 ctx.stroke();
+                ctx.shadowBlur = 0;
                 
                 for (const p of this.particles) {
                     const pAlpha = 1 - (p.life / p.maxLife);
                     ctx.fillStyle = this.color;
                     ctx.globalAlpha = pAlpha * alpha;
+                    ctx.shadowColor = this.color;
+                    ctx.shadowBlur = 5;
                     ctx.beginPath();
                     ctx.arc(p.x, p.y, 2, 0, Math.PI * 2);
                     ctx.fill();
+                    ctx.shadowBlur = 0;
                 }
                 
                 ctx.globalAlpha = 1;
             }
         }
         
-        for (let i = 0; i < 20; i++) {
-            lasers.push(new LaserBeam());
+        function createLaser(x, y) {
+            if (lasers.length < 80) {
+                lasers.push(new LaserBeam(x, y));
+            }
         }
         
         function drawLasers() {
@@ -784,10 +1010,10 @@ class HackerHandler(BaseHTTPRequestHandler):
                 laser.draw(laserCtx);
             }
             
-            if (Math.random() > 0.98) {
+            if (Math.random() > 0.97) {
                 const flashX = Math.random() * laserCanvas.width;
                 const flashY = Math.random() * laserCanvas.height;
-                const flashRadius = Math.random() * 30 + 10;
+                const flashRadius = Math.random() * 40 + 20;
                 const flashColor = laserColors[Math.floor(Math.random() * laserColors.length)];
                 
                 const gradient = laserCtx.createRadialGradient(flashX, flashY, 0, flashX, flashY, flashRadius);
@@ -803,18 +1029,97 @@ class HackerHandler(BaseHTTPRequestHandler):
             requestAnimationFrame(drawLasers);
         }
         
+        for (let i = 0; i < 15; i++) {
+            createLaser();
+        }
+        
         drawLasers();
+        
+        // ========== CLICK EFFECT ==========
+        function clickEffect(element, type) {
+            // Ripple effect
+            if (element) {
+                const rect = element.getBoundingClientRect();
+                const ripple = document.createElement('span');
+                const size = Math.max(rect.width, rect.height);
+                const x = (event ? event.clientX - rect.left : rect.width/2) - size/2;
+                const y = (event ? event.clientY - rect.top : rect.height/2) - size/2;
+                ripple.style.width = ripple.style.height = size + 'px';
+                ripple.style.left = x + 'px';
+                ripple.style.top = y + 'px';
+                ripple.style.position = 'absolute';
+                ripple.style.borderRadius = '50%';
+                ripple.style.background = 'rgba(255,255,255,0.3)';
+                ripple.style.transform = 'scale(0)';
+                ripple.style.animation = 'rippleAnim 0.6s linear';
+                ripple.style.pointerEvents = 'none';
+                element.style.position = 'relative';
+                element.style.overflow = 'hidden';
+                element.appendChild(ripple);
+                setTimeout(() => ripple.remove(), 600);
+            }
+            
+            // Laser burst
+            if (event) {
+                const burst = document.createElement('div');
+                burst.className = 'laser-burst';
+                burst.style.left = (event.clientX - 5) + 'px';
+                burst.style.top = (event.clientY - 5) + 'px';
+                burst.style.background = laserColors[Math.floor(Math.random() * laserColors.length)];
+                burst.style.boxShadow = '0 0 50px ' + burst.style.background + ', 0 0 100px ' + burst.style.background;
+                document.body.appendChild(burst);
+                setTimeout(() => burst.remove(), 500);
+            }
+            
+            // Create lasers from click position
+            if (event) {
+                for (let i = 0; i < 5; i++) {
+                    const laser = new LaserBeam(
+                        event.clientX, 
+                        event.clientY,
+                        Math.random() * laserCanvas.width,
+                        Math.random() * laserCanvas.height
+                    );
+                    lasers.push(laser);
+                }
+            }
+            
+            // Play sound
+            if (type === 'click') playClick();
+            else if (type === 'laser') playLaser();
+            else if (type === 'explosion') playExplosion();
+            else playClick();
+            
+            showToast('⚡ LASER ACTIVATED!', 800);
+        }
+        
+        document.addEventListener('click', function(e) {
+            // Tao laser khi click vao trang
+            if (Math.random() > 0.5) {
+                for (let i = 0; i < 3; i++) {
+                    const laser = new LaserBeam(
+                        e.clientX, e.clientY,
+                        Math.random() * laserCanvas.width,
+                        Math.random() * laserCanvas.height
+                    );
+                    lasers.push(laser);
+                }
+            }
+        });
         
         // ========== AUDIO SYSTEM ==========
         const bgAudio = document.getElementById('bg-audio');
         let currentAudio = null;
         
         function playAudio(url, button) {
-            stopAudio();
+            if (currentAudio) {
+                currentAudio.pause();
+                currentAudio = null;
+            }
             
             currentAudio = new Audio(url);
             currentAudio.loop = true;
-            currentAudio.volume = 0.5;
+            currentAudio.volume = 0.4;
             currentAudio.play().catch(e => console.log('Audio error:', e));
             
             document.querySelectorAll('.audio-btn').forEach(btn => {
@@ -823,7 +1128,28 @@ class HackerHandler(BaseHTTPRequestHandler):
             
             if (button) {
                 button.classList.add('active');
+                showToast('🔊 Dang phat: ' + button.textContent.trim(), 1200);
             }
+        }
+        
+        function playClick() {
+            const audio = new Audio('/audio-click');
+            audio.volume = 0.5;
+            audio.play().catch(e => console.log('Click audio error:', e));
+        }
+        
+        function playLaser() {
+            const audio = new Audio('/audio-laser');
+            audio.volume = 0.5;
+            audio.play().catch(e => console.log('Laser audio error:', e));
+            showToast('🔫 PEW!', 500);
+        }
+        
+        function playExplosion() {
+            const audio = new Audio('/audio-explosion');
+            audio.volume = 0.5;
+            audio.play().catch(e => console.log('Explosion audio error:', e));
+            showToast('💥 BOOM!', 500);
         }
         
         function stopAudio() {
@@ -835,11 +1161,9 @@ class HackerHandler(BaseHTTPRequestHandler):
             document.querySelectorAll('.audio-btn').forEach(btn => {
                 btn.classList.remove('active');
             });
+            
+            showToast('🔇 Da tat am thanh', 1000);
         }
-        
-        // Tu dong play nhac nen
-        bgAudio.volume = 0.3;
-        bgAudio.play().catch(e => console.log('Auto play blocked:', e));
         
         // ========== UPTIME COUNTER ==========
         const startTime = new Date();
@@ -872,7 +1196,10 @@ class HackerHandler(BaseHTTPRequestHandler):
             'MASKING IDENTITY...',
             'ENCRYPTING CHANNEL...',
             'ACTIVATING LASER DEFENSE...',
-            'SYSTEM ONLINE...'
+            'SYSTEM ONLINE...',
+            'HACKER DETECTED!',
+            'LAUNCHING COUNTERMEASURE...',
+            'LASER GRID ACTIVE...'
         ];
         
         const hackerCodes = [
@@ -890,16 +1217,21 @@ class HackerHandler(BaseHTTPRequestHandler):
             const timestamp = new Date().toLocaleTimeString();
             const logEntry = document.createElement('div');
             logEntry.textContent = '[' + timestamp + '] ' + message + ' ' + code;
-            logEntry.style.color = '#00ff00';
-            logEntry.style.opacity = '0.7';
+            logEntry.style.color = randomColor();
+            logEntry.style.opacity = '0.8';
             logElement.appendChild(logEntry);
             logElement.scrollTop = logElement.scrollHeight;
             messageIndex++;
             
-            if (logElement.children.length > 20) {
+            if (logElement.children.length > 25) {
                 logElement.removeChild(logElement.firstChild);
             }
         }, 2000);
+        
+        function randomColor() {
+            const colors = ['#00ff00', '#00ffff', '#ff00ff', '#ffff00', '#ff8800', '#ff4444', '#44ff44'];
+            return colors[Math.floor(Math.random() * colors.length)];
+        }
         
         // ========== PING CHECK ==========
         setInterval(() => {
@@ -937,19 +1269,31 @@ class HackerHandler(BaseHTTPRequestHandler):
         
         // ========== MOUSE LASER EFFECT ==========
         document.addEventListener('mousemove', (e) => {
-            if (Math.random() > 0.7) {
-                const laser = new LaserBeam();
-                laser.x = e.clientX;
-                laser.y = e.clientY;
-                laser.targetX = Math.random() * laserCanvas.width;
-                laser.targetY = Math.random() * laserCanvas.height;
+            if (Math.random() > 0.85) {
+                const laser = new LaserBeam(
+                    e.clientX, e.clientY,
+                    Math.random() * laserCanvas.width,
+                    Math.random() * laserCanvas.height
+                );
                 lasers.push(laser);
                 
-                if (lasers.length > 40) {
+                if (lasers.length > 80) {
                     lasers.shift();
                 }
             }
         });
+        
+        // ========== TU DONG CHAY AUDIO ==========
+        // Tu dong phat am thanh khi nguoi dung tuong tac lan dau
+        document.addEventListener('click', function firstInteraction() {
+            if (!bgAudio.paused) return;
+            bgAudio.volume = 0.2;
+            bgAudio.play().catch(e => console.log('Auto play blocked:', e));
+            document.removeEventListener('click', firstInteraction);
+        }, { once: true });
+        
+        console.log('🔥 LASER SECURITY ACTIVE!');
+        console.log('💀 Click anywhere for laser effect!');
     </script>
 </body>
 </html>"""
@@ -1036,27 +1380,33 @@ class HackerHandler(BaseHTTPRequestHandler):
                 ctx.strokeStyle = gradient;
                 ctx.lineWidth = this.width;
                 ctx.globalAlpha = alpha;
+                ctx.shadowColor = this.color;
+                ctx.shadowBlur = 10;
                 ctx.beginPath();
                 ctx.moveTo(this.x, this.y);
                 ctx.lineTo(this.targetX, this.targetY);
                 ctx.stroke();
+                ctx.shadowBlur = 0;
                 
                 for (const p of this.particles) {
                     const pAlpha = 1 - (p.life / p.maxLife);
                     ctx.fillStyle = this.color;
                     ctx.globalAlpha = pAlpha * alpha;
+                    ctx.shadowColor = this.color;
+                    ctx.shadowBlur = 5;
                     ctx.beginPath();
                     ctx.arc(p.x, p.y, 2, 0, Math.PI * 2);
                     ctx.fill();
+                    ctx.shadowBlur = 0;
                 }
                 
                 ctx.globalAlpha = 1;
             }
         }
         
-        function createLaser() {
-            if (lasers.length < 60) {
-                lasers.push(new Laser());
+        function createLaser(x, y) {
+            if (lasers.length < 80) {
+                lasers.push(new Laser(x, y));
             }
         }
         
@@ -1085,18 +1435,18 @@ class HackerHandler(BaseHTTPRequestHandler):
         document.addEventListener('mousemove', (e) => {
             if (Math.random() > 0.5) {
                 lasers.push(new Laser(e.clientX, e.clientY));
-                if (lasers.length > 60) {
+                if (lasers.length > 80) {
                     lasers.shift();
                 }
             }
         });
         
         document.addEventListener('click', (e) => {
-            for (let i = 0; i < 10; i++) {
+            for (let i = 0; i < 15; i++) {
                 lasers.push(new Laser(e.clientX, e.clientY));
             }
-            if (lasers.length > 60) {
-                lasers.splice(0, 10);
+            if (lasers.length > 80) {
+                lasers.splice(0, 15);
             }
         });
         
@@ -1204,6 +1554,10 @@ class HackerHandler(BaseHTTPRequestHandler):
             margin-bottom: 30px;
             text-shadow: 0 0 20px #00ff00;
             animation: pulse 2s infinite;
+            cursor: pointer;
+        }
+        .title:hover {
+            text-shadow: 0 0 40px #00ff00, 0 0 80px #00ff00;
         }
         @keyframes pulse {
             0%, 100% { opacity: 1; }
@@ -1222,6 +1576,15 @@ class HackerHandler(BaseHTTPRequestHandler):
             padding: 20px;
             text-align: center;
             box-shadow: 0 0 20px rgba(0,255,0,0.2);
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+        .stat-card:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 40px rgba(0,255,0,0.5);
+        }
+        .stat-card:active {
+            transform: scale(0.92);
         }
         .stat-value { font-size: 2.5em; font-weight: bold; }
         .stat-label { font-size: 0.8em; color: #666; margin-top: 5px; }
@@ -1238,36 +1601,51 @@ class HackerHandler(BaseHTTPRequestHandler):
             padding: 10px;
             border: 1px solid #00ff00;
             border-radius: 5px;
+            transition: all 0.3s ease;
         }
         .back-link:hover {
             background: #00ff00;
             color: #000;
+            box-shadow: 0 0 30px #00ff00;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="title">📊 STATISTICS</div>
+        <div class="title" onclick="this.style.transform='scale(0.95)';setTimeout(()=>this.style.transform='scale(1)',200)">📊 STATISTICS</div>
         <div class="stats-grid">
-            <div class="stat-card hits">
+            <div class="stat-card hits" onclick="showToast('✅ Hits: """ + str(hits) + """')">
                 <div class="stat-value">""" + str(hits) + """</div>
                 <div class="stat-label">✅ HITS</div>
             </div>
-            <div class="stat-card dead">
+            <div class="stat-card dead" onclick="showToast('❌ Dead: """ + str(dead) + """')">
                 <div class="stat-value">""" + str(dead) + """</div>
                 <div class="stat-label">❌ DEAD</div>
             </div>
-            <div class="stat-card errors">
+            <div class="stat-card errors" onclick="showToast('⚠️ Errors: """ + str(errors) + """')">
                 <div class="stat-value">""" + str(errors) + """</div>
                 <div class="stat-label">⚠️ ERRORS</div>
             </div>
-            <div class="stat-card total">
+            <div class="stat-card total" onclick="showToast('📊 Total: """ + str(total) + """')">
                 <div class="stat-value">""" + str(total) + """</div>
                 <div class="stat-label">📊 TOTAL</div>
             </div>
         </div>
         <a href="/" class="back-link">⬅ BACK TO DASHBOARD</a>
     </div>
+    <script>
+        function showToast(msg) {
+            const toast = document.createElement('div');
+            toast.style.cssText = 'position:fixed;bottom:30px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.9);color:#00ff00;padding:15px 30px;border-radius:10px;border:1px solid #00ff00;box-shadow:0 0 30px rgba(0,255,0,0.3);font-family:Courier New,monospace;font-size:14px;z-index:999;transition:all 0.5s ease;opacity:0;';
+            toast.textContent = msg;
+            document.body.appendChild(toast);
+            setTimeout(() => toast.style.opacity = '1', 50);
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                setTimeout(() => toast.remove(), 500);
+            }, 1500);
+        }
+    </script>
 </body>
 </html>"""
     
@@ -1368,6 +1746,7 @@ def main():
     print("[*] Tat ca service da khoi dong!")
     print("[*] Bot dang chay 24/7...")
     print("[*] Truy cap web de xem hieu ung laser hacker va am thanh")
+    print("[*] Click vao bat ky dau de thay hieu ung tia laser")
     print("=" * 60)
     
     # Chay bot chinh
