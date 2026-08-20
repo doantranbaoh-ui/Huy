@@ -43,10 +43,10 @@ class RenderHandler(BaseHTTPRequestHandler):
 <html>
 <head><title>Garena Checker Bot</title></head>
 <body style="font-family:Arial;text-align:center;padding:50px;background:#0a0a0a;color:#00ff00;">
-<h1>Garena Checker Bot V5.0</h1>
+<h1>Garena Checker Bot V5.1</h1>
 <p>Status: <b style="color:#00ff00;">ALIVE</b></p>
 <p>Admin: <a href="https://t.me/baohuyno1" style="color:#00ff00;">@baohuyno1</a></p>
-<p>Version: <b>5.0 - SUPER VIP</b></p>
+<p>Version: <b>5.1 - ULTIMATE FIX</b></p>
 </body>
 </html>"""
             self.wfile.write(html.encode('utf-8'))
@@ -89,16 +89,16 @@ API_BASE = "https://lol.nhatminh301.com"
 API_USERNAME = "thaituduc"
 API_PASSWORD = "thaituduc"
 
-DEFAULT_THREADS = 50  # Giảm threads để tăng delay giữa các request
+DEFAULT_THREADS = 50
 DEFAULT_TIMEOUT = 60
 DEFAULT_RETRIES = 3
-DEFAULT_DELAY = 0.5  # Delay mặc định giữa các request (giây)
+DEFAULT_DELAY = 0.5
 
 # Delay config cho checkmulti
-CHECKMULTI_THREADS = 20  # Threads thấp hơn để tránh rate limit
-CHECKMULTI_DELAY = 1.0  # Delay giữa mỗi request (giây)
-CHECKMULTI_BATCH_SIZE = 10  # Số acc check mỗi batch
-CHECKMULTI_BATCH_DELAY = 5.0  # Delay giữa các batch (giây)
+CHECKMULTI_THREADS = 20
+CHECKMULTI_DELAY = 1.0
+CHECKMULTI_BATCH_SIZE = 10
+CHECKMULTI_BATCH_DELAY = 5.0
 
 OUTPUT_HITS = "hits.txt"
 OUTPUT_DEAD = "dead.txt"
@@ -241,12 +241,6 @@ def fix_encoding(text):
         'SEVEN': 'SEVEN',
         'Thá»©': 'Thứ', 'NgÅ©': 'Ngũ', 'Giá»›i': 'Giới', 'Cáº­t': 'Cật',
         
-        # Tên người chơi cụ thể
-        'vplong01': 'vplong01', 'muaadongtoky': 'muaadongtoky',
-        'BảoVy[MãNV:6': 'BảoVy[MãNV:6',
-        'tranhadlamch': 'tranhadlamch',
-        'doideonhumop': 'doideonhumop',
-        
         # Các từ tiếng Việt khác
         'Chưa có': 'Chưa có', 'ChÆ°a': 'Chưa', 'cÃ³': 'có',
         
@@ -353,15 +347,6 @@ Vui lòng tham gia: <a href="{REQUIRED_CHANNEL_URL}"><b>{REQUIRED_CHANNEL}</b></
 Sau đó bấm nút xác nhận lại.
 """
         )
-
-# ========== DECORATOR KIỂM TRA THÀNH VIÊN ==========
-def require_membership(func):
-    """Decorator yêu cầu phải là thành viên kênh"""
-    def wrapper(message, *args, **kwargs):
-        if check_membership(message):
-            return func(message, *args, **kwargs)
-        return None
-    return wrapper
 
 # ========== HÀM GỬI TIN NHẮN ==========
 def safe_send_message(chat_id, text, parse_mode="HTML"):
@@ -497,13 +482,10 @@ def loc_tk_mk_only(content):
         return accounts, stats_loc
     
     # Pattern cho dấu : (user:pass)
-    pattern_colon = r'(?<![a-zA-Z0-9_])([a-zA-Z0-9][a-zA-Z0-9_.@-]{1,50}):([a-zA-Z0-9_.@!$%^&*()\-]{1,100})(?![a-zA-Z0-9_])'
+    pattern_colon = r'(?<![a-zA-Z0-9_])([a-zA-Z0-9][a-zA-Z0-9_.@-]{1,80}):([a-zA-Z0-9_.@!$%^&*()\-]{1,100})(?![a-zA-Z0-9_])'
     
     # Pattern cho dấu | (user|pass)
-    pattern_pipe = r'(?<![a-zA-Z0-9_])([a-zA-Z0-9][a-zA-Z0-9_.@-]{1,50})\|([a-zA-Z0-9_.@!$%^&*()\-]{1,100})(?![a-zA-Z0-9_])'
-    
-    # Pattern FINAL = user:pass
-    pattern_final = r'FINAL\s*[=:]\s*([a-zA-Z0-9][a-zA-Z0-9_.@-]{1,50})[:|]([a-zA-Z0-9_.@!$%^&*()\-]{1,100})'
+    pattern_pipe = r'(?<![a-zA-Z0-9_])([a-zA-Z0-9][a-zA-Z0-9_.@-]{1,80})\|([a-zA-Z0-9_.@!$%^&*()\-]{1,100})(?![a-zA-Z0-9_])'
     
     skip_patterns = [
         r'^https?://', r'^www\.', r'\.com$', r'\.net$', r'\.org$',
@@ -513,22 +495,6 @@ def loc_tk_mk_only(content):
         r'^tinh', r'^quan_huy', r'^lich_su', r'^vo_game', r'^quoc_gia',
         r'^tuong', r'^skin', r'^authen', r'^so:', r'^qu[âa]n', r'^v[ôo]'
     ]
-    
-    # Thử FINAL pattern trước
-    final_matches = re.findall(pattern_final, content, re.IGNORECASE)
-    if final_matches:
-        for user, pwd in final_matches:
-            key = f"{user}:{pwd}"
-            if key not in seen and is_valid_account(user, pwd, skip_patterns):
-                seen.add(key)
-                accounts.append((user, pwd))
-                stats_loc["valid"] += 1
-            elif key in seen:
-                stats_loc["duplicate"] += 1
-            else:
-                stats_loc["invalid"] += 1
-        stats_loc["total"] = len(final_matches)
-        return accounts, stats_loc
     
     lines = content.split('\n')
     stats_loc["total"] = len(lines)
@@ -605,7 +571,7 @@ def is_valid_account(user, pwd, skip_patterns):
     if len(user) < 2 or len(pwd) < 1:
         return False
     
-    if len(user) > 50 or len(pwd) > 100:
+    if len(user) > 80 or len(pwd) > 100:
         return False
     
     user_lower = user.lower()
@@ -626,7 +592,7 @@ def is_valid_account(user, pwd, skip_patterns):
 
 # ========== LƯU FILE ==========
 def save_loc_file(accounts):
-    """Lưu danh sách đã lọc vào file"""
+    """Lưu danh sách đã lọc vào file - chỉ tk:mk"""
     with file_lock:
         with open(OUTPUT_LOC, 'w', encoding='utf-8') as f:
             for user, pwd in accounts:
@@ -836,7 +802,7 @@ def check_account_api(username, password, service, use_delay=True):
 
 # ========== FORMAT THÔNG TIN ĐẸP ==========
 def format_hit_info(username, password, service, result_data):
-    """Format thông tin hit đẹp"""
+    """Format thông tin hit đẹp - bỏ qua các field bị 0 hoặc lỗi"""
     service_desc = SERVICE_ROUTES.get(service, {}).get("desc", service)
     icon = SERVICE_ROUTES.get(service, {}).get("icon", "✅")
     
@@ -912,6 +878,12 @@ def format_hit_info(username, password, service, result_data):
             if field in result_data and result_data[field] is not None and result_data[field] != "" and result_data[field] != "N/A":
                 value = result_data[field]
                 
+                # Bỏ qua các giá trị 0 hoặc rỗng
+                if isinstance(value, (int, float)) and value == 0:
+                    continue
+                if isinstance(value, str) and value in ["0", "00", "000"]:
+                    continue
+                
                 # Fix encoding
                 if isinstance(value, str):
                     value = fix_encoding(value)
@@ -931,11 +903,14 @@ def format_hit_info(username, password, service, result_data):
                     if value:
                         value = "[" + ", ".join([fix_encoding(str(item)) for item in value]) + "]"
                     else:
-                        value = "[]"
+                        continue  # Bỏ qua list rỗng
                 
                 # Format tuples
                 if isinstance(value, tuple):
-                    value = "[" + ", ".join([fix_encoding(str(item)) for item in value]) + "]"
+                    if value:
+                        value = "[" + ", ".join([fix_encoding(str(item)) for item in value]) + "]"
+                    else:
+                        continue
                 
                 # Format ban fields
                 if field in ["banned", "ban", "aov_banned"]:
@@ -960,6 +935,12 @@ def format_hit_info(username, password, service, result_data):
         
         for key, value in result_data.items():
             if key not in skip_fields and value is not None and value != "" and value != {} and value != []:
+                # Bỏ qua các giá trị 0
+                if isinstance(value, (int, float)) and value == 0:
+                    continue
+                if isinstance(value, str) and value in ["0", "00", "000"]:
+                    continue
+                
                 if isinstance(value, (str, int, float)):
                     label = key.replace("_", " ").title()
                     value = format_value(value)
@@ -974,6 +955,8 @@ def format_hit_info(username, password, service, result_data):
                     for sub_key, sub_value in value.items():
                         if sub_value is not None and sub_value != "" and sub_value != {} and sub_value != []:
                             if isinstance(sub_value, (str, int, float)):
+                                if isinstance(sub_value, (int, float)) and sub_value == 0:
+                                    continue
                                 sub_label = sub_key.replace("_", " ").title()
                                 sub_value = format_value(sub_value)
                                 if isinstance(sub_value, str):
@@ -985,58 +968,6 @@ def format_hit_info(username, password, service, result_data):
             msg += f"\n{line}"
     
     return msg
-
-def get_field_icon(field_name):
-    """Lấy icon phù hợp cho từng field"""
-    field_name_lower = field_name.lower()
-    
-    icon_map = {
-        "uid": "🆔",
-        "id": "🆔",
-        "region": "🌏",
-        "shells": "💰",
-        "email_verified": "📧",
-        "mobile_bound": "📱",
-        "fb_linked": "👤",
-        "account_secured": "🔒",
-        "password_set": "🔐",
-        "aov_name": "🎮",
-        "aov_rank": "🏆",
-        "aov_level": "📊",
-        "aov_banned": "🚫",
-        "aov_total_skins": "🎨",
-        "name": "👤",
-        "nickname": "👤",
-        "account": "🔑",
-        "info": "ℹ️",
-        "user": "👤",
-        "player": "🎮",
-        "level": "📊",
-        "rank": "🏆",
-        "email": "📧",
-        "phone": "📱",
-        "sdt": "📱",
-        "skin": "🎨",
-        "skins": "🎨",
-        "banned": "🚫",
-        "ban": "🚫",
-        "verified": "✅",
-        "secured": "🔒",
-        "password": "🔐",
-        "proxy": "🌐",
-        "ip": "🌐",
-        "port": "🔌",
-        "time": "⏱",
-        "date": "📅",
-        "status": "📊",
-        "result": "📋",
-        "message": "💬",
-        "error": "⚠️",
-        "success": "✅",
-        "data": "📦"
-    }
-    
-    return icon_map.get(field_name_lower, "▫️")
 
 # ========== CHECK ĐƠN ==========
 def check_single(chat_id, username, password, service="lienquan"):
@@ -1140,12 +1071,6 @@ def check_batch(chat_id, accounts, service):
         
         batch_num += 1
         
-        # Gửi thông báo batch
-        safe_send_message(chat_id, f"""
-📦 <b>BATCH {batch_num}/{total_batches}</b>
-🔍 Dang check {len(batch)} acc...
-""")
-        
         # Check batch hiện tại
         with ThreadPoolExecutor(max_workers=CHECKMULTI_THREADS) as executor:
             futures = {executor.submit(process_single, user, pwd): (user, pwd) 
@@ -1166,7 +1091,6 @@ def check_batch(chat_id, accounts, service):
 ✅ Hits: <code>{stats['hits']}</code>
 ❌ Dead: <code>{stats['dead']}</code>
 ⚡ Speed: <code>{speed:.1f}</code> acc/s
-⏱ Elapsed: <code>{elapsed:.1f}s</code>
 """)
         
         # Delay giữa các batch
@@ -1284,7 +1208,7 @@ def cmd_start(message):
         proxy_count = len(proxy_list)
     
     safe_send_message(message.chat.id, f"""
-🤖 <b>GARENA CHECKER BOT V5.0 - SUPER VIP</b>
+🤖 <b>GARENA CHECKER BOT V5.1 - ULTIMATE FIX</b>
 👤 Admin: @baohuyno1
 🌐 Proxy: {proxy_count}
 
@@ -1674,7 +1598,7 @@ Preview (20 dong dau):
 def main():
     """Hàm chính khởi động bot"""
     print("=" * 60)
-    print("    GARENA CHECKER BOT V5.0 - SUPER VIP")
+    print("    GARENA CHECKER BOT V5.1 - ULTIMATE FIX")
     print("    ADMIN: @baohuyno1")
     print("    HO TRO | VA :")
     print("    KENH BAT BUOC: @hakiiosvip")
