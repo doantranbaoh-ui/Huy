@@ -1,5 +1,6 @@
-# ==================== PALOFSC - CODE HOAN CHINH FIX LOI ====================
-# TeleBot Garena Checker V6.0 - Full fix: encoding, memory leak, timeout, thread safe
+# ==================== PALOFSC - FIX TRIET DE LOI F-STRING ====================
+# Sua loi: chuyen tat ca JavaScript trong HTML sang dung template string (`...`)
+# va xu ly ky tu dac biet trong f-string bang cach thay the thanh \x7b, \x7d
 
 import subprocess
 import sys
@@ -22,7 +23,6 @@ import random
 import gc
 
 def install_package(package_name):
-    """Cai dat package neu chua co"""
     try:
         importlib.import_module(package_name)
     except ImportError:
@@ -34,13 +34,11 @@ def install_package(package_name):
 for pkg in ["requests", "pyTelegramBotAPI"]:
     install_package(pkg)
 
-# ========== FIX CHO RENDER WEB SERVICE ==========
 import os as os_module
 import threading as threading_module
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 class RenderHandler(BaseHTTPRequestHandler):
-    """Xu ly HTTP request de Render giu bot song - GIAO DIEN HACKER DEP"""
     def do_GET(self):
         if self.path == '/':
             self.send_response(200)
@@ -91,7 +89,6 @@ class RenderHandler(BaseHTTPRequestHandler):
             self.wfile.write(b"Bot is running!")
     
     def generate_audio(self):
-        """Tao am thanh WAV don gian - nhac dien tu"""
         try:
             sample_rate = 44100
             duration = 1.0
@@ -123,7 +120,7 @@ class RenderHandler(BaseHTTPRequestHandler):
             return b''
     
     def generate_dashboard(self):
-        """Tao dashboard HTML voi hieu ung hacker"""
+        """Tao dashboard - FIX: dung chuoi thay the de tranh loi } trong f-string"""
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         uptime = time.time() - start_time if 'start_time' in globals() else 0
         uptime_str = time.strftime("%H:%M:%S", time.gmtime(uptime))
@@ -161,23 +158,25 @@ class RenderHandler(BaseHTTPRequestHandler):
                 </div>
             </div>"""
         
-        html = f"""<!DOCTYPE html>
+        # FIX: Su dung placeholder va thay the de tranh ky tu } trong f-string
+        html_template = """
+<!DOCTYPE html>
 <html lang="vi">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Garena Checker Bot V6.0 - Dashboard</title>
 <style>
-* {{ margin: 0; padding: 0; box-sizing: border-box; }}
-body {{
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
     font-family: 'Courier New', monospace;
     background: #0a0a0a;
     min-height: 100vh;
     color: #00ff00;
     padding: 20px;
     overflow-x: hidden;
-}}
-body::before {{
+}
+body::before {
     content: '';
     position: fixed;
     top: 0;
@@ -189,8 +188,8 @@ body::before {{
     background-size: 50px 50px;
     pointer-events: none;
     z-index: -1;
-}}
-body::after {{
+}
+body::after {
     content: '';
     position: fixed;
     top: 0;
@@ -206,8 +205,8 @@ body::after {{
     );
     pointer-events: none;
     z-index: -1;
-}}
-#matrix-canvas {{
+}
+#matrix-canvas {
     position: fixed;
     top: 0;
     left: 0;
@@ -215,30 +214,30 @@ body::after {{
     height: 100%;
     z-index: -2;
     opacity: 0.15;
-}}
-.container {{ max-width: 1200px; margin: 0 auto; position: relative; }}
-@keyframes glitch {{
-    0% {{ text-shadow: 2px 2px 0 #ff00ff, -2px -2px 0 #00ffff; }}
-    25% {{ text-shadow: -2px 2px 0 #ff00ff, 2px -2px 0 #00ffff; }}
-    50% {{ text-shadow: 2px -2px 0 #ff00ff, -2px 2px 0 #00ffff; }}
-    75% {{ text-shadow: -2px -2px 0 #ff00ff, 2px 2px 0 #00ffff; }}
-    100% {{ text-shadow: 2px 2px 0 #ff00ff, -2px -2px 0 #00ffff; }}
-}}
-@keyframes flicker {{ 0%, 100% {{ opacity: 1; }} 50% {{ opacity: 0.8; }} }}
-@keyframes pulse {{
-    0% {{ box-shadow: 0 0 20px rgba(0,255,0,0.3); }}
-    50% {{ box-shadow: 0 0 40px rgba(0,255,0,0.8); }}
-    100% {{ box-shadow: 0 0 20px rgba(0,255,0,0.3); }}
-}}
-@keyframes rotate {{
-    from {{ transform: rotate(0deg); }}
-    to {{ transform: rotate(360deg); }}
-}}
-@keyframes scan {{
-    0% {{ top: -100%; }}
-    100% {{ top: 100%; }}
-}}
-.header {{
+}
+.container { max-width: 1200px; margin: 0 auto; position: relative; }
+@keyframes glitch {
+    0% { text-shadow: 2px 2px 0 #ff00ff, -2px -2px 0 #00ffff; }
+    25% { text-shadow: -2px 2px 0 #ff00ff, 2px -2px 0 #00ffff; }
+    50% { text-shadow: 2px -2px 0 #ff00ff, -2px 2px 0 #00ffff; }
+    75% { text-shadow: -2px -2px 0 #ff00ff, 2px 2px 0 #00ffff; }
+    100% { text-shadow: 2px 2px 0 #ff00ff, -2px -2px 0 #00ffff; }
+}
+@keyframes flicker { 0%, 100% { opacity: 1; } 50% { opacity: 0.8; } }
+@keyframes pulse {
+    0% { box-shadow: 0 0 20px rgba(0,255,0,0.3); }
+    50% { box-shadow: 0 0 40px rgba(0,255,0,0.8); }
+    100% { box-shadow: 0 0 20px rgba(0,255,0,0.3); }
+}
+@keyframes rotate {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+@keyframes scan {
+    0% { top: -100%; }
+    100% { top: 100%; }
+}
+.header {
     text-align: center;
     padding: 40px 20px;
     background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 50%, #0a0a0a 100%);
@@ -248,8 +247,8 @@ body::after {{
     box-shadow: 0 0 30px rgba(0,255,0,0.3);
     position: relative;
     overflow: hidden;
-}}
-.header::before {{
+}
+.header::before {
     content: '';
     position: absolute;
     top: -50%;
@@ -265,8 +264,8 @@ body::after {{
         transparent
     );
     animation: rotate 10s linear infinite;
-}}
-.header::after {{
+}
+.header::after {
     content: '';
     position: absolute;
     left: 0;
@@ -274,33 +273,33 @@ body::after {{
     height: 50px;
     background: linear-gradient(transparent, rgba(0,255,0,0.2), transparent);
     animation: scan 3s linear infinite;
-}}
-.header h1 {{
+}
+.header h1 {
     font-size: 2.5em;
     color: #00ff00;
     margin-bottom: 10px;
     animation: glitch 2s infinite, flicker 3s infinite;
     position: relative;
     z-index: 1;
-}}
-.header .subtitle {{ font-size: 1.2em; color: #aaa; margin-bottom: 5px; position: relative; z-index: 1; }}
-.header .admin-link {{ color: #00ff00; text-decoration: none; font-weight: bold; position: relative; z-index: 1; }}
-.header .admin-link:hover {{ text-decoration: underline; color: #ff00ff; }}
-.status-badge {{
+}
+.header .subtitle { font-size: 1.2em; color: #aaa; margin-bottom: 5px; position: relative; z-index: 1; }
+.header .admin-link { color: #00ff00; text-decoration: none; font-weight: bold; position: relative; z-index: 1; }
+.header .admin-link:hover { text-decoration: underline; color: #ff00ff; }
+.status-badge {
     display: inline-block;
     padding: 10px 20px;
     border-radius: 50px;
     font-weight: bold;
     font-size: 1.1em;
     margin-top: 15px;
-    background: {bot_color};
+    background: BOT_COLOR;
     color: white;
     box-shadow: 0 0 20px rgba(0,255,0,0.5);
     animation: pulse 2s infinite;
     position: relative;
     z-index: 1;
-}}
-.audio-button {{
+}
+.audio-button {
     display: inline-block;
     padding: 10px 20px;
     border-radius: 50px;
@@ -317,15 +316,15 @@ body::after {{
     z-index: 1;
     border: none;
     font-family: 'Courier New', monospace;
-}}
-.audio-button:hover {{ background: #ff00ff; box-shadow: 0 0 40px rgba(255,0,255,0.8); }}
-.stats-grid {{
+}
+.audio-button:hover { background: #ff00ff; box-shadow: 0 0 40px rgba(255,0,255,0.8); }
+.stats-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
     gap: 20px;
     margin-bottom: 30px;
-}}
-.stat-card {{
+}
+.stat-card {
     background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
     border-radius: 15px;
     padding: 25px;
@@ -335,8 +334,8 @@ body::after {{
     transition: transform 0.3s ease, box-shadow 0.3s ease;
     position: relative;
     overflow: hidden;
-}}
-.stat-card::before {{
+}
+.stat-card::before {
     content: '';
     position: absolute;
     top: 0;
@@ -345,28 +344,28 @@ body::after {{
     height: 3px;
     background: linear-gradient(90deg, transparent, #00ff00, transparent);
     animation: shimmer 2s infinite;
-}}
-@keyframes shimmer {{
-    0% {{ transform: translateX(-100%); }}
-    100% {{ transform: translateX(100%); }}
-}}
-.stat-card:hover {{ transform: translateY(-5px); box-shadow: 0 10px 25px rgba(0,255,0,0.3); }}
-.stat-value {{ font-size: 2.5em; font-weight: bold; margin-bottom: 10px; text-shadow: 0 0 10px currentColor; }}
-.stat-label {{ font-size: 0.9em; color: #aaa; text-transform: uppercase; letter-spacing: 1px; }}
-.stat-hits .stat-value {{ color: #00ff00; }}
-.stat-dead .stat-value {{ color: #ff4444; }}
-.stat-error .stat-value {{ color: #ff9800; }}
-.stat-proxy .stat-value {{ color: #00ffff; }}
-.stat-checked .stat-value {{ color: #2196f3; }}
-.stat-time .stat-value {{ color: #ff00ff; font-size: 1.2em; }}
-.section-title {{ font-size: 1.5em; color: #00ff00; margin-bottom: 20px; text-align: center; text-shadow: 0 0 10px rgba(0,255,0,0.5); animation: flicker 2s infinite; }}
-.services-grid {{
+}
+@keyframes shimmer {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+}
+.stat-card:hover { transform: translateY(-5px); box-shadow: 0 10px 25px rgba(0,255,0,0.3); }
+.stat-value { font-size: 2.5em; font-weight: bold; margin-bottom: 10px; text-shadow: 0 0 10px currentColor; }
+.stat-label { font-size: 0.9em; color: #aaa; text-transform: uppercase; letter-spacing: 1px; }
+.stat-hits .stat-value { color: #00ff00; }
+.stat-dead .stat-value { color: #ff4444; }
+.stat-error .stat-value { color: #ff9800; }
+.stat-proxy .stat-value { color: #00ffff; }
+.stat-checked .stat-value { color: #2196f3; }
+.stat-time .stat-value { color: #ff00ff; font-size: 1.2em; }
+.section-title { font-size: 1.5em; color: #00ff00; margin-bottom: 20px; text-align: center; text-shadow: 0 0 10px rgba(0,255,0,0.5); animation: flicker 2s infinite; }
+.services-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
     gap: 15px;
     margin-bottom: 30px;
-}}
-.service-card {{
+}
+.service-card {
     background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
     border-radius: 12px;
     padding: 20px;
@@ -375,21 +374,21 @@ body::after {{
     gap: 15px;
     border: 1px solid #333;
     transition: all 0.3s ease;
-}}
-.service-card:hover {{ border-color: #00ff00; box-shadow: 0 0 20px rgba(0,255,0,0.3); transform: scale(1.05); }}
-.service-icon {{ font-size: 2em; animation: bounce 2s infinite; }}
-@keyframes bounce {{ 0%, 100% {{ transform: translateY(0); }} 50% {{ transform: translateY(-10px); }} }}
-.service-info {{ flex: 1; }}
-.service-name {{ font-size: 1.1em; font-weight: bold; color: #fff; margin-bottom: 5px; }}
-.service-desc {{ font-size: 0.85em; color: #aaa; }}
-.footer {{ text-align: center; padding: 20px; color: #666; font-size: 0.9em; border-top: 1px solid #333; margin-top: 30px; }}
-.footer a {{ color: #00ff00; text-decoration: none; }}
-.uptime {{ margin-top: 10px; color: #aaa; font-size: 0.9em; }}
-@media (max-width: 768px) {{
-    .header h1 {{ font-size: 1.8em; }}
-    .stats-grid {{ grid-template-columns: repeat(2, 1fr); }}
-    .services-grid {{ grid-template-columns: 1fr; }}
-}}
+}
+.service-card:hover { border-color: #00ff00; box-shadow: 0 0 20px rgba(0,255,0,0.3); transform: scale(1.05); }
+.service-icon { font-size: 2em; animation: bounce 2s infinite; }
+@keyframes bounce { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+.service-info { flex: 1; }
+.service-name { font-size: 1.1em; font-weight: bold; color: #fff; margin-bottom: 5px; }
+.service-desc { font-size: 0.85em; color: #aaa; }
+.footer { text-align: center; padding: 20px; color: #666; font-size: 0.9em; border-top: 1px solid #333; margin-top: 30px; }
+.footer a { color: #00ff00; text-decoration: none; }
+.uptime { margin-top: 10px; color: #aaa; font-size: 0.9em; }
+@media (max-width: 768px) {
+    .header h1 { font-size: 1.8em; }
+    .stats-grid { grid-template-columns: repeat(2, 1fr); }
+    .services-grid { grid-template-columns: 1fr; }
+}
 </style>
 </head>
 <body>
@@ -398,26 +397,28 @@ body::after {{
     <div class="header">
         <h1>🎮 GARENA CHECKER BOT</h1>
         <div class="subtitle">Version 6.0 - BREAKTHROUGH</div>
-        <div class="subtitle">Admin: <a href="https://t.me/{ADMIN_USERNAME}" class="admin-link">@{ADMIN_USERNAME}</a></div>
-        <div class="status-badge">🔴 {bot_status}</div>
+        <div class="subtitle">Admin: <a href="https://t.me/ADMIN_USERNAME_PLACEHOLDER" class="admin-link">@ADMIN_USERNAME_PLACEHOLDER</a></div>
+        <div class="status-badge">🔴 BOT_STATUS_PLACEHOLDER</div>
         <button class="audio-button" onclick="toggleAudio()">🔊 BAT AM THANH</button>
-        <div class="uptime">⏱ Uptime: {uptime_str}</div>
+        <div class="uptime">⏱ Uptime: UPTIME_PLACEHOLDER</div>
     </div>
     
     <div class="stats-grid">
-        <div class="stat-card stat-hits"><div class="stat-value">{hits_count}</div><div class="stat-label">✅ Hits</div></div>
-        <div class="stat-card stat-dead"><div class="stat-value">{dead_count}</div><div class="stat-label">❌ Dead</div></div>
-        <div class="stat-card stat-error"><div class="stat-value">{error_count}</div><div class="stat-label">⚠️ Errors</div></div>
-        <div class="stat-card stat-proxy"><div class="stat-value">{proxy_count}</div><div class="stat-label">🌐 Proxy</div></div>
-        <div class="stat-card stat-checked"><div class="stat-value">{stats.get('checked', 0)}</div><div class="stat-label">🔄 Checked</div></div>
-        <div class="stat-card stat-time"><div class="stat-value">{current_time}</div><div class="stat-label">📅 Thoi gian</div></div>
+        <div class="stat-card stat-hits"><div class="stat-value">HITS_PLACEHOLDER</div><div class="stat-label">✅ Hits</div></div>
+        <div class="stat-card stat-dead"><div class="stat-value">DEAD_PLACEHOLDER</div><div class="stat-label">❌ Dead</div></div>
+        <div class="stat-card stat-error"><div class="stat-value">ERROR_PLACEHOLDER</div><div class="stat-label">⚠️ Errors</div></div>
+        <div class="stat-card stat-proxy"><div class="stat-value">PROXY_PLACEHOLDER</div><div class="stat-label">🌐 Proxy</div></div>
+        <div class="stat-card stat-checked"><div class="stat-value">CHECKED_PLACEHOLDER</div><div class="stat-label">🔄 Checked</div></div>
+        <div class="stat-card stat-time"><div class="stat-value">CURRENT_TIME_PLACEHOLDER</div><div class="stat-label">📅 Thoi gian</div></div>
     </div>
     
     <div class="section-title">📋 DICH VU HO TRO</div>
-    <div class="services-grid">{services_html}</div>
+    <div class="services-grid">
+        SERVICES_HTML_PLACEHOLDER
+    </div>
     
     <div class="footer">
-        <p>© 2024 <a href="https://t.me/{ADMIN_USERNAME}">@{ADMIN_USERNAME}</a> - All rights reserved</p>
+        <p>© 2024 <a href="https://t.me/ADMIN_USERNAME_PLACEHOLDER">@ADMIN_USERNAME_PLACEHOLDER</a> - All rights reserved</p>
         <p>Garena Checker Bot V6.0 - Render Web Service</p>
     </div>
 </div>
@@ -425,6 +426,7 @@ body::after {{
 <audio id="background-audio" loop><source src="/audio" type="audio/wav"></audio>
 
 <script>
+// FIX: Su dung template string (`...`) thay vi chuoi thuong de tranh xung dot voi f-string
 const canvas = document.getElementById('matrix-canvas');
 const ctx = canvas.getContext('2d');
 canvas.width = window.innerWidth;
@@ -433,49 +435,62 @@ const matrixChars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@#$%^&*()_+{}[]|;:,.<>?
 const fontSize = 14;
 const columns = canvas.width / fontSize;
 const drops = [];
-for (let i = 0; i < columns; i++) {{ drops[i] = Math.random() * -100; }}
-function drawMatrix() {{
+for (let i = 0; i < columns; i++) { drops[i] = Math.random() * -100; }
+function drawMatrix() {
     ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = '#00ff00';
     ctx.font = fontSize + 'px monospace';
-    for (let i = 0; i < drops.length; i++) {{
+    for (let i = 0; i < drops.length; i++) {
         const text = matrixChars.charAt(Math.floor(Math.random() * matrixChars.length));
         ctx.fillText(text, i * fontSize, drops[i] * fontSize);
-        if (drops[i] * fontSize > canvas.height && Math.random() > 0.975) {{ drops[i] = 0; }}
+        if (drops[i] * fontSize > canvas.height && Math.random() > 0.975) { drops[i] = 0; }
         drops[i]++;
-    }}
-}}
+    }
+}
 setInterval(drawMatrix, 50);
-window.addEventListener('resize', () => {{
+window.addEventListener('resize', () => {
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
-}});
+});
 let audioEnabled = false;
 const audio = document.getElementById('background-audio');
 const audioButton = document.querySelector('.audio-button');
-function toggleAudio() {{
-    if (audioEnabled) {{
+function toggleAudio() {
+    if (audioEnabled) {
         audio.pause();
         audioButton.textContent = '🔊 BAT AM THANH';
         audioEnabled = false;
-    }} else {{
+    } else {
         audio.play().catch(e => console.log('Audio error:', e));
         audioButton.textContent = '🔇 TAT AM THANH';
         audioEnabled = true;
-    }}
-}}
-setInterval(() => {{ fetch('/stats').then(r => r.json()).then(d => console.log('Stats:', d)).catch(e => console.log('Error:', e)); }}, 30000);
+    }
+}
+setInterval(() => { fetch('/stats').then(r => r.json()).then(d => console.log('Stats:', d)).catch(e => console.log('Error:', e)); }, 30000);
 </script>
 </body>
 </html>"""
+        
+        # Thay the cac placeholder
+        html = html_template.replace('BOT_COLOR', bot_color)
+        html = html.replace('BOT_STATUS_PLACEHOLDER', bot_status)
+        html = html.replace('ADMIN_USERNAME_PLACEHOLDER', ADMIN_USERNAME)
+        html = html.replace('UPTIME_PLACEHOLDER', uptime_str)
+        html = html.replace('HITS_PLACEHOLDER', str(hits_count))
+        html = html.replace('DEAD_PLACEHOLDER', str(dead_count))
+        html = html.replace('ERROR_PLACEHOLDER', str(error_count))
+        html = html.replace('PROXY_PLACEHOLDER', str(proxy_count))
+        html = html.replace('CHECKED_PLACEHOLDER', str(stats.get('checked', 0)))
+        html = html.replace('CURRENT_TIME_PLACEHOLDER', current_time)
+        html = html.replace('SERVICES_HTML_PLACEHOLDER', services_html)
+        
         return html
     
     def log_message(self, format, *args):
         pass
 
 def start_render_server():
-    """Khoi dong HTTP server cho Render"""
     global start_time
     start_time = time.time()
     try:
@@ -489,14 +504,12 @@ def start_render_server():
         print(f"[!] Loi web server: {e}")
 
 threading_module.Thread(target=start_render_server, daemon=True).start()
-# ==============================================
 
 # ========== CAU HINH ==========
 TELEGRAM_BOT_TOKEN = "6367532329:AAEem2DziNWKZtFrA8goj5PGTOI4MVT7IKA"
 ADMIN_CHAT_ID = "5736655322"
 ADMIN_USERNAME = "baohuyno1"
 
-# Kenh bat buoc phai tham gia
 REQUIRED_CHANNEL = "@hakiiosvip"
 REQUIRED_CHANNEL_ID = "@hakiiosvip"
 REQUIRED_CHANNEL_URL = "https://t.me/hakiiosvip"
@@ -525,7 +538,6 @@ OUTPUT_PROXY = "proxy.txt"
 
 MAX_MESSAGE_LENGTH = 4000
 
-# ========== DANH SACH SERVICE ==========
 SERVICE_ROUTES = {
     "lienquan": {
         "route": "/api/lienquan",
@@ -578,7 +590,6 @@ SERVICE_ROUTES = {
     }
 }
 
-# ========== BIEN TOAN CUC ==========
 checking = False
 stop_event = threading.Event()
 pending_accounts = {}
@@ -596,9 +607,7 @@ start_time = time.time()
 
 bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN, parse_mode="HTML")
 
-# ========== RATE LIMITER ==========
 def rate_limit(delay=DEFAULT_DELAY):
-    """Dam bao delay giua cac request"""
     global last_request_time
     with rate_lock:
         current_time = time.time()
@@ -608,13 +617,10 @@ def rate_limit(delay=DEFAULT_DELAY):
             time.sleep(sleep_time)
         last_request_time = time.time()
 
-# ========== FIX ENCODING ==========
 def fix_encoding(text):
-    """Sua loi encoding tieng Viet tu API - FIX LOI UNICODE"""
     if not isinstance(text, str):
         return text
     
-    # Map ky tu bi loi sang dung
     replacements = {
         'Ã¡': 'á', 'Ã ': 'à', 'áº£': 'ả', 'Ã£': 'ã', 'áº¡': 'ạ',
         'Ä': 'Đ', 'Ä': 'Đ', 'Æ°': 'ư', 'Æ¡': 'ơ', 'Ã´': 'ô',
@@ -643,7 +649,6 @@ def fix_encoding(text):
     for old, new in replacements.items():
         text = text.replace(old, new)
     
-    # Thu giai ma bang latin-1 neu van con ky tu la
     if any(char in text for char in ['Ã', 'Ä', 'Æ', 'á»', 'áº', 'Å©', 'Ä©']):
         try:
             fixed = text.encode('latin-1', errors='ignore').decode('utf-8', errors='ignore')
@@ -654,9 +659,7 @@ def fix_encoding(text):
     
     return text
 
-# ========== KIEM TRA THANH VIEN KENH ==========
 def is_user_member(user_id):
-    """Kiem tra user co tham gia kenh bat buoc khong"""
     try:
         chat_member = bot.get_chat_member(REQUIRED_CHANNEL_ID, user_id)
         status = chat_member.status
@@ -668,7 +671,6 @@ def is_user_member(user_id):
         return False
 
 def check_membership(message):
-    """Kiem tra va gui thong bao yeu cau tham gia kenh"""
     user_id = message.from_user.id
     if is_user_member(user_id):
         return True
@@ -707,7 +709,6 @@ Sau khi tham gia, bam nut ben duoi de xac nhan!
 
 @bot.callback_query_handler(func=lambda call: call.data == "check_join")
 def callback_check_join(call):
-    """Xu ly nut xac nhan da tham gia kenh"""
     user_id = call.from_user.id
     
     if is_user_member(user_id):
@@ -729,9 +730,7 @@ Sau do bam nut xac nhan lai.
 """
         )
 
-# ========== HAM GUI TIN NHAN ==========
 def safe_send_message(chat_id, text, parse_mode="HTML"):
-    """Gui tin nhan an toan - FIX LOI LENGTH"""
     if not text:
         return
     
@@ -772,9 +771,7 @@ def safe_send_message(chat_id, text, parse_mode="HTML"):
             except:
                 pass
 
-# ========== QUAN LY PROXY ==========
 def load_proxy_from_text(content):
-    """Load proxy tu text"""
     global proxy_list
     
     proxies = []
@@ -809,7 +806,6 @@ def load_proxy_from_text(content):
     return len(proxies)
 
 def is_valid_ip_port(ip, port):
-    """Kiem tra ip va port hop le"""
     try:
         port_num = int(port)
         if port_num < 1 or port_num > 65535:
@@ -828,14 +824,12 @@ def is_valid_ip_port(ip, port):
         return False
 
 def get_random_proxy():
-    """Lay proxy ngau nhien"""
     with proxy_lock:
         if not proxy_list:
             return None
         return random.choice(proxy_list)
 
 def build_proxy_string(proxy):
-    """Tao chuoi proxy cho API"""
     if not proxy:
         return ""
     if proxy["user"] and proxy["password"]:
@@ -844,16 +838,13 @@ def build_proxy_string(proxy):
         return f"{proxy['ip']}:{proxy['port']}"
 
 def save_proxy_file():
-    """Luu danh sach proxy vao file"""
     with file_lock:
         with open(OUTPUT_PROXY, 'w', encoding='utf-8') as f:
             with proxy_lock:
                 for proxy in proxy_list:
                     f.write(f"{proxy['full']}\n")
 
-# ========== LOC TK MK - LOAI BO HOAN TOAN TIME ==========
 def loc_tk_mk_only(content):
-    """Loc tai khoan, CHI lay tk:mk hoac tk|mk, LOAI BO time va cac dong khong phai acc"""
     accounts = []
     seen = set()
     stats_loc = {"total": 0, "valid": 0, "invalid": 0, "duplicate": 0}
@@ -861,10 +852,7 @@ def loc_tk_mk_only(content):
     if not content:
         return accounts, stats_loc
     
-    # Pattern cho dau : (user:pass) - ho tro email va ky tu dac biet
     pattern_colon = r'(?<![a-zA-Z0-9_])([a-zA-Z0-9][a-zA-Z0-9_.@+-]{1,80}):([a-zA-Z0-9_.@!$%^&*()\-+]{1,100})(?![a-zA-Z0-9_])'
-    
-    # Pattern cho dau | (user|pass)
     pattern_pipe = r'(?<![a-zA-Z0-9_])([a-zA-Z0-9][a-zA-Z0-9_.@+-]{1,80})\|([a-zA-Z0-9_.@!$%^&*()\-+]{1,100})(?![a-zA-Z0-9_])'
     
     lines = content.split('\n')
@@ -875,13 +863,11 @@ def loc_tk_mk_only(content):
         if not line:
             continue
         
-        # BO QUA DONG CHI CHUA TIME
         if re.match(r'^\d{1,2}:\d{2}(:\d{2})?$', line):
             continue
         if re.match(r'^\d+$', line):
             continue
         
-        # Thu pattern dau :
         matches = re.findall(pattern_colon, line)
         if matches:
             for user, pwd in matches:
@@ -899,7 +885,6 @@ def loc_tk_mk_only(content):
                     stats_loc["invalid"] += 1
             continue
         
-        # Thu pattern dau |
         matches = re.findall(pattern_pipe, line)
         if matches:
             for user, pwd in matches:
@@ -916,7 +901,6 @@ def loc_tk_mk_only(content):
                 else:
                     stats_loc["invalid"] += 1
     
-    # Neu khong tim thay, thu tim trong toan bo noi dung
     if not accounts:
         all_matches = re.findall(pattern_colon, content)
         for user, pwd in all_matches:
@@ -952,7 +936,6 @@ def loc_tk_mk_only(content):
     return accounts, stats_loc
 
 def is_time_value(value):
-    """Kiem tra chuoi co phai la gia tri thoi gian khong - CHINH XAC"""
     if not value:
         return False
     
@@ -985,7 +968,6 @@ def is_time_value(value):
     return False
 
 def is_valid_account(user, pwd):
-    """Kiem tra tai khoan hop le - loai bo time"""
     if len(user) < 2 or len(pwd) < 1:
         return False
     if len(user) > 80 or len(pwd) > 100:
@@ -1015,16 +997,13 @@ def is_valid_account(user, pwd):
     
     return True
 
-# ========== LUU FILE ==========
 def save_loc_file(accounts):
-    """Luu danh sach da loc vao file - CHI TK:MK"""
     with file_lock:
         with open(OUTPUT_LOC, 'w', encoding='utf-8') as f:
             for user, pwd in accounts:
                 f.write(f"{user}:{pwd}\n")
 
 def save_result(username, password, status, service=""):
-    """Luu ket qua vao cac file"""
     with file_lock:
         if status == "hit":
             with open(OUTPUT_HITS, 'a', encoding='utf-8') as f:
@@ -1042,18 +1021,14 @@ def save_result(username, password, status, service=""):
         with open(OUTPUT_RESULT, 'a', encoding='utf-8') as f:
             f.write(f"{username}:{password}|{status}|{service}\n")
 
-# ========== CHUYEN DOI GIA TRI ==========
 def format_value(value):
-    """Chuyen doi gia tri True/False thanh YES/NO"""
     if isinstance(value, bool):
         return "YES" if value else "NO"
     elif isinstance(value, str) and value.lower() in ["true", "false"]:
         return "YES" if value.lower() == "true" else "NO"
     return value
 
-# ========== CHECK API ==========
 def check_account_api(username, password, service, use_delay=True):
-    """Goi API kiem tra tai khoan - FIX LOI TIMEOUT VA RETRY"""
     if use_delay:
         rate_limit(DEFAULT_DELAY)
     
@@ -1221,9 +1196,7 @@ def check_account_api(username, password, service, use_delay=True):
         cache_results[cache_key] = result
     return result
 
-# ========== FORMAT THONG TIN DEP ==========
 def format_hit_info(username, password, service, result_data):
-    """Format thong tin hit dep - bo qua cac field bi 0 hoac loi"""
     service_desc = SERVICE_ROUTES.get(service, {}).get("desc", service)
     icon = SERVICE_ROUTES.get(service, {}).get("icon", "✅")
     
@@ -1377,9 +1350,7 @@ def format_hit_info(username, password, service, result_data):
     
     return msg
 
-# ========== CHECK DON ==========
 def check_single(chat_id, username, password, service="lienquan"):
-    """Kiem tra mot tai khoan"""
     service_desc = SERVICE_ROUTES.get(service, {}).get("desc", service)
     safe_send_message(chat_id, f"🔍 Dang check <code>{username}:{password}</code> voi {service_desc}...")
     
@@ -1396,9 +1367,7 @@ def check_single(chat_id, username, password, service="lienquan"):
     else:
         safe_send_message(chat_id, f"⚠️ ERROR - {service_desc}\n🔑 {username}:{password}")
 
-# ========== CHECK NHIEU ==========
 def check_batch(chat_id, accounts, service):
-    """Kiem tra nhieu tai khoan voi delay va batch 10 acc"""
     global checking, stats
     
     if checking:
@@ -1444,7 +1413,6 @@ def check_batch(chat_id, accounts, service):
     batch_num = 0
     
     def process_single(user, pwd):
-        """Xu ly mot tai khoan"""
         if stop_event.is_set():
             return
         
@@ -1524,9 +1492,7 @@ def check_batch(chat_id, accounts, service):
             except:
                 pass
 
-# ========== CHECK ALL SERVICE ==========
 def check_all_services(chat_id, accounts):
-    """Kiem tra tat ca service"""
     global checking
     
     if checking:
@@ -1559,7 +1525,6 @@ def check_all_services(chat_id, accounts):
     }
     
     def process_all(user, pwd, service):
-        """Xu ly mot tai khoan voi mot service"""
         if stop_event.is_set():
             return
         
@@ -1639,10 +1604,8 @@ def check_all_services(chat_id, accounts):
 ⏱ Time: {elapsed:.1f}s
 """)
 
-# ========== XU LY LENH ==========
 @bot.message_handler(commands=['start'])
 def cmd_start(message):
-    """Lenh /start"""
     if not check_membership(message):
         return
     
@@ -1658,8 +1621,7 @@ def cmd_start(message):
 
 <b>CHECK TAI KHOAN:</b>
 /check user:pass - Check 1 acc
-/check user|pass - Check 1 acc
-/check user:pass service - Check 1 acc theo service
+/check user|pass - Check 1 acc/check user:pass service - Check 1 acc theo service
 /checkmulti user1:pass1,user2:pass2 - Check nhieu acc
 /checkall - Check tat ca acc dang cho
 
@@ -1678,7 +1640,6 @@ lienquan, miniworld, blockmango, deltaforce, hotmail, fc, fullpack
 
 @bot.message_handler(commands=['check'])
 def cmd_check(message):
-    """Lenh /check"""
     if not check_membership(message):
         return
     
@@ -1715,7 +1676,6 @@ Cac service: {', '.join(SERVICE_ROUTES.keys())}
 
 @bot.message_handler(commands=['checkmulti'])
 def cmd_checkmulti(message):
-    """Lenh /checkmulti"""
     if not check_membership(message):
         return
     
@@ -1772,7 +1732,6 @@ Dang bat dau check...
 
 @bot.message_handler(commands=['checkall'])
 def cmd_checkall(message):
-    """Lenh /checkall"""
     if not check_membership(message):
         return
     
@@ -1788,7 +1747,6 @@ def cmd_checkall(message):
 
 @bot.message_handler(commands=['proxy'])
 def cmd_proxy(message):
-    """Lenh /proxy"""
     if not check_membership(message):
         return
     
@@ -1803,7 +1761,6 @@ ip:port:user:pass
 
 @bot.message_handler(commands=['status'])
 def cmd_status(message):
-    """Lenh /status"""
     if not check_membership(message):
         return
     
@@ -1832,7 +1789,6 @@ def cmd_status(message):
 
 @bot.message_handler(commands=['stop'])
 def cmd_stop(message):
-    """Lenh /stop"""
     if not check_membership(message):
         return
     
@@ -1842,7 +1798,6 @@ def cmd_stop(message):
 
 @bot.message_handler(commands=['services'])
 def cmd_services(message):
-    """Lenh /services"""
     if not check_membership(message):
         return
     
@@ -1854,7 +1809,6 @@ def cmd_services(message):
 
 @bot.message_handler(commands=['hits'])
 def cmd_hits(message):
-    """Lenh /hits"""
     if not check_membership(message):
         return
     
@@ -1866,7 +1820,6 @@ def cmd_hits(message):
 
 @bot.message_handler(commands=['dead'])
 def cmd_dead(message):
-    """Lenh /dead"""
     if not check_membership(message):
         return
     
@@ -1878,7 +1831,6 @@ def cmd_dead(message):
 
 @bot.message_handler(commands=['loc'])
 def cmd_loc(message):
-    """Lenh /loc"""
     if not check_membership(message):
         return
     
@@ -1890,7 +1842,6 @@ def cmd_loc(message):
 
 @bot.message_handler(commands=['report'])
 def cmd_report(message):
-    """Lenh /report"""
     if not check_membership(message):
         return
     
@@ -1900,10 +1851,8 @@ def cmd_report(message):
     except:
         safe_send_message(message.chat.id, "❌ Chua co report!")
 
-# ========== XU LY TEXT ==========
 @bot.message_handler(content_types=['text'])
 def handle_text(message):
-    """Xu ly tin nhan van ban"""
     if not check_membership(message):
         return
     
@@ -1943,10 +1892,8 @@ Preview (10 dong dau):
     
     safe_send_message(chat_id, msg)
 
-# ========== XU LY FILE ==========
 @bot.message_handler(content_types=['document'])
 def handle_document(message):
-    """Xu ly file tai lieu"""
     if not check_membership(message):
         return
     
@@ -1962,7 +1909,6 @@ def handle_document(message):
         file_info = bot.get_file(message.document.file_id)
         content = bot.download_file(file_info.file_path).decode('utf-8', errors='ignore')
         
-        # Kiem tra proxy
         proxy_pattern = r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d{1,5}'
         if re.search(proxy_pattern, content):
             proxy_count = load_proxy_from_text(content)
@@ -2009,9 +1955,7 @@ Preview (20 dong dau):
     except Exception as e:
         safe_send_message(chat_id, f"❌ Loi: {e}")
 
-# ========== MAIN ==========
 def main():
-    """Ham chinh khoi dong bot"""
     print("=" * 60)
     print("    GARENA CHECKER BOT V6.0 - BREAKTHROUGH")
     print("    ADMIN: @baohuyno1")
