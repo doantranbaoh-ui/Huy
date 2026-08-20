@@ -171,6 +171,61 @@ cache_lock = threading.Lock()
 
 bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN, parse_mode="HTML")
 
+# ========== FIX ENCODING ==========
+def fix_encoding(text):
+    """Sửa lỗi encoding tiếng Việt từ API"""
+    if not isinstance(text, str):
+        return text
+    
+    try:
+        # Thử sửa các lỗi encoding phổ biến
+        text = text.encode('latin-1', errors='ignore').decode('utf-8', errors='ignore')
+    except:
+        pass
+    
+    try:
+        # Thử sửa mojibake
+        text = text.encode('utf-8', errors='ignore').decode('utf-8', errors='ignore')
+    except:
+        pass
+    
+    # Thay thế các ký tự lỗi thường gặp
+    replacements = {
+        'Ã¡': 'á', 'Ã ': 'à', 'áº£': 'ả', 'Ã£': 'ã', 'áº¡': 'ạ',
+        'Ä': 'Đ', 'Ä': 'Đ', 'Æ°': 'ư', 'Æ¡': 'ơ', 'Ã´': 'ô',
+        'á»': 'ộ', 'á»': 'ố', 'á»': 'ồ', 'á»': 'ổ', 'á»': 'ỗ', 'á»': 'ộ',
+        'Ã¢': 'â', 'Äƒ': 'ă', 'Ãª': 'ê', 'Ã­': 'í', 'Ã¬': 'ì',
+        'á»‹': 'ị', 'á»‰': 'ỉ', 'Ä©': 'ĩ', 'Ã³': 'ó', 'Ã²': 'ò',
+        'á»Ž': 'ỏ', 'Ãµ': 'õ', 'á»': 'ọ', 'Ãº': 'ú', 'Ã¹': 'ù',
+        'á»§': 'ủ', 'Å©': 'ũ', 'á»¥': 'ụ', 'Ã½': 'ý', 'á»³': 'ỳ',
+        'á»·': 'ỷ', 'Ä©': 'ĩ', 'á»µ': 'ỵ',
+        'Nghiá»‡p': 'Nghiệp', 'Hoáº£': 'Hoả', 'YÃªu': 'Yêu', 'Háº­u': 'Hậu',
+        'Tháº¿': 'Thế', 'Tá»­': 'Tử', 'Nguyá»‡t': 'Nguyệt', 'Tá»™c': 'Tộc',
+        'SiÃªu': 'Siêu', 'viá»‡t': 'việt', 'Ngá»™': 'Ngộ', 'KhÃ´ng': 'Không',
+        'Omen': 'Omen', 'Äao': 'Đao', 'phá»§': 'phủ', 'táº­n': 'tận', 'tháº¿': 'thế',
+        'Bijan': 'Bijan', 'Giai': 'Giai', 'Ä‘iá»‡u': 'điệu', 'GiÃ¡ng': 'Giáng', 'Sinh': 'Sinh',
+        'Zephys': 'Zephys', 'Inosuke': 'Inosuke', 'Hashibira': 'Hashibira',
+        'Lindis': 'Lindis', 'Äá»“ng': 'Đồng', 'phá»¥c': 'phục', 'Shihakusho': 'Shihakusho',
+        'Slimz': 'Slimz', 'SiÃªu': 'Siêu', 'Cáº¥p': 'Cấp', 'Tá»‘i': 'Tối', 'ThÆ°á»£ng': 'Thượng',
+        'Alice': 'Alice', 'Phi': 'Phi', 'hÃ nh': 'hành', 'gia': 'gia',
+        'Florentino': 'Florentino', 'Hisoka': 'Hisoka',
+        'Qi': 'Qi', 'Annie': 'Annie', 'Leonhart': 'Leonhart',
+        'K.CÆ°Æ¡ng': 'K.Cương', 'K.CÆ°Æ¡ng': 'K.Cương',
+        'æ¬¡äº”èª’åƒå”·.': 'Thứ Ngũ Giới Cật.',
+        'áº¥': 'ấ', 'áº©': 'ẩ', 'áº«': 'ẫ', 'áº­': 'ậ',
+        'áº¯': 'ắ', 'áº±': 'ằ', 'áº³': 'ẳ', 'áºµ': 'ẵ', 'áº·': 'ặ',
+        'áº£': 'ả', 'áº¥': 'ấ', 'áº§': 'ầ', 'áº©': 'ẩ', 'áº«': 'ẫ', 'áº­': 'ậ',
+        'áº¯': 'ắ', 'áº±': 'ằ', 'áº³': 'ẳ', 'áºµ': 'ẵ', 'áº·': 'ặ',
+        'áº£': 'ả', 'áº¥': 'ấ', 'áº§': 'ầ', 'áº©': 'ẩ', 'áº«': 'ẫ', 'áº­': 'ậ',
+        'áº¯': 'ắ', 'áº±': 'ằ', 'áº³': 'ẳ', 'áºµ': 'ẵ', 'áº·': 'ặ',
+        'áº£': 'ả', 'áº¥': 'ấ', 'áº§': 'ầ', 'áº©': 'ẩ', 'áº«': 'ẫ', 'áº­': 'ậ',
+    }
+    
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+    
+    return text
+
 # ========== KIỂM TRA THÀNH VIÊN KÊNH ==========
 def is_user_member(user_id):
     """Kiểm tra user có tham gia kênh bắt buộc không"""
@@ -266,6 +321,9 @@ def safe_send_message(chat_id, text, parse_mode="HTML"):
     """Gửi tin nhắn an toàn"""
     if not text:
         return
+    
+    # Fix encoding trước khi gửi
+    text = fix_encoding(text)
     
     if len(text) > MAX_MESSAGE_LENGTH:
         parts = []
@@ -606,12 +664,24 @@ def check_account_api(username, password, service):
                 try:
                     result_data = resp.json()
                     
+                    # Fix encoding cho tất cả giá trị string
+                    if isinstance(result_data, dict):
+                        for key, value in result_data.items():
+                            if isinstance(value, str):
+                                result_data[key] = fix_encoding(value)
+                            elif isinstance(value, list):
+                                result_data[key] = [fix_encoding(item) if isinstance(item, str) else item for item in value]
+                            elif isinstance(value, dict):
+                                for sub_key, sub_value in value.items():
+                                    if isinstance(sub_value, str):
+                                        value[sub_key] = fix_encoding(sub_value)
+                    
                     if isinstance(result_data, dict):
                         is_hit = False
                         
                         status_val = result_data.get("status")
                         if status_val is not None:
-                            if status_val in [True, "true", 1, "1", "True", "TRUE", "success", "Success", "SUCCESS"]:
+                            if status_val in [True, "true", 1, "1", "True", "TRUE", "success", "Success", "SUCCESS", "HIT", "hit"]:
                                 is_hit = True
                             elif status_val in [False, "false", 0, "0", "False", "FALSE", "fail", "Fail", "FAIL", "dead", "Dead", "DEAD"]:
                                 is_hit = False
@@ -735,30 +805,37 @@ def format_hit_info(username, password, service, result_data):
             "shells": ("💰 Shells", "shells"),
             "so": ("💲 Sò", "so"),
             "nap_so": ("💰 Nạp sò", "nap_so"),
+            "email_verified": ("📩 EMAIL", "email_verified"),
             "email": ("📩 EMAIL", "email"),
-            "email_verified": ("📧 Email Verified", "email_verified"),
+            "mobile_bound": ("📱 SĐT", "mobile_bound"),
             "phone": ("📱 SĐT", "phone"),
             "sdt": ("📱 SĐT", "sdt"),
-            "mobile_bound": ("📱 Mobile Bound", "mobile_bound"),
             "fb": ("🔗 FB", "fb"),
-            "fb_linked": ("🔗 FB Linked", "fb_linked"),
+            "fb_linked": ("🔗 FB", "fb_linked"),
             "password_set": ("🛡 PASS", "password_set"),
             "account_secured": ("🛡 Account Secured", "account_secured"),
             "banned": ("🚫 BAND", "banned"),
             "ban": ("🚫 BAND", "ban"),
+            "aov_banned": ("🚫 BAND", "aov_banned"),
             "last_login": ("⏰ Login cuối", "last_login"),
+            "garena_created": ("📅 Tạo GR", "garena_created"),
             "created_at": ("📅 Tạo GR", "created_at"),
             "server": ("🖥 Server", "server"),
             "aov_name": ("🔥 NAME", "aov_name"),
             "aov_rank": ("👑 RANK", "aov_rank"),
             "aov_level": ("✨ LEVEL", "aov_level"),
             "aov_total_skins": ("💎 SKIN", "aov_total_skins"),
+            "aov_total_champs": ("💪 HERO", "aov_total_champs"),
             "aov_total_heroes": ("💪 HERO", "aov_total_heroes"),
             "aov_total_relationships": ("⚡️ QH", "aov_total_relationships"),
+            "aov_ss": ("✦ SS", "aov_ss"),
+            "aov_sss": ("✦ SSS", "aov_sss"),
+            "aov_anime": ("✦ Anime", "aov_anime"),
+            "aov_ss_list": ("✦ SS List", "aov_ss_list"),
+            "aov_sss_list": ("✦ SSS List", "aov_sss_list"),
+            "aov_anime_list": ("✦ Anime List", "aov_anime_list"),
             "cccd": ("📄 CCCD", "cccd"),
             "authen": ("🛡 Authen", "authen"),
-            "ss_4": ("✦ SS(4)", "ss_4"),
-            "anime_1": ("✦ Anime(1)", "anime_1"),
             "tinh_trang": ("📋 Tình Trạng", "tinh_trang"),
             "status_account": ("📋 Tình Trạng", "status_account"),
             # FC Mobile fields
@@ -766,7 +843,10 @@ def format_hit_info(username, password, service, result_data):
             "fc_uid": ("🆔 FC UID", "fc_uid"),
             "fc_ovr": ("📊 OVR", "fc_ovr"),
             "fc_level": ("✨ FC Level", "fc_level"),
-            "fc_rank": ("👑 FC Rank", "fc_rank")
+            "fc_rank": ("👑 FC Rank", "fc_rank"),
+            # Additional fields
+            "last_session_ip": ("🌐 IP", "last_session_ip"),
+            "last_session_country": ("🌍 Country", "last_session_country")
         }
         
         info_lines = []
@@ -775,25 +855,57 @@ def format_hit_info(username, password, service, result_data):
         for key, (label, field) in field_map.items():
             if field in result_data and result_data[field] is not None and result_data[field] != "" and result_data[field] != "N/A":
                 value = result_data[field]
+                
+                # Fix encoding
+                if isinstance(value, str):
+                    value = fix_encoding(value)
+                
+                # Format value
                 value = format_value(value)
+                
+                # Format list values
+                if isinstance(value, list) and value:
+                    value = ", ".join([fix_encoding(str(item)) for item in value])
+                
+                # Format boolean values for specific fields
+                if field in ["email_verified", "mobile_bound", "fb_linked", "password_set", "account_secured"]:
+                    if isinstance(value, bool):
+                        value = "YES" if value else "NO"
+                    elif isinstance(value, str) and value.lower() in ["true", "false"]:
+                        value = "YES" if value.lower() == "true" else "NO"
+                
+                if field == "aov_banned":
+                    if isinstance(value, str) and value.upper() == "NO":
+                        value = "NO"
+                    elif isinstance(value, bool):
+                        value = "YES" if value else "NO"
+                
                 info_lines.append(f"{label}: {value}")
         
         # Process any remaining fields
         skip_fields = set(field_map.keys())
-        skip_fields.update(["result", "_is_hit", "_raw_response", "_error", "status", "success", "tk", "mk", "data", "message"])
+        skip_fields.update(["result", "_is_hit", "_raw_response", "_error", "status", "success", "tk", "mk", "data", "message", "username"])
         
         for key, value in result_data.items():
             if key not in skip_fields and value is not None and value != "" and value != {} and value != []:
                 if isinstance(value, (str, int, float)):
                     label = key.replace("_", " ").title()
                     value = format_value(value)
+                    if isinstance(value, str):
+                        value = fix_encoding(value)
                     info_lines.append(f"▫️ {label}: {value}")
+                elif isinstance(value, list) and value:
+                    label = key.replace("_", " ").title()
+                    list_value = ", ".join([fix_encoding(str(item)) for item in value])
+                    info_lines.append(f"▫️ {label}: {list_value}")
                 elif isinstance(value, dict):
                     for sub_key, sub_value in value.items():
                         if sub_value is not None and sub_value != "" and sub_value != {} and sub_value != []:
                             if isinstance(sub_value, (str, int, float)):
                                 sub_label = sub_key.replace("_", " ").title()
                                 sub_value = format_value(sub_value)
+                                if isinstance(sub_value, str):
+                                    sub_value = fix_encoding(sub_value)
                                 info_lines.append(f"▫️ {sub_label}: {sub_value}")
         
         if info_lines:
