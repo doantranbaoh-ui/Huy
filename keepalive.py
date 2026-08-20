@@ -1,7 +1,3 @@
-# keepalive.py - KEEPALIVE HACKER LASER EFFECTS V3
-# Tác giả: palofsc
-# Mục đích: Giữ bot chạy 24/7 với hiệu ứng tia hacker (laser beams)
-
 import os
 import sys
 import subprocess
@@ -11,6 +7,9 @@ import requests
 import signal
 import random
 import json
+import struct
+import math
+import base64
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from datetime import datetime
 
@@ -19,9 +18,58 @@ PORT = int(os.environ.get("PORT", 10000))
 BOT_SCRIPT = "bot.py"
 START_TIME = datetime.now()
 
+# Biến toàn cục cho stats
+bot_stats = {
+    "total": 0,
+    "checked": 0,
+    "hits": 0,
+    "dead": 0,
+    "errors": 0,
+    "unknown": 0,
+    "checking": False,
+    "proxy_count": 0,
+    "start_time": datetime.now().isoformat()
+}
+
+# Đọc file stats từ bot.py nếu có
+def read_bot_stats():
+    """Đọc thống kê từ các file output"""
+    global bot_stats
+    
+    hits_count = 0
+    dead_count = 0
+    error_count = 0
+    
+    try:
+        if os.path.exists("hits.txt"):
+            with open("hits.txt", 'r', encoding='utf-8') as f:
+                hits_count = len(f.readlines())
+    except:
+        pass
+    
+    try:
+        if os.path.exists("dead.txt"):
+            with open("dead.txt", 'r', encoding='utf-8') as f:
+                dead_count = len(f.readlines())
+    except:
+        pass
+    
+    try:
+        if os.path.exists("error.txt"):
+            with open("error.txt", 'r', encoding='utf-8') as f:
+                error_count = len(f.readlines())
+    except:
+        pass
+    
+    bot_stats["hits"] = hits_count
+    bot_stats["dead"] = dead_count
+    bot_stats["errors"] = error_count
+    
+    return bot_stats
+
 # ========== WEB SERVER VỚI HIỆU ỨNG TIA HACKER ==========
 class HackerHandler(BaseHTTPRequestHandler):
-    """Web server với hiệu ứng tia hacker laser"""
+    """Web server với hiệu ứng tia hacker laser và âm thanh"""
     
     def do_GET(self):
         if self.path == '/':
@@ -40,13 +88,13 @@ class HackerHandler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header('Content-type', 'application/json; charset=utf-8')
             self.end_headers()
-            status_json = json.dumps({
-                "status": "alive",
-                "timestamp": datetime.now().isoformat(),
-                "port": PORT,
-                "pid": os.getpid(),
-                "uptime": str(datetime.now() - START_TIME)
-            })
+            status_data = read_bot_stats()
+            status_data["status"] = "alive"
+            status_data["timestamp"] = datetime.now().isoformat()
+            status_data["port"] = PORT
+            status_data["pid"] = os.getpid()
+            status_data["uptime"] = str(datetime.now() - START_TIME)
+            status_json = json.dumps(status_data)
             self.wfile.write(status_json.encode('utf-8'))
         
         elif self.path == '/health':
@@ -68,17 +116,156 @@ class HackerHandler(BaseHTTPRequestHandler):
             html = self.generate_matrix_page()
             self.wfile.write(html.encode('utf-8'))
         
+        elif self.path == '/audio':
+            self.send_response(200)
+            self.send_header('Content-type', 'audio/wav')
+            self.send_header('Cache-Control', 'no-cache')
+            self.end_headers()
+            audio_data = self.generate_hacker_audio()
+            self.wfile.write(audio_data)
+        
+        elif self.path == '/audio2':
+            self.send_response(200)
+            self.send_header('Content-type', 'audio/wav')
+            self.send_header('Cache-Control', 'no-cache')
+            self.end_headers()
+            audio_data = self.generate_cyber_audio()
+            self.wfile.write(audio_data)
+        
+        elif self.path == '/audio3':
+            self.send_response(200)
+            self.send_header('Content-type', 'audio/wav')
+            self.send_header('Cache-Control', 'no-cache')
+            self.end_headers()
+            audio_data = self.generate_techno_audio()
+            self.wfile.write(audio_data)
+        
+        elif self.path == '/stats-page':
+            self.send_response(200)
+            self.send_header('Content-type', 'text/html; charset=utf-8')
+            self.end_headers()
+            html = self.generate_stats_page()
+            self.wfile.write(html.encode('utf-8'))
+        
         else:
             self.send_response(404)
             self.end_headers()
             self.wfile.write(b"404 Not Found")
     
+    def generate_hacker_audio(self):
+        """Tạo âm thanh hacker đơn giản"""
+        try:
+            sample_rate = 44100
+            duration = 2.0
+            num_samples = int(sample_rate * duration)
+            
+            data_size = num_samples * 2
+            header = b'RIFF' + struct.pack('<I', 36 + data_size) + b'WAVE'
+            header += b'fmt ' + struct.pack('<IHHIIHH', 16, 1, 1, sample_rate, sample_rate * 2, 2, 16)
+            header += b'data' + struct.pack('<I', data_size)
+            
+            audio_data = bytearray()
+            for i in range(num_samples):
+                t = i / sample_rate
+                # Tạo âm thanh điện tử phức tạp
+                value = int(32767 * 0.3 * (
+                    math.sin(2 * math.pi * 440 * t) * math.exp(-3 * t) +
+                    math.sin(2 * math.pi * 880 * t) * math.exp(-5 * t) * 0.5 +
+                    math.sin(2 * math.pi * 220 * t) * math.exp(-2 * t) * 0.3 +
+                    math.sin(2 * math.pi * 1320 * t) * math.exp(-7 * t) * 0.2
+                ))
+                audio_data += struct.pack('<h', value)
+            
+            return header + bytes(audio_data)
+        except:
+            return b''
+    
+    def generate_cyber_audio(self):
+        """Tạo âm thanh cyberpunk"""
+        try:
+            sample_rate = 44100
+            duration = 3.0
+            num_samples = int(sample_rate * duration)
+            
+            data_size = num_samples * 2
+            header = b'RIFF' + struct.pack('<I', 36 + data_size) + b'WAVE'
+            header += b'fmt ' + struct.pack('<IHHIIHH', 16, 1, 1, sample_rate, sample_rate * 2, 2, 16)
+            header += b'data' + struct.pack('<I', data_size)
+            
+            audio_data = bytearray()
+            for i in range(num_samples):
+                t = i / sample_rate
+                # Âm thanh cyberpunk với sweep tần số
+                freq = 200 + 600 * (t / duration)  # Sweep từ 200Hz đến 800Hz
+                value = int(32767 * 0.3 * (
+                    math.sin(2 * math.pi * freq * t) * math.exp(-1.5 * t) +
+                    math.sin(2 * math.pi * freq * 2 * t) * math.exp(-2 * t) * 0.4 +
+                    math.sin(2 * math.pi * freq * 0.5 * t) * math.exp(-1 * t) * 0.3
+                ))
+                audio_data += struct.pack('<h', value)
+            
+            return header + bytes(audio_data)
+        except:
+            return b''
+    
+    def generate_techno_audio(self):
+        """Tạo âm thanh techno"""
+        try:
+            sample_rate = 44100
+            duration = 4.0
+            num_samples = int(sample_rate * duration)
+            
+            data_size = num_samples * 2
+            header = b'RIFF' + struct.pack('<I', 36 + data_size) + b'WAVE'
+            header += b'fmt ' + struct.pack('<IHHIIHH', 16, 1, 1, sample_rate, sample_rate * 2, 2, 16)
+            header += b'data' + struct.pack('<I', data_size)
+            
+            audio_data = bytearray()
+            beat_interval = 0.25  # 240 BPM
+            beat_count = int(duration / beat_interval)
+            
+            for i in range(num_samples):
+                t = i / sample_rate
+                
+                # Beat chính
+                beat_phase = (t % beat_interval) / beat_interval
+                beat = 0
+                if beat_phase < 0.1:
+                    beat = math.exp(-beat_phase * 50)
+                
+                # Bass
+                bass_freq = 100
+                bass = math.sin(2 * math.pi * bass_freq * t) * beat
+                
+                # Hi-hat
+                hi_hat_phase = (t % 0.125) / 0.125
+                hi_hat = 0
+                if hi_hat_phase < 0.05:
+                    hi_hat = math.exp(-hi_hat_phase * 100) * 0.3
+                
+                # Melody
+                melody_freq = 440 + 220 * math.sin(2 * math.pi * 0.5 * t)
+                melody = math.sin(2 * math.pi * melody_freq * t) * 0.2 * math.exp(-0.5 * (t % beat_interval))
+                
+                value = int(32767 * 0.4 * (bass + hi_hat + melody))
+                audio_data += struct.pack('<h', value)
+            
+            return header + bytes(audio_data)
+        except:
+            return b''
+    
     def generate_laser_page(self):
-        """Tạo trang HTML với hiệu ứng tia hacker"""
+        """Tạo trang HTML với hiệu ứng tia hacker và âm thanh"""
+        stats = read_bot_stats()
+        
+        hits = stats.get("hits", 0)
+        dead = stats.get("dead", 0)
+        errors = stats.get("errors", 0)
+        
         return """<!DOCTYPE html>
 <html>
 <head>
-    <title>GARENA CHECKER - LASER SECURITY</title>
+    <title>GARENA CHECKER - LASER SECURITY V3</title>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
@@ -121,7 +308,7 @@ class HackerHandler(BaseHTTPRequestHandler):
             position: relative;
             z-index: 2;
             max-width: 800px;
-            margin: 50px auto;
+            margin: 30px auto;
             padding: 30px;
             background: rgba(0, 0, 0, 0.85);
             border: 2px solid #00ff00;
@@ -207,7 +394,7 @@ class HackerHandler(BaseHTTPRequestHandler):
         }
         
         .title {
-            font-size: 3em;
+            font-size: 2.5em;
             text-align: center;
             margin-bottom: 10px;
             color: #00ff00;
@@ -288,7 +475,7 @@ class HackerHandler(BaseHTTPRequestHandler):
         
         .status-grid {
             display: grid;
-            grid-template-columns: repeat(2, 1fr);
+            grid-template-columns: repeat(3, 1fr);
             gap: 10px;
             margin: 20px 0;
         }
@@ -300,6 +487,7 @@ class HackerHandler(BaseHTTPRequestHandler):
             border-radius: 5px;
             font-size: 14px;
             transition: all 0.3s ease;
+            text-align: center;
         }
         
         .status-item:hover {
@@ -310,12 +498,48 @@ class HackerHandler(BaseHTTPRequestHandler):
         
         .status-label {
             color: #666;
-            font-size: 12px;
+            font-size: 11px;
+            text-transform: uppercase;
         }
         
         .status-value {
             color: #00ff00;
             font-weight: bold;
+            font-size: 20px;
+        }
+        
+        .stat-hits .status-value { color: #00ff00; }
+        .stat-dead .status-value { color: #ff4444; }
+        .stat-errors .status-value { color: #ff9800; }
+        
+        .audio-buttons {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin: 15px 0;
+            flex-wrap: wrap;
+        }
+        
+        .audio-btn {
+            padding: 8px 16px;
+            background: rgba(0, 255, 0, 0.1);
+            border: 1px solid #00ff00;
+            border-radius: 5px;
+            color: #00ff00;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            transition: all 0.3s ease;
+        }
+        
+        .audio-btn:hover {
+            background: rgba(0, 255, 0, 0.3);
+            box-shadow: 0 0 20px rgba(0, 255, 0, 0.5);
+        }
+        
+        .audio-btn.active {
+            background: #00ff00;
+            color: #000;
         }
         
         .hacker-log {
@@ -324,7 +548,7 @@ class HackerHandler(BaseHTTPRequestHandler):
             background: rgba(0, 0, 0, 0.5);
             border: 1px solid rgba(0, 255, 0, 0.3);
             border-radius: 5px;
-            max-height: 200px;
+            max-height: 150px;
             overflow-y: auto;
             font-size: 12px;
         }
@@ -347,14 +571,17 @@ class HackerHandler(BaseHTTPRequestHandler):
         
         @media (max-width: 600px) {
             .container {
-                margin: 20px;
-                padding: 20px;
+                margin: 15px;
+                padding: 15px;
             }
             .title {
-                font-size: 2em;
+                font-size: 1.5em;
             }
             .status-grid {
                 grid-template-columns: 1fr;
+            }
+            .audio-buttons {
+                flex-direction: column;
             }
         }
     </style>
@@ -369,7 +596,7 @@ class HackerHandler(BaseHTTPRequestHandler):
                 <span class="terminal-btn btn-yellow"></span>
                 <span class="terminal-btn btn-green"></span>
             </div>
-            <div class="terminal-title">LASER SECURITY - ENCRYPTED</div>
+            <div class="terminal-title">LASER SECURITY - ENCRYPTED V3</div>
         </div>
         
         <div class="title">GARENA CHECKER</div>
@@ -382,28 +609,47 @@ class HackerHandler(BaseHTTPRequestHandler):
         </div>
         
         <div class="status-grid">
+            <div class="status-item stat-hits">
+                <div class="status-label">HITS</div>
+                <div class="status-value">""" + str(hits) + """</div>
+            </div>
+            <div class="status-item stat-dead">
+                <div class="status-label">DEAD</div>
+                <div class="status-value">""" + str(dead) + """</div>
+            </div>
+            <div class="status-item stat-errors">
+                <div class="status-label">ERRORS</div>
+                <div class="status-value">""" + str(errors) + """</div>
+            </div>
             <div class="status-item">
                 <div class="status-label">STATUS</div>
                 <div class="status-value" id="status">ALIVE</div>
             </div>
             <div class="status-item">
                 <div class="status-label">UPTIME</div>
-                <div class="status-value" id="uptime">Calculating...</div>
+                <div class="status-value" id="uptime" style="font-size: 14px;">Calculating...</div>
             </div>
             <div class="status-item">
                 <div class="status-label">ADMIN</div>
-                <div class="status-value"><a href="https://t.me/baohuyno1" class="admin-link">@baohuyno1</a></div>
+                <div class="status-value" style="font-size: 14px;"><a href="https://t.me/baohuyno1" class="admin-link">@baohuyno1</a></div>
             </div>
-            <div class="status-item">
-                <div class="status-label">PORT</div>
-                <div class="status-value">""" + str(PORT) + """</div>
-            </div>
+        </div>
+        
+        <div class="audio-buttons">
+            <button class="audio-btn" onclick="playAudio('/audio', this)">🔊 HACKER SOUND</button>
+            <button class="audio-btn" onclick="playAudio('/audio2', this)">🔊 CYBER SOUND</button>
+            <button class="audio-btn" onclick="playAudio('/audio3', this)">🔊 TECHNO SOUND</button>
+            <button class="audio-btn" onclick="stopAudio()">🔇 STOP</button>
         </div>
         
         <div class="hacker-log" id="hacker-log">
             <div>[SYSTEM] Laser security initialized...</div>
         </div>
     </div>
+    
+    <audio id="bg-audio" loop>
+        <source src="/audio2" type="audio/wav">
+    </audio>
     
     <script>
         // ========== MATRIX BACKGROUND ==========
@@ -474,7 +720,6 @@ class HackerHandler(BaseHTTPRequestHandler):
             update() {
                 this.life++;
                 
-                // Tạo particles
                 if (Math.random() > 0.5) {
                     this.particles.push({
                         x: this.x + (this.targetX - this.x) * Math.random(),
@@ -486,7 +731,6 @@ class HackerHandler(BaseHTTPRequestHandler):
                     });
                 }
                 
-                // Cập nhật particles
                 for (let i = this.particles.length - 1; i >= 0; i--) {
                     const p = this.particles[i];
                     p.x += p.vx;
@@ -503,7 +747,6 @@ class HackerHandler(BaseHTTPRequestHandler):
             }
             
             draw(ctx) {
-                // Vẽ tia laser chính
                 const progress = this.life / this.maxLife;
                 const alpha = progress < 0.2 ? progress * 5 : progress > 0.8 ? (1 - progress) * 5 : 1;
                 
@@ -520,7 +763,6 @@ class HackerHandler(BaseHTTPRequestHandler):
                 ctx.lineTo(this.targetX, this.targetY);
                 ctx.stroke();
                 
-                // Vẽ particles
                 for (const p of this.particles) {
                     const pAlpha = 1 - (p.life / p.maxLife);
                     ctx.fillStyle = this.color;
@@ -534,8 +776,7 @@ class HackerHandler(BaseHTTPRequestHandler):
             }
         }
         
-        // Tạo lasers
-        for (let i = 0; i < 15; i++) {
+        for (let i = 0; i < 20; i++) {
             lasers.push(new LaserBeam());
         }
         
@@ -547,7 +788,6 @@ class HackerHandler(BaseHTTPRequestHandler):
                 laser.draw(laserCtx);
             }
             
-            // Vẽ chớp sáng ngẫu nhiên
             if (Math.random() > 0.98) {
                 const flashX = Math.random() * laserCanvas.width;
                 const flashY = Math.random() * laserCanvas.height;
@@ -568,6 +808,42 @@ class HackerHandler(BaseHTTPRequestHandler):
         }
         
         drawLasers();
+        
+        // ========== AUDIO SYSTEM ==========
+        const bgAudio = document.getElementById('bg-audio');
+        let currentAudio = null;
+        
+        function playAudio(url, button) {
+            stopAudio();
+            
+            currentAudio = new Audio(url);
+            currentAudio.loop = true;
+            currentAudio.volume = 0.5;
+            currentAudio.play().catch(e => console.log('Audio error:', e));
+            
+            document.querySelectorAll('.audio-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            
+            if (button) {
+                button.classList.add('active');
+            }
+        }
+        
+        function stopAudio() {
+            if (currentAudio) {
+                currentAudio.pause();
+                currentAudio = null;
+            }
+            
+            document.querySelectorAll('.audio-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+        }
+        
+        // Tự động play nhạc nền
+        bgAudio.volume = 0.3;
+        bgAudio.play().catch(e => console.log('Auto play blocked:', e));
         
         // ========== UPTIME COUNTER ==========
         const startTime = new Date();
@@ -643,6 +919,18 @@ class HackerHandler(BaseHTTPRequestHandler):
                 });
         }, 5000);
         
+        // ========== STATS UPDATE ==========
+        setInterval(() => {
+            fetch('/status')
+                .then(response => response.json())
+                .then(data => {
+                    document.querySelector('.stat-hits .status-value').textContent = data.hits || 0;
+                    document.querySelector('.stat-dead .status-value').textContent = data.dead || 0;
+                    document.querySelector('.stat-errors .status-value').textContent = data.errors || 0;
+                })
+                .catch(err => console.log('Stats error:', err));
+        }, 10000);
+        
         // ========== RESIZE HANDLER ==========
         window.addEventListener('resize', () => {
             matrixCanvas.width = window.innerWidth;
@@ -661,7 +949,7 @@ class HackerHandler(BaseHTTPRequestHandler):
                 laser.targetY = Math.random() * laserCanvas.height;
                 lasers.push(laser);
                 
-                if (lasers.length > 30) {
+                if (lasers.length > 40) {
                     lasers.shift();
                 }
             }
@@ -771,7 +1059,7 @@ class HackerHandler(BaseHTTPRequestHandler):
         }
         
         function createLaser() {
-            if (lasers.length < 50) {
+            if (lasers.length < 60) {
                 lasers.push(new Laser());
             }
         }
@@ -792,7 +1080,7 @@ class HackerHandler(BaseHTTPRequestHandler):
             requestAnimationFrame(draw);
         }
         
-        for (let i = 0; i < 20; i++) {
+        for (let i = 0; i < 25; i++) {
             createLaser();
         }
         
@@ -801,18 +1089,18 @@ class HackerHandler(BaseHTTPRequestHandler):
         document.addEventListener('mousemove', (e) => {
             if (Math.random() > 0.5) {
                 lasers.push(new Laser(e.clientX, e.clientY));
-                if (lasers.length > 50) {
+                if (lasers.length > 60) {
                     lasers.shift();
                 }
             }
         });
         
         document.addEventListener('click', (e) => {
-            for (let i = 0; i < 5; i++) {
+            for (let i = 0; i < 10; i++) {
                 lasers.push(new Laser(e.clientX, e.clientY));
             }
-            if (lasers.length > 50) {
-                lasers.splice(0, 5);
+            if (lasers.length > 60) {
+                lasers.splice(0, 10);
             }
         });
         
@@ -889,19 +1177,121 @@ class HackerHandler(BaseHTTPRequestHandler):
 </body>
 </html>"""
     
+    def generate_stats_page(self):
+        """Tạo trang thống kê chi tiết"""
+        stats = read_bot_stats()
+        
+        hits = stats.get("hits", 0)
+        dead = stats.get("dead", 0)
+        errors = stats.get("errors", 0)
+        total = hits + dead + errors
+        
+        return """<!DOCTYPE html>
+<html>
+<head>
+    <title>STATS - GARENA CHECKER</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Courier New', monospace;
+            background: #0a0a0a;
+            color: #00ff00;
+            padding: 20px;
+            min-height: 100vh;
+        }
+        .container { max-width: 800px; margin: 0 auto; }
+        .title {
+            text-align: center;
+            font-size: 2em;
+            margin-bottom: 30px;
+            text-shadow: 0 0 20px #00ff00;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        .stat-card {
+            background: #111;
+            border: 1px solid #00ff00;
+            border-radius: 10px;
+            padding: 20px;
+            text-align: center;
+            box-shadow: 0 0 20px rgba(0,255,0,0.2);
+        }
+        .stat-value { font-size: 2.5em; font-weight: bold; }
+        .stat-label { font-size: 0.8em; color: #666; margin-top: 5px; }
+        .hits .stat-value { color: #00ff00; }
+        .dead .stat-value { color: #ff4444; }
+        .errors .stat-value { color: #ff9800; }
+        .total .stat-value { color: #00ffff; }
+        .back-link {
+            display: block;
+            text-align: center;
+            color: #00ff00;
+            text-decoration: none;
+            margin-top: 30px;
+            padding: 10px;
+            border: 1px solid #00ff00;
+            border-radius: 5px;
+        }
+        .back-link:hover {
+            background: #00ff00;
+            color: #000;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="title">📊 STATISTICS</div>
+        <div class="stats-grid">
+            <div class="stat-card hits">
+                <div class="stat-value">""" + str(hits) + """</div>
+                <div class="stat-label">✅ HITS</div>
+            </div>
+            <div class="stat-card dead">
+                <div class="stat-value">""" + str(dead) + """</div>
+                <div class="stat-label">❌ DEAD</div>
+            </div>
+            <div class="stat-card errors">
+                <div class="stat-value">""" + str(errors) + """</div>
+                <div class="stat-label">⚠️ ERRORS</div>
+            </div>
+            <div class="stat-card total">
+                <div class="stat-value">""" + str(total) + """</div>
+                <div class="stat-label">📊 TOTAL</div>
+            </div>
+        </div>
+        <a href="/" class="back-link">⬅ BACK TO DASHBOARD</a>
+    </div>
+</body>
+</html>"""
+    
     def log_message(self, format, *args):
         """Tắt log để tránh spam"""
         pass
 
 # ========== HÀM CHẠY WEB SERVER ==========
 def run_web_server():
-    """Chạy web server với hiệu ứng tia hacker"""
+    """Chạy web server với hiệu ứng tia hacker và âm thanh"""
     try:
         server = HTTPServer(("0.0.0.0", PORT), HackerHandler)
         print(f"[*] Web server laser hacker dang chay tren port {PORT}")
         print(f"[*] Truy cap: http://localhost:{PORT}")
         print(f"[*] Laser mode: http://localhost:{PORT}/laser")
         print(f"[*] Matrix mode: http://localhost:{PORT}/matrix")
+        print(f"[*] Stats: http://localhost:{PORT}/stats-page")
+        print(f"[*] Audio 1: http://localhost:{PORT}/audio")
+        print(f"[*] Audio 2: http://localhost:{PORT}/audio2")
+        print(f"[*] Audio 3: http://localhost:{PORT}/audio3")
         server.serve_forever()
     except Exception as e:
         print(f"[!] Loi web server: {e}")
@@ -951,7 +1341,7 @@ def print_hacker_banner():
 ║    ╚██████╔╝██║  ██║██║  ██║███████╗██║ ╚████║      ║
 ║     ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═══╝      ║
 ║                                                      ║
-║           LASER SECURITY - ENCRYPTED                 ║
+║           LASER SECURITY - ENCRYPTED V3              ║
 ║                                                      ║
 ╚══════════════════════════════════════════════════════╝
     """
@@ -981,7 +1371,7 @@ def main():
     
     print("[*] Tat ca service da khoi dong!")
     print("[*] Bot dang chay 24/7...")
-    print("[*] Truy cap web de xem hieu ung laser hacker")
+    print("[*] Truy cap web de xem hieu ung laser hacker va am thanh")
     print("=" * 60)
     
     # Chạy bot chính
