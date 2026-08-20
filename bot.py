@@ -43,10 +43,10 @@ class RenderHandler(BaseHTTPRequestHandler):
 <html>
 <head><title>Garena Checker Bot</title></head>
 <body style="font-family:Arial;text-align:center;padding:50px;background:#0a0a0a;color:#00ff00;">
-<h1>Garena Checker Bot V4.8</h1>
+<h1>Garena Checker Bot V4.9</h1>
 <p>Status: <b style="color:#00ff00;">ALIVE</b></p>
 <p>Admin: <a href="https://t.me/baohuyno1" style="color:#00ff00;">@baohuyno1</a></p>
-<p>Version: <b>4.8 - CHECK FIX</b></p>
+<p>Version: <b>4.9 - FULL INFO</b></p>
 </body>
 </html>"""
             self.wfile.write(html.encode('utf-8'))
@@ -177,48 +177,56 @@ def fix_encoding(text):
     if not isinstance(text, str):
         return text
     
-    try:
-        # Thử sửa các lỗi encoding phổ biến
-        text = text.encode('latin-1', errors='ignore').decode('utf-8', errors='ignore')
-    except:
-        pass
-    
-    try:
-        # Thử sửa mojibake
-        text = text.encode('utf-8', errors='ignore').decode('utf-8', errors='ignore')
-    except:
-        pass
-    
-    # Thay thế các ký tự lỗi thường gặp
+    # Bảng thay thế các lỗi encoding phổ biến
     replacements = {
         'Ã¡': 'á', 'Ã ': 'à', 'áº£': 'ả', 'Ã£': 'ã', 'áº¡': 'ạ',
         'Ä': 'Đ', 'Ä': 'Đ', 'Æ°': 'ư', 'Æ¡': 'ơ', 'Ã´': 'ô',
-        'á»': 'ộ', 'á»': 'ố', 'á»': 'ồ', 'á»': 'ổ', 'á»': 'ỗ', 'á»': 'ộ',
         'Ã¢': 'â', 'Äƒ': 'ă', 'Ãª': 'ê', 'Ã­': 'í', 'Ã¬': 'ì',
         'á»‹': 'ị', 'á»‰': 'ỉ', 'Ä©': 'ĩ', 'Ã³': 'ó', 'Ã²': 'ò',
-        'á»Ž': 'ỏ', 'Ãµ': 'õ', 'á»': 'ọ', 'Ãº': 'ú', 'Ã¹': 'ù',
-        'á»§': 'ủ', 'Å©': 'ũ', 'á»¥': 'ụ', 'Ã½': 'ý', 'á»³': 'ỳ',
-        'á»·': 'ỷ', 'Ä©': 'ĩ', 'á»µ': 'ỵ',
+        'Ãº': 'ú', 'Ã¹': 'ù', 'Ã½': 'ý', 'á»³': 'ỳ',
         'Nghiá»‡p': 'Nghiệp', 'Hoáº£': 'Hoả', 'YÃªu': 'Yêu', 'Háº­u': 'Hậu',
         'Tháº¿': 'Thế', 'Tá»­': 'Tử', 'Nguyá»‡t': 'Nguyệt', 'Tá»™c': 'Tộc',
         'SiÃªu': 'Siêu', 'viá»‡t': 'việt', 'Ngá»™': 'Ngộ', 'KhÃ´ng': 'Không',
-        'Omen': 'Omen', 'Äao': 'Đao', 'phá»§': 'phủ', 'táº­n': 'tận', 'tháº¿': 'thế',
-        'Bijan': 'Bijan', 'Giai': 'Giai', 'Ä‘iá»‡u': 'điệu', 'GiÃ¡ng': 'Giáng', 'Sinh': 'Sinh',
+        'Äao': 'Đao', 'phá»§': 'phủ', 'táº­n': 'tận', 'tháº¿': 'thế',
+        'Giai': 'Giai', 'Ä‘iá»‡u': 'điệu', 'GiÃ¡ng': 'Giáng', 'Sinh': 'Sinh',
+        'Äá»“ng': 'Đồng', 'phá»¥c': 'phục', 'Cáº¥p': 'Cấp', 'Tá»‘i': 'Tối', 'ThÆ°á»£ng': 'Thượng',
+        'hÃ nh': 'hành', 'K.CÆ°Æ¡ng': 'K.Cương',
+        'vplong01': 'vplong01', 'muaadongtoky': 'muaadongtoky',
+        'BảoVy[MãNV:6': 'BảoVy[MãNV:6',
+        'Chưa có': 'Chưa có',
+        'áº¥': 'ấ', 'áº§': 'ầ', 'áº©': 'ẩ', 'áº«': 'ẫ', 'áº­': 'ậ',
+        'áº¯': 'ắ', 'áº±': 'ằ', 'áº³': 'ẳ', 'áºµ': 'ẵ', 'áº·': 'ặ',
+        'á»': 'ộ', 'á»': 'ố', 'á»': 'ồ', 'á»': 'ổ', 'á»': 'ỗ',
+        'á»Ž': 'ỏ', 'Ãµ': 'õ', 'á»': 'ọ',
+        'á»§': 'ủ', 'Å©': 'ũ', 'á»¥': 'ụ',
+        'á»·': 'ỷ', 'á»µ': 'ỵ',
+        'Tel\'Annas': "Tel'Annas", 'VÅ©': 'Vũ', 'khÃºc': 'khúc',
+        'yÃªu': 'yêu', 'há»"': 'hồ',
+        'Airi': 'Airi', 'Kiemono': 'Kiemono',
+        'Murad': 'Murad', 'ChÃ': 'Chí', 'tÃ´n': 'tôn', 'tháº§n': 'thần', 'kiáº¿m': 'kiếm',
+        'Veera': 'Veera', 'PhÃ¹': 'Phù', 'thá»§y': 'thủy', 'Há»™i': 'Hội', 'há»a': 'họa',
+        'Raz': 'Raz', 'Saitama': 'Saitama', 'Cosplay': 'Cosplay',
+        'Lindis': 'Lindis', 'Äá»“ng': 'Đồng', 'phá»¥c': 'phục',
         'Zephys': 'Zephys', 'Inosuke': 'Inosuke', 'Hashibira': 'Hashibira',
-        'Lindis': 'Lindis', 'Äá»“ng': 'Đồng', 'phá»¥c': 'phục', 'Shihakusho': 'Shihakusho',
         'Slimz': 'Slimz', 'SiÃªu': 'Siêu', 'Cáº¥p': 'Cấp', 'Tá»‘i': 'Tối', 'ThÆ°á»£ng': 'Thượng',
         'Alice': 'Alice', 'Phi': 'Phi', 'hÃ nh': 'hành', 'gia': 'gia',
         'Florentino': 'Florentino', 'Hisoka': 'Hisoka',
         'Qi': 'Qi', 'Annie': 'Annie', 'Leonhart': 'Leonhart',
-        'K.CÆ°Æ¡ng': 'K.Cương', 'K.CÆ°Æ¡ng': 'K.Cương',
-        'æ¬¡äº”èª’åƒå”·.': 'Thứ Ngũ Giới Cật.',
-        'áº¥': 'ấ', 'áº©': 'ẩ', 'áº«': 'ẫ', 'áº­': 'ậ',
-        'áº¯': 'ắ', 'áº±': 'ằ', 'áº³': 'ẳ', 'áºµ': 'ẵ', 'áº·': 'ặ',
-        'áº£': 'ả', 'áº¥': 'ấ', 'áº§': 'ầ', 'áº©': 'ẩ', 'áº«': 'ẫ', 'áº­': 'ậ',
-        'áº¯': 'ắ', 'áº±': 'ằ', 'áº³': 'ẳ', 'áºµ': 'ẵ', 'áº·': 'ặ',
-        'áº£': 'ả', 'áº¥': 'ấ', 'áº§': 'ầ', 'áº©': 'ẩ', 'áº«': 'ẫ', 'áº­': 'ậ',
-        'áº¯': 'ắ', 'áº±': 'ằ', 'áº³': 'ẳ', 'áºµ': 'ẵ', 'áº·': 'ặ',
-        'áº£': 'ả', 'áº¥': 'ấ', 'áº§': 'ầ', 'áº©': 'ẩ', 'áº«': 'ẫ', 'áº­': 'ậ',
+        'Ryoma': 'Ryoma', 'Ailing': 'Ailing', 'Samurai': 'Samurai',
+        'Ngá»™': 'Ngộ', 'KhÃ´ng': 'Không', 'NhÃ³c': 'Nhóc', 'tá»³': 'tỳ', 'bÃ¡': 'bá', 'Äáº¡o': 'đạo',
+        'Tel\'Annas': "Tel'Annas", 'Jujutsu': 'Jujutsu', 'Sorcerer': 'Sorcerer',
+        'Maloch': 'Maloch', 'Äáº¡i': 'Đại', 'TÆ°á»›ng': 'Tướng', 'Robot': 'Robot',
+        'Tulen': 'Tulen', 'TÃ¢n': 'Tân', 'Tháº§n': 'Thần', 'ThiÃªn': 'Thiên', 'HÃ ': 'Hà',
+        'Omen': 'Omen', 'Äao': 'Đao', 'phá»§': 'phủ', 'táº­n': 'tận', 'tháº¿': 'thế',
+        'Bijan': 'Bijan', 'Giai': 'Giai', 'Ä‘iá»‡u': 'điệu', 'GiÃ¡ng': 'Giáng', 'Sinh': 'Sinh',
+        'Triá»‡u': 'Triệu', 'VÃ¢n': 'Vân', 'Tháº§n': 'Thần', 'tÃ i': 'tài',
+        'Krixi': 'Krixi', 'ÄÃªm': 'Đêm', 'Noel': 'Noel',
+        'Violet': 'Violet', 'Äiá»‡p': 'Điệp', 'Vá»¥': 'Vụ', 'Tháº§n': 'Thần', 'Tá»‘c': 'Tốc',
+        'Lá»¯': 'Lữ', 'Bá»‘': 'Bố', 'Cáº­n': 'Cận', 'chiáº¿n': 'chiến',
+        'SEVEN': 'SEVEN',
+        'Thá»©': 'Thứ', 'NgÅ©': 'Ngũ', 'Giá»›i': 'Giới', 'Cáº­t': 'Cật',
+        'tranhadlamch': 'tranhadlamch',
+        'doideonhumop': 'doideonhumop',
     }
     
     for old, new in replacements.items():
@@ -828,12 +836,14 @@ def format_hit_info(username, password, service, result_data):
             "aov_total_champs": ("💪 HERO", "aov_total_champs"),
             "aov_total_heroes": ("💪 HERO", "aov_total_heroes"),
             "aov_total_relationships": ("⚡️ QH", "aov_total_relationships"),
-            "aov_ss": ("✦ SS", "aov_ss"),
-            "aov_sss": ("✦ SSS", "aov_sss"),
-            "aov_anime": ("✦ Anime", "aov_anime"),
-            "aov_ss_list": ("✦ SS List", "aov_ss_list"),
-            "aov_sss_list": ("✦ SSS List", "aov_sss_list"),
-            "aov_anime_list": ("✦ Anime List", "aov_anime_list"),
+            "aov_ss": ("✨ SS", "aov_ss"),
+            "aov_sss": ("🔥 SSS", "aov_sss"),
+            "aov_anime": ("🔥 Anime", "aov_anime"),
+            "aov_ss_list": ("✨ SS List", "aov_ss_list"),
+            "aov_sss_list": ("🔥 SSS List", "aov_sss_list"),
+            "aov_anime_list": ("🔥 Anime List", "aov_anime_list"),
+            "aov_other": ("🎲 Other", "aov_other"),
+            "aov_other_list": ("🎲 Other List", "aov_other_list"),
             "cccd": ("📄 CCCD", "cccd"),
             "authen": ("🛡 Authen", "authen"),
             "tinh_trang": ("📋 Tình Trạng", "tinh_trang"),
@@ -846,7 +856,8 @@ def format_hit_info(username, password, service, result_data):
             "fc_rank": ("👑 FC Rank", "fc_rank"),
             # Additional fields
             "last_session_ip": ("🌐 IP", "last_session_ip"),
-            "last_session_country": ("🌍 Country", "last_session_country")
+            "last_session_country": ("🌍 Country", "last_session_country"),
+            "ngay_tao_tk": ("📅 Ngày tạo TK", "ngay_tao_tk")
         }
         
         info_lines = []
@@ -860,25 +871,26 @@ def format_hit_info(username, password, service, result_data):
                 if isinstance(value, str):
                     value = fix_encoding(value)
                 
-                # Format value
-                value = format_value(value)
-                
-                # Format list values
-                if isinstance(value, list) and value:
-                    value = ", ".join([fix_encoding(str(item)) for item in value])
-                
                 # Format boolean values for specific fields
                 if field in ["email_verified", "mobile_bound", "fb_linked", "password_set", "account_secured"]:
-                    if isinstance(value, bool):
-                        value = "YES" if value else "NO"
-                    elif isinstance(value, str) and value.lower() in ["true", "false"]:
-                        value = "YES" if value.lower() == "true" else "NO"
+                    value = format_value(value)
                 
                 if field == "aov_banned":
                     if isinstance(value, str) and value.upper() == "NO":
                         value = "NO"
                     elif isinstance(value, bool):
                         value = "YES" if value else "NO"
+                
+                # Format list values
+                if isinstance(value, list):
+                    if value:
+                        value = ", ".join([fix_encoding(str(item)) for item in value])
+                    else:
+                        value = "[]"
+                
+                # Format tuples
+                if isinstance(value, tuple):
+                    value = ", ".join([fix_encoding(str(item)) for item in value])
                 
                 info_lines.append(f"{label}: {value}")
         
@@ -1179,7 +1191,7 @@ def cmd_start(message):
         proxy_count = len(proxy_list)
     
     safe_send_message(message.chat.id, f"""
-🤖 <b>GARENA CHECKER BOT V4.8</b>
+🤖 <b>GARENA CHECKER BOT V4.9</b>
 👤 Admin: @baohuyno1
 🌐 Proxy: {proxy_count}
 
@@ -1567,7 +1579,7 @@ Preview (20 dong dau):
 def main():
     """Hàm chính khởi động bot"""
     print("=" * 60)
-    print("    GARENA CHECKER BOT V4.8 - CHECK FIX")
+    print("    GARENA CHECKER BOT V4.9 - FULL INFO")
     print("    ADMIN: @baohuyno1")
     print("    HO TRO | VA :")
     print("    KENH BAT BUOC: @hakiiosvip")
