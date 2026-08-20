@@ -33,41 +33,344 @@ import threading as threading_module
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 class RenderHandler(BaseHTTPRequestHandler):
-    """Xử lý HTTP request để Render giữ bot sống"""
+    """Xử lý HTTP request để Render giữ bot sống - GIAO DIỆN ĐẸP"""
     def do_GET(self):
         if self.path == '/':
             self.send_response(200)
             self.send_header('Content-type', 'text/html; charset=utf-8')
             self.end_headers()
-            html = """<!DOCTYPE html>
-<html>
-<head><title>Garena Checker Bot V6.0</title></head>
-<body style="font-family:Arial;text-align:center;padding:50px;background:#0a0a0a;color:#00ff00;">
-<h1>Garena Checker Bot V6.0</h1>
-<p>Status: <b style="color:#00ff00;">ALIVE</b></p>
-<p>Admin: <a href="https://t.me/baohuyno1" style="color:#00ff00;">@baohuyno1</a></p>
-<p>Version: <b>6.0 - BREAKTHROUGH</b></p>
-</body>
-</html>"""
+            html = self.generate_dashboard()
             self.wfile.write(html.encode('utf-8'))
         elif self.path == '/ping':
             self.send_response(200)
             self.end_headers()
             self.wfile.write(b"pong")
+        elif self.path == '/stats':
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json; charset=utf-8')
+            self.end_headers()
+            stats_json = json.dumps({
+                "status": "alive",
+                "checking": checking,
+                "stats": stats,
+                "proxy_count": len(proxy_list),
+                "services": list(SERVICE_ROUTES.keys()),
+                "admin": ADMIN_USERNAME,
+                "version": "6.0"
+            })
+            self.wfile.write(stats_json.encode('utf-8'))
+        elif self.path == '/api/services':
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json; charset=utf-8')
+            self.end_headers()
+            services_json = json.dumps(SERVICE_ROUTES)
+            self.wfile.write(services_json.encode('utf-8'))
         else:
             self.send_response(200)
             self.end_headers()
             self.wfile.write(b"Bot is running!")
+    
+    def generate_dashboard(self):
+        """Tạo dashboard HTML đẹp"""
+        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        uptime = time.time() - start_time if 'start_time' in globals() else 0
+        uptime_str = time.strftime("%H:%M:%S", time.gmtime(uptime))
+        
+        with proxy_lock:
+            proxy_count = len(proxy_list)
+        
+        # Đọc số lượng hits từ file
+        hits_count = 0
+        dead_count = 0
+        try:
+            if os.path.exists(OUTPUT_HITS):
+                with open(OUTPUT_HITS, 'r', encoding='utf-8') as f:
+                    hits_count = len(f.readlines())
+            if os.path.exists(OUTPUT_DEAD):
+                with open(OUTPUT_DEAD, 'r', encoding='utf-8') as f:
+                    dead_count = len(f.readlines())
+        except:
+            pass
+        
+        # Trạng thái bot
+        bot_status = "Đang check" if checking else "Sẵn sàng"
+        bot_color = "#ff9800" if checking else "#4caf50"
+        
+        # Tạo cards cho services
+        services_html = ""
+        for key, value in SERVICE_ROUTES.items():
+            services_html += f"""
+            <div class="service-card">
+                <div class="service-icon">{value['icon']}</div>
+                <div class="service-info">
+                    <div class="service-name">{key}</div>
+                    <div class="service-desc">{value['desc']}</div>
+                </div>
+            </div>"""
+        
+        html = f"""<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Garena Checker Bot V6.0 - Dashboard</title>
+<style>
+* {{
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}}
+
+body {{
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 50%, #0a0a0a 100%);
+    min-height: 100vh;
+    color: #e0e0e0;
+    padding: 20px;
+}}
+
+.container {{
+    max-width: 1200px;
+    margin: 0 auto;
+}}
+
+.header {{
+    text-align: center;
+    padding: 40px 20px;
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    border-radius: 20px;
+    margin-bottom: 30px;
+    border: 1px solid #333;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+}}
+
+.header h1 {{
+    font-size: 2.5em;
+    color: #00ff00;
+    margin-bottom: 10px;
+    text-shadow: 0 0 20px rgba(0,255,0,0.5);
+}}
+
+.header .subtitle {{
+    font-size: 1.2em;
+    color: #aaa;
+    margin-bottom: 5px;
+}}
+
+.header .admin-link {{
+    color: #00ff00;
+    text-decoration: none;
+    font-weight: bold;
+}}
+
+.header .admin-link:hover {{
+    text-decoration: underline;
+}}
+
+.status-badge {{
+    display: inline-block;
+    padding: 10px 20px;
+    border-radius: 50px;
+    font-weight: bold;
+    font-size: 1.1em;
+    margin-top: 15px;
+    background: {bot_color};
+    color: white;
+    box-shadow: 0 0 20px rgba(0,255,0,0.3);
+    animation: pulse 2s infinite;
+}}
+
+@keyframes pulse {{
+    0% {{ box-shadow: 0 0 20px rgba(0,255,0,0.3); }}
+    50% {{ box-shadow: 0 0 40px rgba(0,255,0,0.6); }}
+    100% {{ box-shadow: 0 0 20px rgba(0,255,0,0.3); }}
+}}
+
+.stats-grid {{
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 20px;
+    margin-bottom: 30px;
+}}
+
+.stat-card {{
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    border-radius: 15px;
+    padding: 25px;
+    text-align: center;
+    border: 1px solid #333;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+    transition: transform 0.3s ease;
+}}
+
+.stat-card:hover {{
+    transform: translateY(-5px);
+    box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+}}
+
+.stat-value {{
+    font-size: 2.5em;
+    font-weight: bold;
+    margin-bottom: 10px;
+}}
+
+.stat-label {{
+    font-size: 0.9em;
+    color: #aaa;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}}
+
+.stat-hits .stat-value {{ color: #00ff00; }}
+.stat-dead .stat-value {{ color: #ff4444; }}
+.stat-proxy .stat-value {{ color: #ff9800; }}
+.stat-checked .stat-value {{ color: #2196f3; }}
+.stat-time .stat-value {{ color: #9c27b0; font-size: 1.5em; }}
+
+.section-title {{
+    font-size: 1.5em;
+    color: #00ff00;
+    margin-bottom: 20px;
+    text-align: center;
+    text-shadow: 0 0 10px rgba(0,255,0,0.3);
+}}
+
+.services-grid {{
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 15px;
+    margin-bottom: 30px;
+}}
+
+.service-card {{
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    border-radius: 12px;
+    padding: 20px;
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    border: 1px solid #333;
+    transition: all 0.3s ease;
+}}
+
+.service-card:hover {{
+    border-color: #00ff00;
+    box-shadow: 0 0 20px rgba(0,255,0,0.2);
+}}
+
+.service-icon {{
+    font-size: 2em;
+}}
+
+.service-info {{
+    flex: 1;
+}}
+
+.service-name {{
+    font-size: 1.1em;
+    font-weight: bold;
+    color: #fff;
+    margin-bottom: 5px;
+}}
+
+.service-desc {{
+    font-size: 0.85em;
+    color: #aaa;
+}}
+
+.footer {{
+    text-align: center;
+    padding: 20px;
+    color: #666;
+    font-size: 0.9em;
+}}
+
+.footer a {{
+    color: #00ff00;
+    text-decoration: none;
+}}
+
+.uptime {{
+    margin-top: 10px;
+    color: #aaa;
+    font-size: 0.9em;
+}}
+
+@media (max-width: 768px) {{
+    .header h1 {{
+        font-size: 1.8em;
+    }}
+    
+    .stats-grid {{
+        grid-template-columns: repeat(2, 1fr);
+    }}
+    
+    .services-grid {{
+        grid-template-columns: 1fr;
+    }}
+}}
+</style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1>🎮 GARENA CHECKER BOT</h1>
+        <div class="subtitle">Version 6.0 - BREAKTHROUGH</div>
+        <div class="subtitle">Admin: <a href="https://t.me/{ADMIN_USERNAME}" class="admin-link">@{ADMIN_USERNAME}</a></div>
+        <div class="status-badge">🔴 {bot_status}</div>
+        <div class="uptime">⏱ Uptime: {uptime_str}</div>
+    </div>
+    
+    <div class="stats-grid">
+        <div class="stat-card stat-hits">
+            <div class="stat-value">{hits_count}</div>
+            <div class="stat-label">✅ Hits</div>
+        </div>
+        <div class="stat-card stat-dead">
+            <div class="stat-value">{dead_count}</div>
+            <div class="stat-label">❌ Dead</div>
+        </div>
+        <div class="stat-card stat-proxy">
+            <div class="stat-value">{proxy_count}</div>
+            <div class="stat-label">🌐 Proxy</div>
+        </div>
+        <div class="stat-card stat-checked">
+            <div class="stat-value">{stats.get('checked', 0)}</div>
+            <div class="stat-label">🔄 Checked</div>
+        </div>
+        <div class="stat-card stat-time">
+            <div class="stat-value">{current_time}</div>
+            <div class="stat-label">📅 Thời gian</div>
+        </div>
+    </div>
+    
+    <div class="section-title">📋 DỊCH VỤ HỖ TRỢ</div>
+    <div class="services-grid">
+        {services_html}
+    </div>
+    
+    <div class="footer">
+        <p>© 2024 <a href="https://t.me/{ADMIN_USERNAME}">@{ADMIN_USERNAME}</a> - All rights reserved</p>
+        <p>Garena Checker Bot V6.0 - Render Web Service</p>
+    </div>
+</div>
+</body>
+</html>"""
+        
+        return html
     
     def log_message(self, format, *args):
         pass
 
 def start_render_server():
     """Khởi động HTTP server cho Render"""
+    global start_time
+    start_time = time.time()
     try:
         port = int(os_module.environ.get("PORT", 10000))
         server = HTTPServer(("0.0.0.0", port), RenderHandler)
         print(f"[*] Render web server chay tren port {port}")
+        print(f"[*] Dashboard: http://0.0.0.0:{port}")
         server.serve_forever()
     except Exception as e:
         print(f"[!] Loi web server: {e}")
@@ -176,6 +479,7 @@ cache_lock = threading.Lock()
 
 rate_lock = threading.Lock()
 last_request_time = 0
+start_time = time.time()
 
 bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN, parse_mode="HTML")
 
@@ -443,51 +747,6 @@ def loc_tk_mk_only(content):
     # Pattern cho dấu | (user|pass)
     pattern_pipe = r'(?<![a-zA-Z0-9_])([a-zA-Z0-9][a-zA-Z0-9_.@+-]{1,80})\|([a-zA-Z0-9_.@!$%^&*()\-+]{1,100})(?![a-zA-Z0-9_])'
     
-    # Pattern nhận diện dòng toàn thời gian
-    full_time_line_patterns = [
-        r'^\d{1,2}:\d{2}(:\d{2})?$',
-        r'^\d{1,2}:\d{2}(:\d{2})?\s*(AM|PM|am|pm)?$',
-        r'^\d{1,2}:\d{2}\s*[-–—]\s*\d{1,2}:\d{2}$',
-        r'^\d{1,2}\.\d{2}(\.\d{2})?$',
-        r'^\d{1,2}-\d{2}(-\d{2})?$',
-        r'^\d{1,2}/\d{2}(/\d{2,4})?$',
-        r'^\d{4}-\d{2}-\d{2}$',
-        r'^\d{4}/\d{2}/\d{2}$',
-        r'^\d{2}-\d{2}-\d{4}$',
-        r'^\d{2}/\d{2}/\d{4}$',
-        r'^\d{1,2}h\d{2}(p\d{2})?$',
-        r'^\d{1,2}giờ\d{2}$',
-        r'^\d+:\d+$',
-        r'^\d+\.\d+$',
-        r'^\d+-\d+$',
-        r'^\d+$',
-    ]
-    
-    # Từ khóa loại bỏ
-    skip_keywords = [
-        'time', 'date', 'ngay', 'thoi_gian', 'thoigian', 'gio', 'giờ', 
-        'phut', 'phút', 'giay', 'giây', 'am', 'pm', 'utc', 'gmt',
-        'created_at', 'last_login', 'last_session', 'timestamp', 'datetime',
-        'expires', 'expire', 'valid_until', 'valid_till', 'end_time', 'start_time'
-    ]
-    
-    # Từ khóa loại bỏ ở đầu dòng
-    skip_patterns = [
-        r'^time[\s:]', r'^date[\s:]', r'^ngay[\s:]', r'^thoi_gian[\s:]', 
-        r'^thoigian[\s:]', r'^gio[\s:]', r'^giờ[\s:]', r'^phut[\s:]', 
-        r'^phút[\s:]', r'^giay[\s:]', r'^giây[\s:]', r'^timestamp[\s:]',
-        r'^datetime[\s:]', r'^created[\s:_-]', r'^last_login[\s:]',
-        r'^last_session[\s:]', r'^expires[\s:]', r'^expire[\s:]',
-        r'^valid_until[\s:]', r'^valid_till[\s:]', r'^end_time[\s:]',
-        r'^start_time[\s:]',
-        r'^https?://', r'^www\.',
-        r'^shop', r'^share', r'^final', r'^name', r'^level', r'^rank',
-        r'^status', r'^email', r'^phone', r'^sdt',
-        r'^cccd', r'^fb', r'^ban', r'^ss', r'^sss', r'^anime', r'^other',
-        r'^tinh', r'^quan_huy', r'^lich_su', r'^vo_game', r'^quoc_gia',
-        r'^tuong', r'^skin', r'^authen', r'^so:', r'^qu[âa]n', r'^v[ôo]'
-    ]
-    
     lines = content.split('\n')
     stats_loc["total"] = len(lines)
     
@@ -496,29 +755,22 @@ def loc_tk_mk_only(content):
         if not line:
             continue
         
-        # BỎ QUA DÒNG TOÀN THỜI GIAN
-        is_time_line = False
-        for time_pattern in full_time_line_patterns:
-            if re.match(time_pattern, line, re.IGNORECASE):
-                is_time_line = True
-                break
-        
-        if is_time_line:
+        # BỎ QUA DÒNG CHỈ CHỨA TIME (HH:MM hoặc HH:MM:SS)
+        if re.match(r'^\d{1,2}:\d{2}(:\d{2})?$', line):
             continue
         
-        # BỎ QUA DÒNG CHỨA TỪ KHÓA THỜI GIAN
-        line_lower = line.lower()
-        if any(keyword in line_lower for keyword in skip_keywords):
-            if re.match(r'^[\d\s:./-]+$', line):
-                continue
+        # BỎ QUA DÒNG CHỈ CHỨA SỐ
+        if re.match(r'^\d+$', line):
+            continue
         
-        # Thử pattern dấu : trước
+        # Thử pattern dấu : trước - CHỈ LẤY USER:PASS HỢP LỆ
         matches = re.findall(pattern_colon, line)
         if matches:
             for user, pwd in matches:
+                # BỎ QUA NẾU USER HOẶC PWD LÀ TIME
                 if is_time_value(user) or is_time_value(pwd):
                     continue
-                if is_valid_account(user, pwd, skip_patterns):
+                if is_valid_account(user, pwd):
                     key = f"{user}:{pwd}"
                     if key not in seen:
                         seen.add(key)
@@ -536,7 +788,7 @@ def loc_tk_mk_only(content):
             for user, pwd in matches:
                 if is_time_value(user) or is_time_value(pwd):
                     continue
-                if is_valid_account(user, pwd, skip_patterns):
+                if is_valid_account(user, pwd):
                     key = f"{user}:{pwd}"
                     if key not in seen:
                         seen.add(key)
@@ -553,7 +805,7 @@ def loc_tk_mk_only(content):
         for user, pwd in all_matches:
             if is_time_value(user) or is_time_value(pwd):
                 continue
-            if is_valid_account(user, pwd, skip_patterns):
+            if is_valid_account(user, pwd):
                 key = f"{user}:{pwd}"
                 if key not in seen:
                     seen.add(key)
@@ -569,7 +821,7 @@ def loc_tk_mk_only(content):
             for user, pwd in all_matches:
                 if is_time_value(user) or is_time_value(pwd):
                     continue
-                if is_valid_account(user, pwd, skip_patterns):
+                if is_valid_account(user, pwd):
                     key = f"{user}:{pwd}"
                     if key not in seen:
                         seen.add(key)
@@ -583,54 +835,40 @@ def loc_tk_mk_only(content):
     return accounts, stats_loc
 
 def is_time_value(value):
-    """Kiểm tra chuỗi có phải là giá trị thời gian không"""
+    """Kiểm tra chuỗi có phải là giá trị thời gian không - CHÍNH XÁC"""
     if not value:
         return False
     
     value = str(value).strip()
     
-    # Pattern nhận diện time
+    # Pattern nhận diện time CHÍNH XÁC
     time_patterns = [
-        r'^\d{1,2}:\d{2}(:\d{2})?$',
-        r'^\d{1,2}:\d{2}(:\d{2})?\s*(AM|PM|am|pm)$',
-        r'^\d{1,2}\.\d{2}(\.\d{2})?$',
-        r'^\d{1,2}-\d{2}(-\d{2})?$',
-        r'^\d{1,2}/\d{2}(/\d{2,4})?$',
-        r'^\d{4}-\d{2}-\d{2}$',
-        r'^\d{4}/\d{2}/\d{2}$',
-        r'^\d{2}-\d{2}-\d{4}$',
-        r'^\d{2}/\d{2}/\d{4}$',
-        r'^\d{1,2}h\d{2}(p\d{2})?$',
-        r'^\d{1,2}giờ\d{2}$',
-        r'^\d{1,2}:\d{2}:\d{2}\.\d+$',
-        r'^\d+:\d+$',
-        r'^\d+\.\d+$',
-        r'^\d+-\d+$',
-        r'^\d{10,13}$',
-        r'^\d{1,2}\s*(AM|PM|am|pm)$',
+        r'^\d{1,2}:\d{2}(:\d{2})?$',                    # 12:30, 12:30:45
+        r'^\d{1,2}:\d{2}(:\d{2})?\s*(AM|PM|am|pm)$',    # 12:30 AM
+        r'^\d{1,2}\.\d{2}(\.\d{2})?$',                   # 12.30
+        r'^\d{1,2}-\d{2}(-\d{2})?$',                     # 12-30
+        r'^\d{1,2}/\d{2}(/\d{2,4})?$',                   # 12/30
+        r'^\d{4}-\d{2}-\d{2}$',                          # 2024-12-30
+        r'^\d{4}/\d{2}/\d{2}$',                          # 2024/12/30
+        r'^\d{2}-\d{2}-\d{4}$',                          # 30-12-2024
+        r'^\d{2}/\d{2}/\d{4}$',                          # 30/12/2024
+        r'^\d{1,2}h\d{2}(p\d{2})?$',                     # 12h30
+        r'^\d{1,2}giờ\d{2}$',                            # 12giờ30
+        r'^\d{1,2}:\d{2}:\d{2}\.\d+$',                   # 12:30:45.123
+        r'^\d+:\d+$',                                    # Bất kỳ số:số
+        r'^\d+\.\d+$',                                   # 12.30
+        r'^\d+-\d+$',                                    # 12-30
+        r'^\d{10,13}$',                                  # Unix timestamp
+        r'^\d{1,2}\s*(AM|PM|am|pm)$',                    # 12 AM
     ]
     
     for pattern in time_patterns:
         if re.match(pattern, value, re.IGNORECASE):
             return True
     
-    # Kiểm tra từ khóa thời gian
-    time_keywords = [
-        'time', 'date', 'ngay', 'thoi_gian', 'thoigian', 'gio', 'giờ',
-        'phut', 'phút', 'giay', 'giây', 'timestamp', 'datetime',
-        'created_at', 'last_login', 'last_session', 'expires', 'expire',
-        'valid_until', 'valid_till', 'end_time', 'start_time'
-    ]
-    
-    value_lower = value.lower()
-    for keyword in time_keywords:
-        if keyword in value_lower:
-            if re.search(r'\d', value):
-                return True
-    
     return False
 
-def is_valid_account(user, pwd, skip_patterns):
+def is_valid_account(user, pwd):
     """Kiểm tra tài khoản hợp lệ - loại bỏ time"""
     if len(user) < 2 or len(pwd) < 1:
         return False
@@ -642,17 +880,22 @@ def is_valid_account(user, pwd, skip_patterns):
     if is_time_value(user) or is_time_value(pwd):
         return False
     
+    # Bỏ qua nếu user hoặc pwd chỉ toàn số
+    if re.match(r'^\d+$', user) or re.match(r'^\d+$', pwd):
+        return False
+    
     user_lower = user.lower()
-    for pattern in skip_patterns:
-        if re.match(pattern, user_lower):
-            return False
     
-    # Bỏ qua các từ khóa thời gian trong user
-    time_keywords = ['time', 'date', 'ngay', 'thoi_gian', 'thoigian', 'gio', 'giờ', 
+    # Bỏ qua từ khóa
+    skip_keywords = ['time', 'date', 'ngay', 'thoi_gian', 'thoigian', 'gio', 'giờ', 
                      'phut', 'phút', 'giay', 'giây', 'timestamp', 'datetime',
-                     'created', 'login', 'session', 'expires', 'expire', 'valid']
+                     'created', 'login', 'session', 'expires', 'expire', 'valid',
+                     'http', 'https', 'www', 'com', 'net', 'org', 'shop', 'share', 
+                     'final', 'name', 'level', 'rank', 'status', 'email', 'phone', 
+                     'sdt', 'cccd', 'fb', 'ban', 'ss', 'sss', 'anime', 'other', 
+                     'am', 'pm', 'utc', 'gmt']
     
-    for keyword in time_keywords:
+    for keyword in skip_keywords:
         if keyword in user_lower:
             return False
     
@@ -660,12 +903,6 @@ def is_valid_account(user, pwd, skip_patterns):
         return False
     
     if not re.match(r'^[a-zA-Z0-9_.@!$%^&*()\-+]+$', pwd):
-        return False
-    
-    if user.lower() in ['http', 'https', 'www', 'com', 'net', 'org', 'shop', 'share', 
-                        'final', 'name', 'level', 'rank', 'status', 'time', 'date', 
-                        'email', 'phone', 'sdt', 'cccd', 'fb', 'ban', 'ss', 'sss', 
-                        'anime', 'other', 'am', 'pm', 'utc', 'gmt']:
         return False
     
     return True
@@ -1625,6 +1862,7 @@ def main():
     print("    GARENA CHECKER BOT V6.0 - BREAKTHROUGH")
     print("    ADMIN: @baohuyno1")
     print("    KENH BAT BUOC: @hakiiosvip")
+    print("    WEB DASHBOARD: http://0.0.0.0:10000")
     print("=" * 60)
     
     while True:
