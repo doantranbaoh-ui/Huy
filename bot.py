@@ -866,7 +866,7 @@ def check_single(chat_id, username, password, service="lienquan"):
         hit_msg = format_hit_info(username, password, service, result)
         safe_send_message(chat_id, hit_msg)
     elif result_type == "dead":
-        safe_send_message(chat_id, f"❌ DEAD - {service_desc}\n🔑 {username}:{password}")
+        safe_send_message(chat_id, f"❌ SAi MK - {service_desc}\n🔑 {username}:{password}")
     else:
         safe_send_message(chat_id, f"⚠️ ERROR - {service_desc}\n🔑 {username}:{password}")
 
