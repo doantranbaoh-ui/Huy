@@ -1,3 +1,6 @@
+# ==================== PALOFSC - KEEPALIVE HACKER LASER V3 ====================
+# Code day du: web server hieu ung laser, matrix, am thanh, keep alive
+
 import os
 import sys
 import subprocess
@@ -13,12 +16,12 @@ import base64
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from datetime import datetime
 
-# ========== CẤU HÌNH ==========
+# ========== CAU HINH ==========
 PORT = int(os.environ.get("PORT", 10000))
 BOT_SCRIPT = "bot.py"
 START_TIME = datetime.now()
 
-# Biến toàn cục cho stats
+# Bien toan cuc cho stats
 bot_stats = {
     "total": 0,
     "checked": 0,
@@ -31,9 +34,8 @@ bot_stats = {
     "start_time": datetime.now().isoformat()
 }
 
-# Đọc file stats từ bot.py nếu có
 def read_bot_stats():
-    """Đọc thống kê từ các file output"""
+    """Doc thong ke tu cac file output"""
     global bot_stats
     
     hits_count = 0
@@ -67,9 +69,9 @@ def read_bot_stats():
     
     return bot_stats
 
-# ========== WEB SERVER VỚI HIỆU ỨNG TIA HACKER ==========
+# ========== WEB SERVER VOI HIEU UNG TIA HACKER ==========
 class HackerHandler(BaseHTTPRequestHandler):
-    """Web server với hiệu ứng tia hacker laser và âm thanh"""
+    """Web server voi hieu ung tia hacker laser va am thanh"""
     
     def do_GET(self):
         if self.path == '/':
@@ -153,7 +155,7 @@ class HackerHandler(BaseHTTPRequestHandler):
             self.wfile.write(b"404 Not Found")
     
     def generate_hacker_audio(self):
-        """Tạo âm thanh hacker đơn giản"""
+        """Tao am thanh hacker don gian"""
         try:
             sample_rate = 44100
             duration = 2.0
@@ -167,7 +169,6 @@ class HackerHandler(BaseHTTPRequestHandler):
             audio_data = bytearray()
             for i in range(num_samples):
                 t = i / sample_rate
-                # Tạo âm thanh điện tử phức tạp
                 value = int(32767 * 0.3 * (
                     math.sin(2 * math.pi * 440 * t) * math.exp(-3 * t) +
                     math.sin(2 * math.pi * 880 * t) * math.exp(-5 * t) * 0.5 +
@@ -181,7 +182,7 @@ class HackerHandler(BaseHTTPRequestHandler):
             return b''
     
     def generate_cyber_audio(self):
-        """Tạo âm thanh cyberpunk"""
+        """Tao am thanh cyberpunk"""
         try:
             sample_rate = 44100
             duration = 3.0
@@ -195,8 +196,7 @@ class HackerHandler(BaseHTTPRequestHandler):
             audio_data = bytearray()
             for i in range(num_samples):
                 t = i / sample_rate
-                # Âm thanh cyberpunk với sweep tần số
-                freq = 200 + 600 * (t / duration)  # Sweep từ 200Hz đến 800Hz
+                freq = 200 + 600 * (t / duration)
                 value = int(32767 * 0.3 * (
                     math.sin(2 * math.pi * freq * t) * math.exp(-1.5 * t) +
                     math.sin(2 * math.pi * freq * 2 * t) * math.exp(-2 * t) * 0.4 +
@@ -209,7 +209,7 @@ class HackerHandler(BaseHTTPRequestHandler):
             return b''
     
     def generate_techno_audio(self):
-        """Tạo âm thanh techno"""
+        """Tao am thanh techno"""
         try:
             sample_rate = 44100
             duration = 4.0
@@ -221,29 +221,25 @@ class HackerHandler(BaseHTTPRequestHandler):
             header += b'data' + struct.pack('<I', data_size)
             
             audio_data = bytearray()
-            beat_interval = 0.25  # 240 BPM
+            beat_interval = 0.25
             beat_count = int(duration / beat_interval)
             
             for i in range(num_samples):
                 t = i / sample_rate
                 
-                # Beat chính
                 beat_phase = (t % beat_interval) / beat_interval
                 beat = 0
                 if beat_phase < 0.1:
                     beat = math.exp(-beat_phase * 50)
                 
-                # Bass
                 bass_freq = 100
                 bass = math.sin(2 * math.pi * bass_freq * t) * beat
                 
-                # Hi-hat
                 hi_hat_phase = (t % 0.125) / 0.125
                 hi_hat = 0
                 if hi_hat_phase < 0.05:
                     hi_hat = math.exp(-hi_hat_phase * 100) * 0.3
                 
-                # Melody
                 melody_freq = 440 + 220 * math.sin(2 * math.pi * 0.5 * t)
                 melody = math.sin(2 * math.pi * melody_freq * t) * 0.2 * math.exp(-0.5 * (t % beat_interval))
                 
@@ -255,7 +251,7 @@ class HackerHandler(BaseHTTPRequestHandler):
             return b''
     
     def generate_laser_page(self):
-        """Tạo trang HTML với hiệu ứng tia hacker và âm thanh"""
+        """Tao trang HTML voi hieu ung tia hacker va am thanh"""
         stats = read_bot_stats()
         
         hits = stats.get("hits", 0)
@@ -841,7 +837,7 @@ class HackerHandler(BaseHTTPRequestHandler):
             });
         }
         
-        // Tự động play nhạc nền
+        // Tu dong play nhac nen
         bgAudio.volume = 0.3;
         bgAudio.play().catch(e => console.log('Auto play blocked:', e));
         
@@ -959,7 +955,7 @@ class HackerHandler(BaseHTTPRequestHandler):
 </html>"""
     
     def generate_full_laser_page(self):
-        """Tạo trang laser fullscreen"""
+        """Tao trang laser fullscreen"""
         return """<!DOCTYPE html>
 <html>
 <head>
@@ -1113,7 +1109,7 @@ class HackerHandler(BaseHTTPRequestHandler):
 </html>"""
     
     def generate_matrix_page(self):
-        """Tạo trang matrix fullscreen"""
+        """Tao trang matrix fullscreen"""
         return """<!DOCTYPE html>
 <html>
 <head>
@@ -1178,7 +1174,7 @@ class HackerHandler(BaseHTTPRequestHandler):
 </html>"""
     
     def generate_stats_page(self):
-        """Tạo trang thống kê chi tiết"""
+        """Tao trang thong ke chi tiet"""
         stats = read_bot_stats()
         
         hits = stats.get("hits", 0)
@@ -1276,12 +1272,12 @@ class HackerHandler(BaseHTTPRequestHandler):
 </html>"""
     
     def log_message(self, format, *args):
-        """Tắt log để tránh spam"""
+        """Tat log de tranh spam"""
         pass
 
-# ========== HÀM CHẠY WEB SERVER ==========
+# ========== HAM CHAY WEB SERVER ==========
 def run_web_server():
-    """Chạy web server với hiệu ứng tia hacker và âm thanh"""
+    """Chay web server voi hieu ung tia hacker va am thanh"""
     try:
         server = HTTPServer(("0.0.0.0", PORT), HackerHandler)
         print(f"[*] Web server laser hacker dang chay tren port {PORT}")
@@ -1296,7 +1292,7 @@ def run_web_server():
     except Exception as e:
         print(f"[!] Loi web server: {e}")
 
-# ========== HÀM KEEP ALIVE ==========
+# ========== HAM KEEP ALIVE ==========
 def keep_alive():
     """Giữ bot sống bằng cách ping mỗi 5 phút"""
     while True:
@@ -1307,11 +1303,11 @@ def keep_alive():
             print(f"[*] Keep alive ping at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         except Exception as e:
             print(f"[!] Keep alive error: {e}")
-        time.sleep(300)  # 5 phút
+        time.sleep(300)
 
-# ========== HÀM CHẠY BOT ==========
+# ========== HAM CHAY BOT ==========
 def run_bot():
-    """Chạy bot chính với tự động restart"""
+    """Chay bot chinh voi tu dong restart"""
     while True:
         try:
             print("[*] Dang khoi dong bot...")
@@ -1328,7 +1324,7 @@ def run_bot():
             time.sleep(5)
         print("[*] Dang khoi dong lai bot...")
 
-# ========== HIỆU ỨNG CONSOLE ==========
+# ========== HIEU UNG CONSOLE ==========
 def print_hacker_banner():
     """In banner hacker ra console"""
     banner = """
@@ -1348,7 +1344,7 @@ def print_hacker_banner():
     print("\033[92m" + banner + "\033[0m")
 
 def main():
-    """Hàm chính"""
+    """Ham chinh"""
     print_hacker_banner()
     
     print("=" * 60)
@@ -1361,11 +1357,11 @@ def main():
     print("[*] Dang khoi dong cac service...")
     print("=" * 60)
     
-    # Chạy web server
+    # Chay web server
     threading.Thread(target=run_web_server, daemon=True).start()
     time.sleep(2)
     
-    # Chạy keep alive
+    # Chay keep alive
     threading.Thread(target=keep_alive, daemon=True).start()
     time.sleep(2)
     
@@ -1374,7 +1370,7 @@ def main():
     print("[*] Truy cap web de xem hieu ung laser hacker va am thanh")
     print("=" * 60)
     
-    # Chạy bot chính
+    # Chay bot chinh
     run_bot()
 
 if __name__ == "__main__":
