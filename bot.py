@@ -1,4 +1,5 @@
-# bot.py - Fix cho Python 3.14
+# bot.py - GMV Auto Crack Bot (Fix cho Render)
+# Chạy: python3 bot.py
 
 import os
 import re
@@ -23,7 +24,10 @@ from telegram.ext import (
     ContextTypes,
 )
 
-# ========== CẤU HÌNH ==========
+# ============================================
+# CẤU HÌNH - THAY TOKEN CỦA BẠN VÀO ĐÂY
+# ============================================
+
 TOKEN = "6320148381:AAFSxnyeQePiFVf1qqaqK7h_XRLMMSlD8kw"
 ADMIN_ID = 5736655322
 
@@ -36,7 +40,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ========== DATABASE ==========
+# ============================================
+# DATABASE
+# ============================================
+
 class Database:
     def __init__(self, db_path="crack_data.db"):
         self.db_path = db_path
@@ -107,10 +114,12 @@ class Database:
             conn.close()
             return users, cracks
 
-
 db = Database()
 
-# ========== PATCHES ==========
+# ============================================
+# PATCH DEFINITIONS
+# ============================================
+
 @dataclass
 class CrackPatch:
     name: str
@@ -119,7 +128,6 @@ class CrackPatch:
     description: str
     category: str = "security"
     enabled: bool = True
-
 
 CRACK_PATCHES = [
     CrackPatch("verifyKey", "FF8300D1FD7B01A9", "20008052C0035FD6", "🚫 Bỏ qua kiểm tra Key"),
@@ -135,12 +143,15 @@ CRACK_PATCHES = [
     CrackPatch("gmvmoba_url2", "676D766D6F62612E636F6D2F636F6E6E6563747632", "3132372E302E302E312F636F6E6E656374", "🏠 Chuyển connectv2"),
 ]
 
-# ========== CRACK ENGINE ==========
+# ============================================
+# CRACK ENGINE
+# ============================================
+
 class CrackEngine:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
 
-    def crack_file(self, file_path: str) -> Tuple[List[str], int, str, str]:
+    def crack_file(self, file_path: str) -> Tuple[List[str], int, str, str, int]:
         try:
             with open(file_path, "rb") as f:
                 data = bytearray(f.read())
@@ -215,10 +226,12 @@ class CrackEngine:
 
         return info
 
-
 cracker = CrackEngine()
 
-# ========== BOT HANDLERS ==========
+# ============================================
+# BOT HANDLERS
+# ============================================
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     db.add_user(user.id, user.username or "Unknown")
@@ -243,13 +256,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown",
     )
 
-
 async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     document = update.message.document
 
     if not document:
-        await update.message.reply_text("❌ Vui lòng gửi file .dylib")
+        await update.message.reply_text("❌ Vui lòng gửi file .dylib hoặc .ipa")
         return
 
     filename = document.file_name or ""
@@ -288,7 +300,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             result_text += f"🔧 Bytes thay đổi: {changes}\n\n"
             result_text += "\n".join(results)
 
-            if not results:
+            if applied == 0:
                 result_text += "\n\n⚠️ Không có patch nào được áp dụng!"
 
             await status_msg.edit_text(result_text, parse_mode="Markdown")
@@ -306,7 +318,6 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         await status_msg.edit_text(f"❌ Lỗi: {str(e)}")
-
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -392,8 +403,10 @@ Nhận file đã crack về máy
     elif data == "back":
         await start(update, context)
 
+# ============================================
+# MAIN - Fix cho Python 3.14
+# ============================================
 
-# ========== MAIN ==========
 async def main_async():
     if not TOKEN:
         print("❌ Vui lòng set TOKEN!")
@@ -423,10 +436,8 @@ async def main_async():
         await app.stop()
         await app.shutdown()
 
-
 def main():
     asyncio.run(main_async())
-
 
 if __name__ == "__main__":
     main()
