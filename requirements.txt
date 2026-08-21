@@ -4,7 +4,7 @@
 # ========== THƯ VIỆN CHÍNH ==========
 pyTelegramBotAPI==4.13.0
 requests==2.31.0
-python-telegram-bot==13.0
+python-telegram-bot==13.7
 
 # ========== HỖ TRỢ THÊM (TÙY CHỌN) ==========
 # colorama==0.4.6          # Màu sắc cho console
