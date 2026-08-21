@@ -1,21 +1,3 @@
-# requirements.txt - GARENA CHECKER BOT 24/7
-# Cài đặt: pip install -r requirements.txt
-
-# ========== THƯ VIỆN CHÍNH ==========
-pyTelegramBotAPI==4.13.0
-requests==2.31.0
 python-telegram-bot==13.7
-imghdr
-# ========== HỖ TRỢ THÊM (TÙY CHỌN) ==========
-# colorama==0.4.6          # Màu sắc cho console
-# python-dotenv==1.0.0     # Quản lý biến môi trường
-# beautifulsoup4==4.12.2   # Parse HTML
-# lxml==4.9.3              # Parser nhanh
-# aiohttp==3.8.6           # Async HTTP
-# flask==2.3.2             # Web server thay thế
-# gunicorn==21.2.0         # WSGI cho production
-
-# ========== GHI CHÚ ==========
-# Cài đặt tất cả: pip install -r requirements.txt
-# Chạy bot: python bot.py
-# Hoặc chạy keepalive: python keepalive.py
+aiohttp==3.8.6
+requests==2.31.0
