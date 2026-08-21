@@ -5,7 +5,7 @@
 pyTelegramBotAPI==4.13.0
 requests==2.31.0
 python-telegram-bot==13.7
-
+imghdr
 # ========== HỖ TRỢ THÊM (TÙY CHỌN) ==========
 # colorama==0.4.6          # Màu sắc cho console
 # python-dotenv==1.0.0     # Quản lý biến môi trường
