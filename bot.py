@@ -25,7 +25,7 @@ from telegram.ext import (
 # CẤU HÌNH - THAY TOKEN CỦA BẠN VÀO ĐÂY
 # ============================================
 
-TOKEN = "6320148381:AAFSxnyeQePiFVf1qqaqK7h_XRLMMSlD8kw"  # <--- THAY TOKEN CỦA BẠN
+TOKEN = "6320148381:AAEIQ30CzOlLwQHXTWqlr3Rpy79QQM6sH7Y"  # <--- THAY TOKEN CỦA BẠN
 ADMIN_ID = 5736655322  # <--- THAY ID ADMIN CỦA BẠN
 
 MAX_FILE_SIZE = 100 * 1024 * 1024
