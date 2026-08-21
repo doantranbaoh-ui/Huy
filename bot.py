@@ -1,4 +1,4 @@
-# bot.py - Fix lỗi cho Python 3.14
+# bot.py - Fix cho Python 3.14
 
 import os
 import re
@@ -8,6 +8,7 @@ import shutil
 import json
 import sqlite3
 import hashlib
+import asyncio
 from datetime import datetime
 from typing import Dict, List, Tuple
 from dataclasses import dataclass
@@ -23,7 +24,7 @@ from telegram.ext import (
 )
 
 # ========== CẤU HÌNH ==========
-TOKEN = "6320148381:AAEIQ30CzOlLwQHXTWqlr3Rpy79QQM6sH7Y"
+TOKEN = "6320148381:AAFSxnyeQePiFVf1qqaqK7h_XRLMMSlD8kw"
 ADMIN_ID = 5736655322
 
 MAX_FILE_SIZE = 100 * 1024 * 1024
@@ -393,7 +394,7 @@ Nhận file đã crack về máy
 
 
 # ========== MAIN ==========
-def main():
+async def main_async():
     if not TOKEN:
         print("❌ Vui lòng set TOKEN!")
         return
@@ -409,7 +410,22 @@ def main():
     print(f"📦 Số patch: {len([p for p in CRACK_PATCHES if p.enabled])}")
     print(f"👤 Admin ID: {ADMIN_ID}")
 
-    app.run_polling()
+    await app.initialize()
+    await app.start()
+    await app.updater.start_polling()
+
+    # Giữ bot chạy
+    try:
+        while True:
+            await asyncio.sleep(3600)
+    except KeyboardInterrupt:
+        await app.updater.stop()
+        await app.stop()
+        await app.shutdown()
+
+
+def main():
+    asyncio.run(main_async())
 
 
 if __name__ == "__main__":
