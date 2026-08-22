@@ -5,25 +5,31 @@ import os
 import sys
 import logging
 import tempfile
-import subprocess
-import re
-import struct
-import hashlib
-import binascii
-import time
-import json
-from datetime import datetime
 
 # ============================================================
-# CỐ GẮNG IMPORT TELEGRAM – NẾU LỖI THÌ THÔNG BÁO
+# KIỂM TRA VÀ CÀI ĐẶT THƯ VIỆN TỰ ĐỘNG
 # ============================================================
+def install_package(package):
+    """Tự động cài đặt package nếu chưa có"""
+    try:
+        __import__(package)
+    except ImportError:
+        print(f"📦 Đang cài {package}...")
+        os.system(f"pip install {package}")
+
+# Cài đặt telegram nếu chưa có
 try:
-    from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-    from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes, Updater
-except ImportError as e:
-    print(f"❌ Lỗi import telegram: {e}")
-    print("📦 Chạy lệnh: pip install python-telegram-bot==20.7")
-    sys.exit(1)
+    import telegram
+except ImportError:
+    print("📦 Đang cài python-telegram-bot...")
+    os.system("pip install python-telegram-bot==20.7")
+    import telegram
+
+# ============================================================
+# IMPORT THƯ VIỆN
+# ============================================================
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 
 # ============================================================
 # CẤU HÌNH
@@ -35,84 +41,82 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DOWNLOAD_PATH = os.path.join(BASE_DIR, "downloads")
 PATCHED_PATH = os.path.join(BASE_DIR, "patched")
 BACKUP_PATH = os.path.join(BASE_DIR, "backups")
-LOG_PATH = os.path.join(BASE_DIR, "logs")
 
 os.makedirs(DOWNLOAD_PATH, exist_ok=True)
 os.makedirs(PATCHED_PATH, exist_ok=True)
 os.makedirs(BACKUP_PATH, exist_ok=True)
-os.makedirs(LOG_PATH, exist_ok=True)
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO,
-    handlers=[
-        logging.FileHandler(os.path.join(LOG_PATH, "bot.log")),
-        logging.StreamHandler()
-    ]
+    level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
 # ============================================================
-# CONFIG PATCH
-# ============================================================
-class PatchConfig:
-    DOMAINS = [
-        (b'gmvmoba.com', b'127.0.0.1\x00\x00\x00'),
-        (b'https://gmvmoba.com', b'https://127.0.0.1\x00\x00'),
-        (b'calm-unit-61cc.teamgamehub99.workers.dev', None),
-        (b'api.baontq.xyz', None),
-        (b'severapigmvbbv2.teamgamehub99.workers.dev', None),
-        (b'api.authtool.app', None),
-    ]
-    
-    AES_KEY = b'bf76c74c23bd93c4016a2a0be4213f63'
-    AES_KEY_NEW = b'31323334353637383930313233343536'
-    
-    BUNDLE_ID_OLD = b'com.gmvmoba.v2'
-    BUNDLE_ID_NEW = b'com.apple.PUBG' + b'\x00' * 2
-    
-    OP_RET = bytes.fromhex('C0 03 5F D6')
-    OP_MOV_X0_1_RET = bytes.fromhex('20 00 80 52 C0 03 5F D6')
-    OP_MOV_X0_0_RET = bytes.fromhex('00 00 80 52 C0 03 5F D6')
-    OP_NOP = bytes.fromhex('1F 20 03 D5')
-
-# ============================================================
-# HÀM PATCH ĐƠN GIẢN
+# PATCH ENGINE
 # ============================================================
 def patch_gmv(file_path):
+    """Patch binary: thay domain, xóa alert"""
     try:
         with open(file_path, 'rb') as f:
             data = bytearray(f.read())
 
         total_count = 0
 
-        # 1. Thay domain
-        for old, new in PatchConfig.DOMAINS:
-            if new is None:
-                continue
-            pos = data.find(old)
-            while pos != -1:
-                if len(new) <= len(old):
-                    data[pos:pos+len(new)] = new
-                    if len(new) < len(old):
-                        data[pos+len(new):pos+len(old)] = b'\x00' * (len(old) - len(new))
-                else:
-                    data[pos:pos+len(old)] = new[:len(old)]
-                total_count += 1
-                pos = data.find(old, pos + len(old))
+        # 1. Thay gmvmoba.com → 127.0.0.1
+        old = b'gmvmoba.com'
+        new = b'127.0.0.1\x00\x00\x00'
+        pos = data.find(old)
+        while pos != -1:
+            data[pos:pos+len(old)] = new
+            total_count += 1
+            pos = data.find(old, pos + len(new))
 
-        # 2. Xóa alert strings
+        # 2. Thay https://gmvmoba.com
+        old2 = b'https://gmvmoba.com'
+        new2 = b'https://127.0.0.1\x00\x00'
+        pos = data.find(old2)
+        while pos != -1:
+            data[pos:pos+len(old2)] = new2
+            total_count += 1
+            pos = data.find(old2, pos + len(new2))
+
+        # 3. Thay calm-unit-61cc.teamgamehub99.workers.dev
+        old3 = b'calm-unit-61cc.teamgamehub99.workers.dev'
+        new3 = b'127.0.0.1' + b'\x00' * (len(old3) - 9)
+        pos = data.find(old3)
+        while pos != -1:
+            data[pos:pos+len(old3)] = new3
+            total_count += 1
+            pos = data.find(old3, pos + len(new3))
+
+        # 4. Thay severapigmvbbv2.teamgamehub99.workers.dev
+        old4 = b'severapigmvbbv2.teamgamehub99.workers.dev'
+        new4 = b'127.0.0.1' + b'\x00' * (len(old4) - 9)
+        pos = data.find(old4)
+        while pos != -1:
+            data[pos:pos+len(old4)] = new4
+            total_count += 1
+            pos = data.find(old4, pos + len(new4))
+
+        # 5. Thay api.authtool.app
+        old5 = b'api.authtool.app'
+        new5 = b'127.0.0.1' + b'\x00' * (len(old5) - 9)
+        pos = data.find(old5)
+        while pos != -1:
+            data[pos:pos+len(old5)] = new5
+            total_count += 1
+            pos = data.find(old5, pos + len(new5))
+
+        # 6. Xóa chuỗi alert
         alert_strings = [
-            'Nhập Key'.encode('utf-8'),
-            'Key không hợp lệ'.encode('utf-8'),
-            'Vui lòng nhập Key'.encode('utf-8'),
-            'Update required'.encode('utf-8'),
-            'Check Key'.encode('utf-8'),
-            'Get Key'.encode('utf-8'),
-            'Click Lay UDID'.encode('utf-8'),
             b'Nh\xe1\xba\xadp Key',
             b'Key kh\xc3\xb4ng h\xe1\xbb\xa3p l\xe1\xbb\x87',
+            b'Update required',
             b'Vui l\xc3\xb2ng nh\xe1\xba\xadp Key',
+            b'Check Key',
+            b'Get Key',
+            b'Click Lay UDID',
         ]
         for alert in alert_strings:
             pos = data.find(alert)
@@ -120,6 +124,7 @@ def patch_gmv(file_path):
                 data[pos:pos+len(alert)] = b'\x00' * len(alert)
                 pos = data.find(alert, pos + 1)
 
+        # Ghi file đã patch
         patched_path = os.path.join(PATCHED_PATH, os.path.basename(file_path) + '.patched')
         with open(patched_path, 'wb') as f:
             f.write(data)
@@ -147,7 +152,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"🤖 **GMV Crack Bot**\n"
         f"📦 Upload file .dylib để tự động patch.\n"
-        f"🔧 Thay gmvmoba.com → 127.0.0.1\n"
+        f"🔧 Thay tất cả domain → 127.0.0.1\n"
         f"🔧 Xóa alert\n\n"
         f"👤 Admin: {user.first_name}",
         reply_markup=reply_markup,
@@ -182,7 +187,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         patched_path, count = patch_gmv(file_path)
 
         if patched_path and os.path.exists(patched_path):
-            await status_msg.edit_text(f"✅ Patch thành công! 📦 Đã thay {count} domain")
+            await status_msg.edit_text(f"✅ Patch thành công!\n📦 Đã thay {count} domain\n📁 Gửi file đã patch...")
 
             with open(patched_path, 'rb') as f:
                 await context.bot.send_document(
@@ -192,6 +197,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     caption=f"✅ **GMV.dylib đã patch**\n"
                            f"🔹 Đã thay {count} domain → 127.0.0.1\n"
                            "🔹 Đã xóa alert\n"
+                           "🔹 Giữ nguyên api.baontq.xyz\n"
                            "📥 Copy vào /Library/MobileSubstrate/DynamicLibraries/\n"
                            "🔄 killall -9 PUBG",
                     parse_mode='Markdown'
@@ -222,7 +228,9 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(
             "📖 **Hướng dẫn**\n\n"
             "1. Upload file `GMV.dylib`\n"
-            "2. Bot tự động patch\n"
+            "2. Bot tự động patch:\n"
+            "   - Thay domain → 127.0.0.1\n"
+            "   - Xóa alert\n"
             "3. Tải file đã patch về\n"
             "4. Copy vào `/Library/MobileSubstrate/DynamicLibraries/`\n"
             "5. `killall -9 PUBG`\n\n"
@@ -238,7 +246,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 # ============================================================
-# MAIN – TƯƠNG THÍCH NHIỀU PHIÊN BẢN
+# MAIN - TƯƠNG THÍCH NHIỀU PHIÊN BẢN
 # ============================================================
 def create_app():
     """Tạo Application với fallback cho nhiều phiên bản"""
@@ -246,16 +254,22 @@ def create_app():
         # Cách 1: Application.builder() (python-telegram-bot >= 20.0)
         return Application.builder().token(TOKEN).build()
     except (AttributeError, TypeError) as e:
-        logger.warning(f"Application.builder() failed: {e}, trying Updater...")
+        logger.warning(f"Application.builder() failed: {e}")
         try:
-            # Cách 2: Updater (phiên bản cũ)
+            # Cách 2: Dùng Updater (phiên bản cũ)
             from telegram.ext import Updater
-            updater = Updater(TOKEN, use_context=True)
-            return updater.application
-        except TypeError:
-            # Cách 3: Updater không có use_context
-            updater = Updater(TOKEN)
-            return updater.application
+            updater = Updater(token=TOKEN, use_context=True)
+            return updater.dispatcher
+        except Exception as e2:
+            logger.warning(f"Updater failed: {e2}")
+            try:
+                # Cách 3: Updater không có use_context
+                from telegram.ext import Updater
+                updater = Updater(TOKEN)
+                return updater.dispatcher
+            except Exception as e3:
+                logger.error(f"All methods failed: {e3}")
+                raise
 
 def main():
     if not TOKEN or TOKEN == "YOUR_BOT_TOKEN":
