@@ -1,24 +1,21 @@
 # ============================================================
-# GMV AI CRACK BOT – REQUIREMENTS
+# GMV AI CRACK BOT v4.0 – REQUIREMENTS
 # ============================================================
 
-# TELEGRAM BOT FRAMEWORK
-python-telegram-bot==20.8
+# TELEGRAM BOT FRAMEWORK (Tương thích Python 3.11+)
+python-telegram-bot==20.7
 
-# CRYPTOGRAPHY (AES, HASH)
-pycryptodome==3.20.0
+# CRYPTOGRAPHY – AES, HASH, ENCRYPTION
+pycryptodome==3.19.0
 
-# MACH-O PARSING (TÙY CHỌN – HỖ TRỢ PHÂN TÍCH BINARY)
+# MACH-O BINARY PARSING (Phân tích file .dylib)
 macholib==1.16.3
 
-# REQUEST & NETWORK
-requests==2.32.3
-
-# BINARY PATCH TOOLS
-hexdump==3.3
+# HTTP REQUESTS
+requests==2.31.0
 
 # UTILITY
-typing-extensions==4.12.2
+typing-extensions==4.8.0
 
-# LOGGING – BUILT-IN, KHÔNG CẦN CÀI
+# LOGGING – Built-in, không cần cài
 # ============================================================
