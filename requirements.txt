@@ -1,4 +1,17 @@
+# ============================================================
+# GMV CRACK BOT – REQUIREMENTS (FIX ALL ERRORS)
+# ============================================================
+
+# TELEGRAM BOT – PHIÊN BẢN ỔN ĐỊNH NHẤT
 python-telegram-bot==20.7
+
+# CRYPTOGRAPHY (HỖ TRỢ MÃ HÓA AES, HASH)
 pycryptodome==3.19.0
+
+# MACH-O BINARY PARSING
 macholib==1.16.3
+
+# HTTP REQUESTS
 requests==2.31.0
+
+# ============================================================
