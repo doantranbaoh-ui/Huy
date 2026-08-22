@@ -1,4 +1,4 @@
-# bot.py - GMV Auto Crack Bot (Fix cho Render)
+# bot.py - GMV Auto Crack Bot (Fix Full cho Render)
 # Chạy: python3 bot.py
 
 import os
@@ -10,9 +10,18 @@ import json
 import sqlite3
 import hashlib
 import asyncio
+import sys
 from datetime import datetime
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass
+
+# Fix cho Python 3.14+
+try:
+    import asyncio
+    if sys.version_info >= (3, 14):
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+except:
+    pass
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -28,7 +37,7 @@ from telegram.ext import (
 # CẤU HÌNH - THAY TOKEN CỦA BẠN VÀO ĐÂY
 # ============================================
 
-TOKEN = "6320148381:AAEIQ30CzOlLwQHXTWqlr3Rpy79QQM6sH7Y"
+TOKEN = "6320148381:AAFSxnyeQePiFVf1qqaqK7h_XRLMMSlD8kw"
 ADMIN_ID = 5736655322
 
 MAX_FILE_SIZE = 100 * 1024 * 1024
@@ -185,7 +194,19 @@ class CrackEngine:
                     results.append(f"✅ {patch.name}: {patch.description} ({count} lần)")
                     patches_applied += 1
                 else:
-                    results.append(f"⚠️ {patch.name}: Không tìm thấy")
+                    # Thử tìm dạng không có khoảng trắng
+                    try:
+                        find_raw = bytes.fromhex(patch.find_hex.replace(' ', ''))
+                        pos = data.find(find_raw)
+                        if pos != -1:
+                            data[pos:pos + len(find_raw)] = replace_bytes
+                            results.append(f"✅ {patch.name}: {patch.description} (1 lần - raw)")
+                            patches_applied += 1
+                            total_changes += len(find_raw)
+                        else:
+                            results.append(f"⚠️ {patch.name}: Không tìm thấy")
+                    except:
+                        results.append(f"⚠️ {patch.name}: Không tìm thấy")
 
             with open(file_path, "wb") as f:
                 f.write(data)
@@ -206,20 +227,34 @@ class CrackEngine:
             "bundle_ids": [],
             "is_encrypted": False,
             "version": "Unknown",
+            "is_cracked": False,
         }
 
         try:
             with open(file_path, "rb") as f:
                 data = f.read()
 
+            # Tìm URL
             urls = re.findall(rb"https?://[a-zA-Z0-9.-]+", data)
             info["urls"] = [u.decode("utf-8", errors="ignore") for u in urls[:10]]
 
+            # Tìm bundle ID
             bundles = re.findall(rb"com\.[a-zA-Z0-9.-]+", data)
             info["bundle_ids"] = [b.decode("utf-8", errors="ignore") for b in bundles[:5]]
 
+            # Kiểm tra mã hóa
             if b"encrypt" in data.lower() or b"cipher" in data.lower():
                 info["is_encrypted"] = True
+
+            # Kiểm tra đã crack chưa
+            for patch in CRACK_PATCHES:
+                try:
+                    replace_bytes = bytes.fromhex(patch.replace_hex)
+                    if replace_bytes in data:
+                        info["is_cracked"] = True
+                        break
+                except:
+                    pass
 
         except Exception as e:
             self.logger.error(f"Analyze error: {str(e)}")
@@ -285,7 +320,10 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             input_path = os.path.join(tmpdir, filename)
             await file.download_to_drive(input_path)
 
+            # Phân tích
             analysis = cracker.analyze_file(input_path)
+            
+            # Crack
             results, changes, orig_hash, patch_hash, applied = cracker.crack_file(input_path)
 
             db.add_crack(user.id, filename, orig_hash, patch_hash, applied)
@@ -312,6 +350,18 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     caption=f"🔓 File đã crack!\n🔢 Hash: {patch_hash}",
                 )
 
+            # Gửi thông tin phân tích
+            info_text = "🔍 **Thông tin file:**\n"
+            if analysis["bundle_ids"]:
+                info_text += f"📱 Bundle ID: `{analysis['bundle_ids'][0]}`\n"
+            if analysis["is_encrypted"]:
+                info_text += "🔐 File bị mã hóa!\n"
+            if analysis["is_cracked"]:
+                info_text += "✅ File đã được crack trước đó!\n"
+            
+            if len(info_text) > 20:
+                await update.message.reply_text(info_text, parse_mode="Markdown")
+
             if analysis["urls"]:
                 url_text = "🌐 **URL tìm thấy:**\n" + "\n".join(f"• {u}" for u in analysis["urls"][:5])
                 await update.message.reply_text(url_text, parse_mode="Markdown")
@@ -333,6 +383,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Bot sẽ tự động crack tất cả các mục cần thiết.",
             parse_mode="Markdown",
         )
+        context.user_data['mode'] = 'crack'
 
     elif data == "analyze":
         await query.edit_message_text(
@@ -341,9 +392,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Bot sẽ hiển thị:\n"
             "• Bundle ID\n"
             "• URLs\n"
-            "• Trạng thái mã hóa",
+            "• Trạng thái mã hóa\n"
+            "• Trạng thái crack",
             parse_mode="Markdown",
         )
+        context.user_data['mode'] = 'analyze'
 
     elif data == "list":
         text = "📋 **DANH SÁCH PATCH**\n\n"
@@ -404,13 +457,20 @@ Nhận file đã crack về máy
         await start(update, context)
 
 # ============================================
-# MAIN - Fix cho Python 3.14
+# MAIN - Fix cho Python 3.14+
 # ============================================
 
 async def main_async():
     if not TOKEN:
         print("❌ Vui lòng set TOKEN!")
         return
+
+    # Fix for Python 3.14
+    try:
+        if sys.version_info >= (3, 14):
+            asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    except:
+        pass
 
     app = Application.builder().token(TOKEN).build()
 
@@ -432,6 +492,11 @@ async def main_async():
         while True:
             await asyncio.sleep(3600)
     except KeyboardInterrupt:
+        await app.updater.stop()
+        await app.stop()
+        await app.shutdown()
+    except Exception as e:
+        logger.error(f"Error: {str(e)}")
         await app.updater.stop()
         await app.stop()
         await app.shutdown()
