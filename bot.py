@@ -1,4 +1,4 @@
-# bot.py - GMV Auto Crack Bot (Fix Full cho Render)
+# bot.py - GMV Auto Crack Bot (Full Fix cho Render)
 # Chạy: python3 bot.py
 
 import os
@@ -37,7 +37,7 @@ from telegram.ext import (
 # CẤU HÌNH - THAY TOKEN CỦA BẠN VÀO ĐÂY
 # ============================================
 
-TOKEN = "6320148381:AAEIQ30CzOlLwQHXTWqlr3Rpy79QQM6sH7Y"
+TOKEN = "6320148381:AAFSxnyeQePiFVf1qqaqK7h_XRLMMSlD8kw"
 ADMIN_ID = 5736655322
 
 MAX_FILE_SIZE = 100 * 1024 * 1024
@@ -126,7 +126,7 @@ class Database:
 db = Database()
 
 # ============================================
-# PATCH DEFINITIONS
+# PATCH DEFINITIONS - TỪ FILE libloaber.txt
 # ============================================
 
 @dataclass
@@ -139,17 +139,35 @@ class CrackPatch:
     enabled: bool = True
 
 CRACK_PATCHES = [
-    CrackPatch("verifyKey", "FF8300D1FD7B01A9", "20008052C0035FD6", "🚫 Bỏ qua kiểm tra Key"),
-    CrackPatch("verifySignature", "94000000", "20008052C0035FD6", "✅ Luôn trả về TRUE"),
-    CrackPatch("showMainAlert", "1F2003D5", "20008052C0035FD6", "🚫 Vô hiệu hóa Alert chính"),
-    CrackPatch("showToast", "1F2003D5", "20008052C0035FD6", "🚫 Vô hiệu hóa Toast"),
-    CrackPatch("require_key", "726571756972655F6B6579", "00000000000000000000000000", "🚫 Bỏ qua require_key"),
-    CrackPatch("force_update", "666F7263655F757064617465", "0000000000000000000000000000", "🚫 Bỏ qua force_update"),
-    CrackPatch("unix_time", "756E6978", "000000000000", "⏰ Vô hiệu hóa Unix Time"),
-    CrackPatch("expiredAt", "657870697265644174", "00000000000000000000", "⏰ Bỏ qua expiredAt"),
-    CrackPatch("bundle_id", "636F6D2E676D766D6F62612E7632", "636F6D2E6578616D706C652E617070", "🔄 Thay Bundle ID"),
-    CrackPatch("gmvmoba_url", "676D766D6F62612E636F6D", "3132372E302E302E31", "🏠 Chuyển URL về localhost"),
-    CrackPatch("gmvmoba_url2", "676D766D6F62612E636F6D2F636F6E6E6563747632", "3132372E302E302E312F636F6E6E656374", "🏠 Chuyển connectv2"),
+    # ===== SECURITY - Bỏ qua key =====
+    CrackPatch("verifyKey", "FF8300D1FD7B01A9", "20008052C0035FD6", 
+               "🚫 Bỏ qua kiểm tra Key", "security"),
+    CrackPatch("verifySignature", "94000000", "20008052C0035FD6", 
+               "✅ Luôn trả về TRUE", "security"),
+    
+    # ===== UI - Vô hiệu hóa alert =====
+    CrackPatch("showMainAlert", "1F2003D5", "20008052C0035FD6", 
+               "🚫 Vô hiệu hóa Alert chính", "ui"),
+    CrackPatch("showToast", "1F2003D5", "20008052C0035FD6", 
+               "🚫 Vô hiệu hóa Toast", "ui"),
+    
+    # ===== NETWORK - Bỏ qua kiểm tra =====
+    CrackPatch("require_key", "726571756972655F6B6579", "00000000000000000000000000", 
+               "🚫 Bỏ qua require_key", "network"),
+    CrackPatch("force_update", "666F7263655F757064617465", "0000000000000000000000000000", 
+               "🚫 Bỏ qua force_update", "network"),
+    CrackPatch("unix_time", "756E6978", "000000000000", 
+               "⏰ Vô hiệu hóa Unix Time", "network"),
+    CrackPatch("expiredAt", "657870697265644174", "00000000000000000000", 
+               "⏰ Bỏ qua expiredAt", "network"),
+    
+    # ===== SYSTEM - Thay ID =====
+    CrackPatch("bundle_id", "636F6D2E676D766D6F62612E7632", "636F6D2E6578616D706C652E617070", 
+               "🔄 Thay Bundle ID", "system"),
+    CrackPatch("gmvmoba_url", "676D766D6F62612E636F6D", "3132372E302E302E31", 
+               "🏠 Chuyển URL về localhost", "system"),
+    CrackPatch("gmvmoba_url2", "676D766D6F62612E636F6D2F636F6E6E6563747632", "3132372E302E302E312F636F6E6E656374", 
+               "🏠 Chuyển connectv2", "system"),
 ]
 
 # ============================================
