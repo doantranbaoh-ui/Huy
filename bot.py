@@ -16,12 +16,11 @@ from Crypto.Cipher import AES
 from Crypto.Util.Padding import unpad
 
 # ============================================================
-# CẤU HÌNH - SỬA ĐƯỜNG DẪN CHO RENDER
+# CẤU HÌNH
 # ============================================================
 TOKEN = "6320148381:AAEIQ30CzOlLwQHXTWqlr3Rpy79QQM6sH7Y"
 ADMIN_ID = 5736655322
 
-# SỬA: Dùng thư mục hiện tại thay vì /root
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DOWNLOAD_PATH = os.path.join(BASE_DIR, "downloads")
 PATCHED_PATH = os.path.join(BASE_DIR, "patched")
@@ -38,7 +37,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ============================================================
-# CONFIG THÔNG MINH - SỬA LỖI UNICODE
+# CONFIG
 # ============================================================
 class SmartConfig:
     DOMAINS = [
@@ -75,7 +74,7 @@ class SmartConfig:
     ]
 
 # ============================================================
-# CÔNG CỤ PHÂN TÍCH
+# BINARY ANALYZER
 # ============================================================
 class BinaryAnalyzer:
     @staticmethod
@@ -118,7 +117,7 @@ class BinaryAnalyzer:
         return results
 
 # ============================================================
-# ENGINE PATCH
+# SMART PATCHER
 # ============================================================
 class SmartPatcher:
     def __init__(self, data):
@@ -217,17 +216,31 @@ class SmartPatcher:
         return False
     
     def delete_alert_strings(self):
-        # SỬA: Dùng UTF-8 bytes thay vì \u escape
+        # ============================================================
+        # SỬA LỖI: KHÔNG DÙNG b'...' VỚI UNICODE TRỰC TIẾP
+        # ============================================================
+        # Cách 1: Dùng chuỗi thường rồi encode
         alert_strings = [
-            b'Nh\xe1\xba\xadp Key',
-            b'Key kh\xc3\xb4ng h\xe1\xbb\xa3p l\xe1\xbb\x87',
-            b'Update required',
-            b'Vui l\xc3\xb2ng nh\xe1\xba\xadp Key',
-            b'Check Key',
-            b'Get Key',
-            b'Click Lay UDID',
-            b'Nhập Key'.encode('utf-8'),
+            'Nhập Key'.encode('utf-8'),
+            'Key không hợp lệ'.encode('utf-8'),
+            'Vui lòng nhập Key'.encode('utf-8'),
+            'Update required'.encode('utf-8'),
+            'Check Key'.encode('utf-8'),
+            'Get Key'.encode('utf-8'),
+            'Click Lay UDID'.encode('utf-8'),
         ]
+        
+        # Cách 2: Dùng hex bytes trực tiếp (an toàn hơn)
+        # alert_strings = [
+        #     b'Nh\xe1\xba\xadp Key',          # Nhập Key
+        #     b'Key kh\xc3\xb4ng h\xe1\xbb\xa3p l\xe1\xbb\x87',  # Key không hợp lệ
+        #     b'Vui l\xc3\xb2ng nh\xe1\xba\xadp Key',  # Vui lòng nhập Key
+        #     b'Update required',
+        #     b'Check Key',
+        #     b'Get Key',
+        #     b'Click Lay UDID',
+        # ]
+        
         count = 0
         for alert in alert_strings:
             positions = self.analyzer.find_all_occurrences(self.data, alert)
@@ -309,7 +322,7 @@ class SmartPatcher:
         return '\n'.join(self.patch_log)
 
 # ============================================================
-# HÀM PATCH CHÍNH
+# ADVANCED PATCH
 # ============================================================
 def advanced_patch(file_path):
     try:
@@ -440,21 +453,14 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "🧠 **Công nghệ AI Crack**\n\n"
             "1. 🔍 Phân tích thông minh\n"
             "2. 🔧 Patch tự động\n"
-            "3. 🛡️ Bypass bảo vệ\n"
-            "   - Domain\n"
-            "   - Alert\n"
-            "   - isValid\n"
-            "   - SSL Pinning\n"
-            "   - Keychain\n"
-            "   - Timer Polling"
+            "3. 🛡️ Bypass bảo vệ"
         )
     elif data == 'help':
         await query.edit_message_text(
             "📖 **Hướng dẫn**\n\n"
             "1. Upload file `GMV.dylib`\n"
             "2. Bot tự động patch\n"
-            "3. Tải file đã patch\n"
-            "4. Copy vào thiết bị"
+            "3. Tải file đã patch"
         )
     elif data == 'status':
         await query.edit_message_text(
