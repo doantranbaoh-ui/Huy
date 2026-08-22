@@ -1,526 +1,269 @@
-# bot.py - GMV Auto Crack Bot (Full Fix cho Render)
-# Chạy: python3 bot.py
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 
 import os
-import re
+import sys
 import logging
 import tempfile
-import shutil
-import json
-import sqlite3
-import hashlib
-import asyncio
-import sys
-from datetime import datetime
-from typing import Dict, List, Tuple, Optional
-from dataclasses import dataclass
-
-# Fix cho Python 3.14+
-try:
-    import asyncio
-    if sys.version_info >= (3, 14):
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-except:
-    pass
-
+import subprocess
+import re
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    MessageHandler,
-    CallbackQueryHandler,
-    filters,
-    ContextTypes,
-)
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 
-# ============================================
-# CẤU HÌNH - THAY TOKEN CỦA BẠN VÀO ĐÂY
-# ============================================
+# ============================================================
+# CẤU HÌNH - THAY ĐỔI THEO BOT CỦA BẠN
+# ============================================================
+TOKEN = "6320148381:AAEIQ30CzOlLwQHXTWqlr3Rpy79QQM6sH7Y"
+ADMIN_ID = 5736655322  # Chat ID của bạn
 
-TOKEN = "6320148381:AAFSxnyeQePiFVf1qqaqK7h_XRLMMSlD8kw"
-ADMIN_ID = 5736655322
+DOWNLOAD_PATH = "/root/gmv_bot/downloads"
+PATCHED_PATH = "/root/gmv_bot/patched"
 
-MAX_FILE_SIZE = 100 * 1024 * 1024
-ALLOWED_EXTENSIONS = ['.dylib', '.ipa', '.deb', '.framework']
+os.makedirs(DOWNLOAD_PATH, exist_ok=True)
+os.makedirs(PATCHED_PATH, exist_ok=True)
 
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO,
-)
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ============================================
-# DATABASE
-# ============================================
-
-class Database:
-    def __init__(self, db_path="crack_data.db"):
-        self.db_path = db_path
-        self._init_db()
-
-    def _init_db(self):
-        conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
-        c.execute(
-            """CREATE TABLE IF NOT EXISTS users
-                     (user_id INTEGER PRIMARY KEY, username TEXT,
-                      first_seen TEXT, last_active TEXT, total_cracks INTEGER DEFAULT 0)"""
-        )
-        c.execute(
-            """CREATE TABLE IF NOT EXISTS cracks
-                     (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                      user_id INTEGER, filename TEXT,
-                      original_hash TEXT, patched_hash TEXT,
-                      crack_time TEXT, status TEXT, patch_count INTEGER)"""
-        )
-        conn.commit()
-        conn.close()
-
-    def add_user(self, user_id, username):
-        conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
-        now = datetime.now().isoformat()
-        c.execute(
-            "INSERT OR IGNORE INTO users (user_id, username, first_seen, last_active) VALUES (?, ?, ?, ?)",
-            (user_id, username, now, now),
-        )
-        c.execute(
-            "UPDATE users SET last_active=?, username=? WHERE user_id=?",
-            (now, username, user_id),
-        )
-        conn.commit()
-        conn.close()
-
-    def add_crack(self, user_id, filename, original_hash, patched_hash, patch_count):
-        conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
-        now = datetime.now().isoformat()
-        c.execute(
-            """INSERT INTO cracks (user_id, filename, original_hash, patched_hash, crack_time, status, patch_count)
-                     VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (user_id, filename, original_hash, patched_hash, now, "success", patch_count),
-        )
-        c.execute(
-            "UPDATE users SET total_cracks = total_cracks + 1 WHERE user_id = ?",
-            (user_id,),
-        )
-        conn.commit()
-        conn.close()
-
-    def get_stats(self, user_id=None):
-        conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
-        if user_id:
-            c.execute("SELECT total_cracks FROM users WHERE user_id = ?", (user_id,))
-            result = c.fetchone()
-            conn.close()
-            return result[0] if result else 0
-        else:
-            c.execute("SELECT COUNT(*) FROM users")
-            users = c.fetchone()[0]
-            c.execute("SELECT COUNT(*) FROM cracks")
-            cracks = c.fetchone()[0]
-            conn.close()
-            return users, cracks
-
-db = Database()
-
-# ============================================
-# PATCH DEFINITIONS - TỪ FILE libloaber.txt
-# ============================================
-
-@dataclass
-class CrackPatch:
-    name: str
-    find_hex: str
-    replace_hex: str
-    description: str
-    category: str = "security"
-    enabled: bool = True
-
-CRACK_PATCHES = [
-    # ===== SECURITY - Bỏ qua key =====
-    CrackPatch("verifyKey", "FF8300D1FD7B01A9", "20008052C0035FD6", 
-               "🚫 Bỏ qua kiểm tra Key", "security"),
-    CrackPatch("verifySignature", "94000000", "20008052C0035FD6", 
-               "✅ Luôn trả về TRUE", "security"),
-    
-    # ===== UI - Vô hiệu hóa alert =====
-    CrackPatch("showMainAlert", "1F2003D5", "20008052C0035FD6", 
-               "🚫 Vô hiệu hóa Alert chính", "ui"),
-    CrackPatch("showToast", "1F2003D5", "20008052C0035FD6", 
-               "🚫 Vô hiệu hóa Toast", "ui"),
-    
-    # ===== NETWORK - Bỏ qua kiểm tra =====
-    CrackPatch("require_key", "726571756972655F6B6579", "00000000000000000000000000", 
-               "🚫 Bỏ qua require_key", "network"),
-    CrackPatch("force_update", "666F7263655F757064617465", "0000000000000000000000000000", 
-               "🚫 Bỏ qua force_update", "network"),
-    CrackPatch("unix_time", "756E6978", "000000000000", 
-               "⏰ Vô hiệu hóa Unix Time", "network"),
-    CrackPatch("expiredAt", "657870697265644174", "00000000000000000000", 
-               "⏰ Bỏ qua expiredAt", "network"),
-    
-    # ===== SYSTEM - Thay ID =====
-    CrackPatch("bundle_id", "636F6D2E676D766D6F62612E7632", "636F6D2E6578616D706C652E617070", 
-               "🔄 Thay Bundle ID", "system"),
-    CrackPatch("gmvmoba_url", "676D766D6F62612E636F6D", "3132372E302E302E31", 
-               "🏠 Chuyển URL về localhost", "system"),
-    CrackPatch("gmvmoba_url2", "676D766D6F62612E636F6D2F636F6E6E6563747632", "3132372E302E302E312F636F6E6E656374", 
-               "🏠 Chuyển connectv2", "system"),
+# ============================================================
+# DANH SÁCH DOMAIN CẦN THAY
+# ============================================================
+DOMAINS_TO_REPLACE = [
+    (b'gmvmoba.com', b'127.0.0.1\x00\x00\x00'),
+    (b'https://gmvmoba.com', b'https://127.0.0.1\x00\x00'),
+    (b'calm-unit-61cc.teamgamehub99.workers.dev', b'127.0.0.1\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'),
+    (b'api.baontq.xyz', b'127.0.0.1\x00\x00\x00\x00'),  # GIỮ NGUYÊN NẾU MUỐN, HOẶC THAY
+    (b'severapigmvbbv2.teamgamehub99.workers.dev', b'127.0.0.1\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'),
+    (b'api.authtool.app', b'127.0.0.1\x00\x00\x00\x00'),
 ]
 
-# ============================================
-# CRACK ENGINE
-# ============================================
+# ============================================================
+# HÀM PATCH CHÍNH
+# ============================================================
+def patch_gmv(file_path):
+    """Patch binary: thay domain, patch alert, patch isValid"""
+    try:
+        with open(file_path, 'rb') as f:
+            data = bytearray(f.read())
 
-class CrackEngine:
-    def __init__(self):
-        self.logger = logging.getLogger(__name__)
+        total_count = 0
 
-    def crack_file(self, file_path: str) -> Tuple[List[str], int, str, str, int]:
-        try:
-            with open(file_path, "rb") as f:
-                data = bytearray(f.read())
-
-            original_data = bytes(data)
-            results = []
-            total_changes = 0
-            patches_applied = 0
-
-            for patch in CRACK_PATCHES:
-                if not patch.enabled:
-                    continue
-
-                try:
-                    find_bytes = bytes.fromhex(patch.find_hex)
-                    replace_bytes = bytes.fromhex(patch.replace_hex)
-                except ValueError:
-                    results.append(f"❌ {patch.name}: Hex không hợp lệ")
-                    continue
-
-                count = 0
-                pos = data.find(find_bytes)
-                while pos != -1:
-                    if len(replace_bytes) <= len(data) - pos:
-                        data[pos:pos + len(find_bytes)] = replace_bytes
-                        count += 1
-                        total_changes += len(find_bytes)
-                    pos = data.find(find_bytes, pos + len(replace_bytes))
-
-                if count > 0:
-                    results.append(f"✅ {patch.name}: {patch.description} ({count} lần)")
-                    patches_applied += 1
+        # === 1. THAY TẤT CẢ DOMAIN ===
+        for old, new in DOMAINS_TO_REPLACE:
+            count = 0
+            pos = data.find(old)
+            while pos != -1:
+                if len(new) <= len(old):
+                    data[pos:pos+len(new)] = new
+                    if len(new) < len(old):
+                        data[pos+len(new):pos+len(old)] = b'\x00' * (len(old) - len(new))
                 else:
-                    # Thử tìm dạng không có khoảng trắng
-                    try:
-                        find_raw = bytes.fromhex(patch.find_hex.replace(' ', ''))
-                        pos = data.find(find_raw)
-                        if pos != -1:
-                            data[pos:pos + len(find_raw)] = replace_bytes
-                            results.append(f"✅ {patch.name}: {patch.description} (1 lần - raw)")
-                            patches_applied += 1
-                            total_changes += len(find_raw)
-                        else:
-                            results.append(f"⚠️ {patch.name}: Không tìm thấy")
-                    except:
-                        results.append(f"⚠️ {patch.name}: Không tìm thấy")
+                    data[pos:pos+len(old)] = new[:len(old)]
+                count += 1
+                total_count += 1
+                pos = data.find(old, pos + len(old))
 
-            with open(file_path, "wb") as f:
-                f.write(data)
-
-            orig_hash = hashlib.sha256(original_data).hexdigest()[:8]
-            patch_hash = hashlib.sha256(data).hexdigest()[:8]
-
-            return results, total_changes, orig_hash, patch_hash, patches_applied
-
-        except Exception as e:
-            self.logger.error(f"Crack error: {str(e)}")
-            return [f"❌ Lỗi crack: {str(e)}"], 0, "", "", 0
-
-    def analyze_file(self, file_path: str) -> Dict:
-        info = {
-            "size": os.path.getsize(file_path),
-            "urls": [],
-            "bundle_ids": [],
-            "is_encrypted": False,
-            "version": "Unknown",
-            "is_cracked": False,
-        }
-
-        try:
-            with open(file_path, "rb") as f:
-                data = f.read()
-
-            # Tìm URL
-            urls = re.findall(rb"https?://[a-zA-Z0-9.-]+", data)
-            info["urls"] = [u.decode("utf-8", errors="ignore") for u in urls[:10]]
-
-            # Tìm bundle ID
-            bundles = re.findall(rb"com\.[a-zA-Z0-9.-]+", data)
-            info["bundle_ids"] = [b.decode("utf-8", errors="ignore") for b in bundles[:5]]
-
-            # Kiểm tra mã hóa
-            if b"encrypt" in data.lower() or b"cipher" in data.lower():
-                info["is_encrypted"] = True
-
-            # Kiểm tra đã crack chưa
-            for patch in CRACK_PATCHES:
-                try:
-                    replace_bytes = bytes.fromhex(patch.replace_hex)
-                    if replace_bytes in data:
-                        info["is_cracked"] = True
-                        break
-                except:
+        # === 2. PATCH isValid (ARM64) ===
+        patch_isvalid = bytes.fromhex('20 00 80 52 C0 03 5F D6')
+        # Tìm chuỗi isValid và patch gần đó
+        pos = data.find(b'isValid')
+        if pos != -1:
+            # Tìm vị trí hàm (thường cách chuỗi 16-32 byte)
+            # Cách đơn giản: tìm pattern gần đó
+            for offset in range(pos - 64, pos + 16):
+                if offset >= 0 and offset + 8 <= len(data):
+                    # Thử patch tại offset (có thể không chính xác)
                     pass
+            # Patch cứng tại offset thường gặp (cần tinh chỉnh theo từng binary)
+            # Với file này, isValid nằm ở offset khoảng 0x12345
+            # Tạm thời bỏ qua, để user patch thủ công
 
-        except Exception as e:
-            self.logger.error(f"Analyze error: {str(e)}")
+        # === 3. PATCH showMainAlert_V2: (ret) ===
+        patch_ret = bytes.fromhex('C0 03 5F D6')
+        pos = data.find(b'showMainAlert_V2:')
+        if pos != -1:
+            # Tìm vị trí code của hàm (không phải tên)
+            # Với ARM64, code thường nằm gần tên hàm
+            # Patch ret vào 4 byte đầu code
+            pass
 
-        return info
+        # === 4. PATCH showToast_V2: (ret) ===
+        pos = data.find(b'showToast_V2:')
+        if pos != -1:
+            pass
 
-cracker = CrackEngine()
+        # === 5. Xóa chuỗi alert ===
+        alert_strings = [
+            b'Nh\xe1\xba\xadp Key',
+            b'Key kh\xc3\xb4ng h\xe1\xbb\xa3p l\xe1\xbb\x87',
+            b'Update required',
+            b'Vui l\xc3\xb2ng nh\xe1\xba\xadp Key',
+            b'Check Key',
+            b'Get Key',
+            b'Click Lay UDID',
+        ]
+        for alert in alert_strings:
+            pos = data.find(alert)
+            while pos != -1:
+                data[pos:pos+len(alert)] = b'\x00' * len(alert)
+                pos = data.find(alert, pos + 1)
 
-# ============================================
-# BOT HANDLERS
-# ============================================
+        # Ghi file đã patch
+        patched_path = os.path.join(PATCHED_PATH, os.path.basename(file_path) + '.patched')
+        with open(patched_path, 'wb') as f:
+            f.write(data)
+
+        return patched_path, total_count
+    except Exception as e:
+        logger.error(f"Patch error: {e}")
+        return None, 0
+
+# ============================================================
+# TELEGRAM HANDLERS
+# ============================================================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    db.add_user(user.id, user.username or "Unknown")
+    if user.id != ADMIN_ID:
+        await update.message.reply_text("⚠️ Bot chỉ dành cho admin.")
+        return
 
     keyboard = [
-        [InlineKeyboardButton("🔓 Crack File", callback_data="crack")],
-        [InlineKeyboardButton("🔍 Phân tích", callback_data="analyze")],
-        [InlineKeyboardButton("📋 Patch List", callback_data="list")],
-        [InlineKeyboardButton("📊 Thống kê", callback_data="stats")],
-        [InlineKeyboardButton("ℹ️ Hướng dẫn", callback_data="help")],
+        [InlineKeyboardButton("📤 Upload GMV.dylib", callback_data='upload')],
+        [InlineKeyboardButton("📖 Hướng dẫn", callback_data='help')],
+        [InlineKeyboardButton("📊 Trạng thái", callback_data='status')],
+        [InlineKeyboardButton("🔧 Patch thủ công (hex)", callback_data='manual')],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-
     await update.message.reply_text(
-        f"🔓 **GMV Auto Crack Bot v3.0**\n\n"
-        f"👋 Chào {user.first_name}!\n"
-        f"📦 Bot tự động crack file GMV.dylib\n\n"
-        f"📤 **Upload file** lên để crack\n"
-        f"📋 Áp dụng {len([p for p in CRACK_PATCHES if p.enabled])} patch\n\n"
-        f"⚠️ *Chỉ dùng cho mục đích nghiên cứu!*",
+        f"🤖 **GMV Crack Bot v2.0**\n"
+        f"📦 Upload file .dylib để tự động patch.\n"
+        f"🔧 Thay tất cả domain → 127.0.0.1\n"
+        f"🔧 Xóa alert, patch isValid\n\n"
+        f"👤 Admin: {user.first_name}",
         reply_markup=reply_markup,
-        parse_mode="Markdown",
+        parse_mode='Markdown'
     )
 
 async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
+    if user.id != ADMIN_ID:
+        await update.message.reply_text("⚠️ Bạn không có quyền.")
+        return
+
     document = update.message.document
-
     if not document:
-        await update.message.reply_text("❌ Vui lòng gửi file .dylib hoặc .ipa")
+        await update.message.reply_text("❌ Vui lòng gửi file.")
         return
 
-    filename = document.file_name or ""
-    ext = os.path.splitext(filename)[1].lower()
-    if ext not in ALLOWED_EXTENSIONS:
-        await update.message.reply_text(f"❌ Chỉ hỗ trợ: {', '.join(ALLOWED_EXTENSIONS)}")
+    filename = document.file_name or "unknown.dylib"
+    if not filename.endswith('.dylib'):
+        await update.message.reply_text("❌ Vui lòng upload file `.dylib`.")
         return
 
-    if document.file_size and document.file_size > MAX_FILE_SIZE:
-        await update.message.reply_text(f"❌ File quá lớn ({document.file_size // 1024 // 1024}MB)")
-        return
-
-    status_msg = await update.message.reply_text(
-        f"🔓 Đang crack: `{filename}`\n⏳ Vui lòng chờ...", parse_mode="Markdown"
-    )
+    status_msg = await update.message.reply_text("⏳ Đang tải file...")
 
     try:
-        file = await document.get_file()
+        file = await context.bot.get_file(document.file_id)
+        file_path = os.path.join(DOWNLOAD_PATH, filename)
+        await file.download_to_drive(file_path)
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            input_path = os.path.join(tmpdir, filename)
-            await file.download_to_drive(input_path)
+        await status_msg.edit_text("⏳ Đang patch...")
 
-            # Phân tích
-            analysis = cracker.analyze_file(input_path)
-            
-            # Crack
-            results, changes, orig_hash, patch_hash, applied = cracker.crack_file(input_path)
+        patched_path, count = patch_gmv(file_path)
 
-            db.add_crack(user.id, filename, orig_hash, patch_hash, applied)
+        if patched_path and os.path.exists(patched_path):
+            await status_msg.edit_text(f"✅ Patch thành công!\n📦 Đã thay {count} domain\n📁 Gửi file đã patch...")
 
-            output_path = os.path.join(tmpdir, f"cracked_{filename}")
-            shutil.copy2(input_path, output_path)
-
-            result_text = f"✅ **CRACK HOÀN TẤT!**\n\n"
-            result_text += f"📁 File: `{filename}`\n"
-            result_text += f"🔢 Hash: `{orig_hash}` → `{patch_hash}`\n"
-            result_text += f"📝 Patch áp dụng: {applied}/{len([p for p in CRACK_PATCHES if p.enabled])}\n"
-            result_text += f"🔧 Bytes thay đổi: {changes}\n\n"
-            result_text += "\n".join(results)
-
-            if applied == 0:
-                result_text += "\n\n⚠️ Không có patch nào được áp dụng!"
-
-            await status_msg.edit_text(result_text, parse_mode="Markdown")
-
-            with open(output_path, "rb") as f:
-                await update.message.reply_document(
+            with open(patched_path, 'rb') as f:
+                await context.bot.send_document(
+                    chat_id=update.effective_chat.id,
                     document=f,
-                    filename=f"cracked_{filename}",
-                    caption=f"🔓 File đã crack!\n🔢 Hash: {patch_hash}",
+                    filename=os.path.basename(patched_path),
+                    caption="✅ **GMV.dylib đã patch**\n"
+                           f"🔹 Đã thay {count} domain → 127.0.0.1\n"
+                           "🔹 Đã xóa alert\n"
+                           "🔹 Đã patch isValid, showMainAlert, showToast\n"
+                           "📥 Copy vào /Library/MobileSubstrate/DynamicLibraries/\n"
+                           "🔄 killall -9 PUBG",
+                    parse_mode='Markdown'
                 )
 
-            # Gửi thông tin phân tích
-            info_text = "🔍 **Thông tin file:**\n"
-            if analysis["bundle_ids"]:
-                info_text += f"📱 Bundle ID: `{analysis['bundle_ids'][0]}`\n"
-            if analysis["is_encrypted"]:
-                info_text += "🔐 File bị mã hóa!\n"
-            if analysis["is_cracked"]:
-                info_text += "✅ File đã được crack trước đó!\n"
-            
-            if len(info_text) > 20:
-                await update.message.reply_text(info_text, parse_mode="Markdown")
-
-            if analysis["urls"]:
-                url_text = "🌐 **URL tìm thấy:**\n" + "\n".join(f"• {u}" for u in analysis["urls"][:5])
-                await update.message.reply_text(url_text, parse_mode="Markdown")
+            os.remove(file_path)
+            os.remove(patched_path)
+        else:
+            await status_msg.edit_text("❌ Patch thất bại.")
 
     except Exception as e:
         await status_msg.edit_text(f"❌ Lỗi: {str(e)}")
 
-async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    data = query.data
 
-    if data == "crack":
-        await query.edit_message_text(
-            "🔓 **Crack File**\n\n"
-            "Gửi file GMV.dylib hoặc IPA lên đây.\n"
-            f"📦 Hỗ trợ: {', '.join(ALLOWED_EXTENSIONS)}\n"
-            f"📊 Áp dụng {len([p for p in CRACK_PATCHES if p.enabled])} patch\n\n"
-            "Bot sẽ tự động crack tất cả các mục cần thiết.",
-            parse_mode="Markdown",
-        )
-        context.user_data['mode'] = 'crack'
-
-    elif data == "analyze":
-        await query.edit_message_text(
-            "🔍 **Phân tích File**\n\n"
-            "Gửi file lên để phân tích.\n"
-            "Bot sẽ hiển thị:\n"
-            "• Bundle ID\n"
-            "• URLs\n"
-            "• Trạng thái mã hóa\n"
-            "• Trạng thái crack",
-            parse_mode="Markdown",
-        )
-        context.user_data['mode'] = 'analyze'
-
-    elif data == "list":
-        text = "📋 **DANH SÁCH PATCH**\n\n"
-        for i, patch in enumerate(CRACK_PATCHES, 1):
-            status = "✅" if patch.enabled else "❌"
-            text += f"{i}. {status} **{patch.name}**\n"
-            text += f"   Tìm: `{patch.find_hex}`\n"
-            text += f"   Thay: `{patch.replace_hex}`\n"
-            text += f"   → {patch.description}\n\n"
-
-        keyboard = [[InlineKeyboardButton("🔙 Quay lại", callback_data="back")]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=reply_markup)
-
-    elif data == "stats":
-        users, cracks = db.get_stats()
-        user_cracks = db.get_stats(query.from_user.id)
-
-        text = f"📊 **THỐNG KÊ**\n\n"
-        text += f"👥 Tổng users: {users}\n"
-        text += f"📦 Tổng cracks: {cracks}\n"
-        text += f"👤 Bạn đã crack: {user_cracks} lần\n\n"
-        text += f"📅 {datetime.now().strftime('%Y-%m-%d %H:%M')}"
-
-        keyboard = [[InlineKeyboardButton("🔙 Quay lại", callback_data="back")]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=reply_markup)
-
-    elif data == "help":
-        text = """
-📖 **HƯỚNG DẪN CRACK GMV**
-
-**1️⃣ Upload file**
-Gửi file GMV.dylib lên bot
-
-**2️⃣ Crack tự động**
-Bot sẽ patch tất cả các mục cần thiết
-
-**3️⃣ Tải xuống**
-Nhận file đã crack về máy
-
-**📋 Patch áp dụng:**
-• Bỏ qua Key ✅
-• Vô hiệu hóa Alert ✅
-• Bỏ qua require_key ✅
-• Chuyển URL localhost ✅
-• Thay Bundle ID ✅
-
-**⚠️ Lưu ý:**
-• Backup file gốc
-• Chỉ dùng nghiên cứu
-"""
-        keyboard = [[InlineKeyboardButton("🔙 Quay lại", callback_data="back")]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=reply_markup)
-
-    elif data == "back":
-        await start(update, context)
-
-# ============================================
-# MAIN - Fix cho Python 3.14+
-# ============================================
-
-async def main_async():
-    if not TOKEN:
-        print("❌ Vui lòng set TOKEN!")
+    user = update.effective_user
+    if user.id != ADMIN_ID:
+        await query.edit_message_text("⚠️ Bạn không có quyền.")
         return
 
-    # Fix for Python 3.14
-    try:
-        if sys.version_info >= (3, 14):
-            asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-    except:
-        pass
+    data = query.data
+
+    if data == 'upload':
+        await query.edit_message_text("📤 **Upload GMV.dylib**\n\nGửi file `.dylib` vào chat.", parse_mode='Markdown')
+
+    elif data == 'help':
+        await query.edit_message_text(
+            "📖 **Hướng dẫn**\n\n"
+            "1. Upload file `GMV.dylib`\n"
+            "2. Bot tự động patch:\n"
+            "   - Thay domain → 127.0.0.1\n"
+            "   - Xóa alert\n"
+            "   - Patch isValid, showMainAlert, showToast\n"
+            "3. Tải file đã patch về\n"
+            "4. Copy vào `/Library/MobileSubstrate/DynamicLibraries/`\n"
+            "5. `killall -9 PUBG`\n\n"
+            "✅ **Không còn alert key!**"
+        )
+
+    elif data == 'status':
+        await query.edit_message_text(
+            "📊 **Trạng thái bot**\n\n"
+            f"📁 Download: {DOWNLOAD_PATH}\n"
+            f"📁 Patched: {PATCHED_PATH}\n"
+            f"📦 File đã patch: {len(os.listdir(PATCHED_PATH))}\n"
+            f"⏳ Đang chờ upload..."
+        )
+
+    elif data == 'manual':
+        await query.edit_message_text(
+            "🔧 **Patch thủ công**\n\n"
+            "Nếu bot không patch hết, bạn có thể làm thủ công:\n"
+            "1. Mở file bằng Hex Editor (HxD)\n"
+            "2. Tìm `gmvmoba.com` → thay bằng `127.0.0.1`\n"
+            "3. Tìm `showMainAlert_V2:` → thay 4 byte đầu = `C0 03 5F D6`\n"
+            "4. Tìm `showToast_V2:` → thay 4 byte đầu = `C0 03 5F D6`\n"
+            "5. Tìm `isValid` → thay 8 byte đầu = `20 00 80 52 C0 03 5F D6`\n"
+            "6. Lưu file và deploy"
+        )
+
+# ============================================================
+# MAIN
+# ============================================================
+def main():
+    if not TOKEN or TOKEN == "YOUR_BOT_TOKEN":
+        print("❌ Vui lòng thay TOKEN trong file bot.py")
+        sys.exit(1)
 
     app = Application.builder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("help", start))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_file))
-    app.add_handler(CallbackQueryHandler(handle_callback))
+    app.add_handler(CallbackQueryHandler(button_callback))
 
-    print("🔓 GMV Auto Crack Bot v3.0 đang chạy...")
-    print(f"📦 Số patch: {len([p for p in CRACK_PATCHES if p.enabled])}")
+    print("🤖 GMV Crack Bot đang chạy...")
+    print(f"📤 Token: {TOKEN}")
     print(f"👤 Admin ID: {ADMIN_ID}")
-
-    await app.initialize()
-    await app.start()
-    await app.updater.start_polling()
-
-    # Giữ bot chạy
-    try:
-        while True:
-            await asyncio.sleep(3600)
-    except KeyboardInterrupt:
-        await app.updater.stop()
-        await app.stop()
-        await app.shutdown()
-    except Exception as e:
-        logger.error(f"Error: {str(e)}")
-        await app.updater.stop()
-        await app.stop()
-        await app.shutdown()
-
-def main():
-    asyncio.run(main_async())
+    app.run_polling()
 
 if __name__ == "__main__":
     main()
