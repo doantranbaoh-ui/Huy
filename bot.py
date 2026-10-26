@@ -27,8 +27,8 @@ logging.basicConfig(
 log = logging.getLogger("bot")
 
 # ===== CẤU HÌNH =====
-API_ID = 12345678
-API_HASH = "your_api_hash_here"
+API_ID = 39057925
+API_HASH = "cbd2d21fce9a70d33f2baaf26cb5c12a"
 SESSION_NAME = "acc_chinh"
 
 BOT_TOKEN = "6367532329:AAF4F5XEYrdn121tbxmnxdHLDu7WzuePKkA"
