@@ -1,6 +1,5 @@
-# bot.py - Bot API login acc chính, sau đó lệnh chạy trên acc chính qua Telethon
+# bot.py - Bản full: login acc chính qua bot, lệnh chạy trên acc chính, mute/câm tự động, keepalive
 # Yêu cầu: pip install telethon aiohttp
-# Luồng: admin nhắn bot /login sdt -> /otp mã -> /pass 2fa -> bot gắn acc chính và chạy lệnh
 
 import asyncio
 import json
@@ -9,6 +8,7 @@ import logging
 import time
 import aiohttp
 from telethon import TelegramClient, events
+from telethon.sessions import MemorySession
 from telethon.errors import (
     SessionPasswordNeededError,
     PhoneCodeInvalidError,
@@ -27,8 +27,8 @@ logging.basicConfig(
 log = logging.getLogger("bot")
 
 # ===== CẤU HÌNH =====
-API_ID = 27657608
-API_HASH = "3b6e52a3713b44ad5adaa2bcf579de66"
+API_ID = 12345678
+API_HASH = "your_api_hash_here"
 SESSION_NAME = "acc_chinh"
 
 BOT_TOKEN = "6367532329:AAF4F5XEYrdn121tbxmnxdHLDu7WzuePKkA"
@@ -43,8 +43,19 @@ STATS_FILE = "stats.json"
 LOCK_FILE = "acc_chinh.lock"
 AUTO_DELETE_AFTER = 1
 
-config = {"delay": 0.1, "delay_soan": 2}
-stats = {"sent": 0, "deleted_box": 0, "deleted_inbox": 0}
+config = {
+    "delay": 0.1,
+    "delay_soan": 2,
+    "auto_delete": True,
+    "cam_auto_delete": True,
+}
+stats = {
+    "sent": 0,
+    "deleted_box": 0,
+    "deleted_inbox": 0,
+    "commands": 0,
+    "errors": 0,
+}
 queue = asyncio.Queue()
 processed = set()
 main_ref = {"client": None, "me": None, "started_at": None}
@@ -53,7 +64,7 @@ login_state = {
     "client": None,
     "phone": None,
     "phone_code_hash": None,
-    "awaiting": None,  # None | "otp" | "2fa"
+    "awaiting": None,
     "last_error": None,
 }
 
@@ -108,6 +119,35 @@ def release_lock():
         pass
 
 
+# ===== TỰ XÓA =====
+async def auto_delete(*messages):
+    if not config.get("auto_delete", True):
+        return
+    await asyncio.sleep(AUTO_DELETE_AFTER)
+    for msg in messages:
+        if msg is None:
+            continue
+        try:
+            await msg.delete()
+        except Exception:
+            pass
+
+
+async def reply_clean(event, text):
+    reply = await event.reply(text)
+    asyncio.create_task(auto_delete(event, reply))
+
+
+async def delete_violation(event):
+    if not config.get("cam_auto_delete", True):
+        return
+    try:
+        await event.delete()
+        log.info(f"Xóa vi phạm | id={event.sender_id} | msg={event.id}")
+    except Exception as e:
+        log.error(f"Xóa vi phạm lỗi: {e}")
+
+
 # ===== BOT API =====
 async def bot_send(chat_id, text):
     try:
@@ -143,13 +183,15 @@ async def bot_get_updates(offset=None, timeout=25):
 async def bot_reply_clean(chat_id, msg_id, text):
     resp = await bot_send(chat_id, text)
     reply_id = resp["result"]["message_id"] if resp and resp.get("ok") else None
+    if not config.get("auto_delete", True):
+        return
     await asyncio.sleep(AUTO_DELETE_AFTER)
     await bot_delete(chat_id, msg_id)
     if reply_id:
         await bot_delete(chat_id, reply_id)
 
 
-# ===== SENDER + HANDLERS ACC CHÍNH =====
+# ===== SENDER =====
 async def sender_worker(client):
     while True:
         target, message, fake = await queue.get()
@@ -165,13 +207,60 @@ async def sender_worker(client):
             log.error(f"FloodWait {e.seconds}s | {target}")
             await asyncio.sleep(e.seconds)
         except Exception as e:
+            stats["errors"] += 1
+            save_json(STATS_FILE, stats)
             log.error(f"Gửi lỗi | {target} | {e}")
         await asyncio.sleep(config["delay"])
         queue.task_done()
 
 
+# ===== XỬ LÝ MUTE/CÂM =====
+async def cmd_mute(event, me, text):
+    cmd = text.split()[0].lower()
+    parts = text.split()
+    if len(parts) < 2:
+        await reply_clean(event, f"Cú pháp: {cmd} <id>")
+        return
+    try:
+        target = int(parts[1])
+    except ValueError:
+        await reply_clean(event, f"ID không hợp lệ: {parts[1]}")
+        return
+
+    if cmd in ("/cam", "/camib"):
+        path = CAMIB_FILE if cmd == "/camib" else CAM_FILE
+        data = set(load_json(path, []))
+        data.add(target)
+        save_json(path, list(data))
+        scope = "Inbox" if cmd == "/camib" else "Box"
+        await reply_clean(event, f"Đã câm {scope}: {target}")
+        log.info(f"CÂM {scope} | id={target}")
+    else:
+        path = CAMIB_FILE if cmd == "/suaib" else CAM_FILE
+        data = set(load_json(path, []))
+        if target in data:
+            data.discard(target)
+            save_json(path, list(data))
+            scope = "Inbox" if cmd == "/suaib" else "Box"
+            await reply_clean(event, f"Đã tháo câm {scope}: {target}")
+        else:
+            scope = "Inbox" if cmd == "/suaib" else "Box"
+            await reply_clean(event, f"ID {target} không trong danh sách câm {scope}")
+
+
+async def cmd_list(event):
+    cam = load_json(CAM_FILE, [])
+    camib = load_json(CAMIB_FILE, [])
+    await reply_clean(
+        event,
+        f"DANH SÁCH CÂM:\n"
+        f"BOX ({len(cam)}): {cam or 'trống'}\n"
+        f"INBOX ({len(camib)}): {camib or 'trống'}"
+    )
+
+
+# ===== ATTACH HANDLERS =====
 async def attach_user_client(client, via_bot=False):
-    # Gắn acc chính vào bot, đăng ký handler, khởi động sender
     me = await client.get_me()
     main_ref["client"] = client
     main_ref["me"] = me
@@ -185,99 +274,120 @@ async def attach_user_client(client, via_bot=False):
     async def incoming_handler(event):
         sender = event.sender_id
         if event.is_private and sender in load_json(CAMIB_FILE, []):
-            try:
-                await event.delete()
-                stats["deleted_inbox"] += 1
-                save_json(STATS_FILE, stats)
-            except Exception:
-                pass
+            await delete_violation(event)
+            stats["deleted_inbox"] += 1
+            save_json(STATS_FILE, stats)
             return
         if not event.is_private and sender in load_json(CAM_FILE, []):
-            try:
-                await event.delete()
-                stats["deleted_box"] += 1
-                save_json(STATS_FILE, stats)
-            except Exception:
-                pass
+            await delete_violation(event)
+            stats["deleted_box"] += 1
+            save_json(STATS_FILE, stats)
 
-    # Lệnh chạy trên acc chính, chỉ chủ acc
     @client.on(events.NewMessage(outgoing=True))
     async def cmd_handler(event):
         if event.id in processed:
             return
         processed.add(event.id)
-
         text = event.raw_text.strip()
         if not text.startswith("/"):
             return
         if event.sender_id != me.id:
+            asyncio.create_task(auto_delete(event))
             return
 
+        stats["commands"] += 1
+        save_json(STATS_FILE, stats)
         cmd = text.split()[0].lower()
         try:
-            if cmd == "/help":
-                await event.reply(
-                    "LỆNH ACC CHÍNH:\n"
-                    "/status /id /delay <s>\n"
+            if cmd in ("/cam", "/sua", "/camib", "/suaib"):
+                await cmd_mute(event, me, text)
+            elif cmd == "/list":
+                await cmd_list(event)
+            elif cmd == "/help":
+                await reply_clean(
+                    event,
+                    "LỆNH CHỦ ACC:\n"
+                    "/cam <id>    - Câm box, tự xóa tin\n"
+                    "/sua <id>    - Tháo câm box\n"
+                    "/camib <id>  - Câm Inbox, tự xóa tin\n"
+                    "/suaib <id>  - Tháo câm Inbox\n"
+                    "/list        - Danh sách câm\n"
+                    "/status /id /delay /autodel /camauto\n"
                     "/gui <target> <nd> /fakesoan <target> <nd>\n"
-                    "/cam <id> /sua <id> /camib <id> /suaib <id>\n"
-                    "/list /stats"
+                    "/stats /reset"
                 )
             elif cmd == "/status":
-                await event.reply(
+                await reply_clean(
+                    event,
                     f"Kết nối: {client.is_connected()}\n"
                     f"Ủy quyền: {await client.is_user_authorized()}\n"
-                    f"User: {me.id} | @{getattr(me, 'username', '') or 'không có'}"
+                    f"User: {me.id}\n"
+                    f"Auto delete: {config['auto_delete']}\n"
+                    f"Cam auto delete: {config['cam_auto_delete']}"
                 )
             elif cmd == "/id":
-                await event.reply(f"User: {me.id} | Chat: {event.chat_id}")
+                await reply_clean(event, f"User: {me.id} | Chat: {event.chat_id}")
             elif cmd == "/delay":
                 config["delay"] = float(text.split()[1])
                 save_json(CONFIG_FILE, config)
-                await event.reply(f"Delay: {config['delay']}s")
+                await reply_clean(event, f"Delay: {config['delay']}s")
+            elif cmd == "/autodel":
+                arg = text.split(maxsplit=1)[1].lower()
+                config["auto_delete"] = (arg == "on")
+                save_json(CONFIG_FILE, config)
+                await reply_clean(event, f"Auto delete: {config['auto_delete']}")
+            elif cmd == "/camauto":
+                arg = text.split(maxsplit=1)[1].lower()
+                config["cam_auto_delete"] = (arg == "on")
+                save_json(CONFIG_FILE, config)
+                await reply_clean(event, f"Cam auto delete: {config['cam_auto_delete']}")
             elif cmd == "/gui":
                 parts = text.split(maxsplit=2)
                 if len(parts) < 3:
-                    await event.reply("Cú pháp: /gui <target> <nội dung>")
+                    await reply_clean(event, "Cú pháp: /gui <target> <nội dung>")
                     return
                 await queue.put((parts[1], parts[2], False))
-                await event.reply("Đã vào hàng đợi")
+                await reply_clean(event, "Đã vào hàng đợi")
             elif cmd == "/fakesoan":
                 parts = text.split(maxsplit=2)
                 if len(parts) < 3:
-                    await event.reply("Cú pháp: /fakesoan <target> <nội dung>")
+                    await reply_clean(event, "Cú pháp: /fakesoan <target> <nội dung>")
                     return
                 await queue.put((parts[1], parts[2], True))
-                await event.reply("Đã vào hàng đợi")
-            elif cmd in ("/cam", "/sua", "/camib", "/suaib"):
-                target = int(text.split()[1])
-                path = CAMIB_FILE if "ib" in cmd else CAM_FILE
-                data = set(load_json(path, []))
-                if cmd in ("/cam", "/camib"):
-                    data.add(target)
-                    action = "câm"
-                else:
-                    data.discard(target)
-                    action = "tháo câm"
-                save_json(path, list(data))
-                await event.reply(f"Đã {action} {target}")
-            elif cmd == "/list":
-                await event.reply(
-                    f"BOX: {load_json(CAM_FILE, [])}\nINBOX: {load_json(CAMIB_FILE, [])}"
-                )
+                await reply_clean(event, "Đã vào hàng đợi")
             elif cmd == "/stats":
-                await event.reply(f"Gửi: {stats['sent']}")
+                await reply_clean(
+                    event,
+                    f"Gửi: {stats['sent']}\n"
+                    f"Xóa box: {stats['deleted_box']}\n"
+                    f"Xóa Inbox: {stats['deleted_inbox']}\n"
+                    f"Lệnh: {stats['commands']}\n"
+                    f"Lỗi: {stats['errors']}"
+                )
+            elif cmd == "/reset":
+                for k in stats:
+                    stats[k] = 0
+                save_json(STATS_FILE, stats)
+                await reply_clean(event, "Đã reset thống kê")
+        except (IndexError, ValueError):
+            await reply_clean(event, f"Cú pháp {cmd} không hợp lệ")
         except Exception as e:
-            log.error(f"Lệnh acc chính lỗi | {cmd} | {e}")
-
-    log.info(f"Acc chính đã gắn, lệnh chạy trên acc chính | Admin bot: {ADMIN_IDS}")
+            stats["errors"] += 1
+            save_json(STATS_FILE, stats)
+            log.error(f"Lệnh lỗi | {cmd} | {e}")
 
 
 # ===== LOGIN QUA BOT =====
 async def do_login_start(chat_id, phone):
+    old = login_state.get("client")
+    if old:
+        try:
+            await old.disconnect()
+        except Exception:
+            pass
+        login_state["client"] = None
     try:
-        # Dùng đúng SESSION_NAME để login xong là session chính
-        client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
+        client = TelegramClient(MemorySession(), API_ID, API_HASH)
         await client.connect()
         sent = await client.send_code_request(phone)
         login_state["client"] = client
@@ -285,12 +395,8 @@ async def do_login_start(chat_id, phone):
         login_state["phone_code_hash"] = sent.phone_code_hash
         login_state["awaiting"] = "otp"
         login_state["last_error"] = None
-        await bot_send(
-            chat_id,
-            f"Đã gửi OTP tới {phone}.\n"
-            f"Gửi: /otp <mã> (có khoảng trắng: /otp 1 2 3 4 5)"
-        )
-        log.info(f"Gửi OTP tới {phone} | session={SESSION_NAME}")
+        await bot_send(chat_id, f"Đã gửi OTP tới {phone}.\nGửi: /otp <mã> (có khoảng trắng)")
+        log.info(f"Gửi OTP tới {phone}")
     except FloodWaitError as e:
         login_state["last_error"] = f"FloodWait {e.seconds}s"
         await bot_send(chat_id, f"FloodWait: chờ {e.seconds} giây")
@@ -310,7 +416,7 @@ async def do_login_otp(chat_id, code):
         await client.sign_in(phone=phone, code=code, phone_code_hash=login_state["phone_code_hash"])
         login_state["awaiting"] = None
         me = await client.get_me()
-        await bot_send(chat_id, f"Đăng nhập OK: {me.id} | @{me.username}\nAcc chính đã gắn, dùng lệnh trên acc chính.")
+        await bot_send(chat_id, f"Đăng nhập OK: {me.id} | @{me.username}")
         log.info(f"Login OK: {me.id}")
         await attach_user_client(client, via_bot=True)
     except SessionPasswordNeededError:
@@ -336,7 +442,7 @@ async def do_login_pass(chat_id, password):
         await client.sign_in(password=password)
         login_state["awaiting"] = None
         me = await client.get_me()
-        await bot_send(chat_id, f"2FA OK: {me.id} | @{me.username}\nAcc chính đã gắn.")
+        await bot_send(chat_id, f"2FA OK: {me.id} | @{me.username}")
         log.info(f"Login 2FA OK: {me.id}")
         await attach_user_client(client, via_bot=True)
     except PasswordHashInvalidError:
@@ -396,10 +502,7 @@ async def bot_polling():
                         f"Login bot: awaiting={login_state['awaiting']}"
                     )
                 else:
-                    await bot_reply_clean(
-                        chat_id, msg_id,
-                        f"Chưa gắn acc chính. Login bot: awaiting={login_state['awaiting']}"
-                    )
+                    await bot_reply_clean(chat_id, msg_id, "Chưa gắn acc chính.")
             elif text.startswith("/ping"):
                 await bot_reply_clean(chat_id, msg_id, f"OK | ready={status['bot_ready']}")
             elif text.startswith("/help"):
@@ -417,7 +520,6 @@ async def bot_polling():
 
 # ===== KHỞI ĐỘNG =====
 async def run_user_client():
-    # Nếu đã có session sẵn, gắn acc chính ngay
     if not os.path.exists(f"{SESSION_NAME}.session"):
         log.warning(f"Không có {SESSION_NAME}.session — chờ /login qua bot")
         return
