@@ -1,11 +1,13 @@
-# bot.py - Bổ sung lệnh /status kiểm tra trạng thái login, chỉ admin 5736655322
+# bot.py - Bot full: Telethon user client + Bot API, admin 5736655322, keepalive, tự xóa lệnh
 # Yêu cầu: pip install telethon aiohttp
+# Cấu hình: API_ID, BOT_TOKEN trực tiếp; API_HASH đọc từ biến môi trường
 
 import asyncio
 import json
 import os
 import logging
 import time
+import aiohttp
 from telethon import TelegramClient, events
 from telethon.errors import SessionPasswordNeededError, PhoneCodeInvalidError, PhoneCodeExpiredError
 
@@ -18,13 +20,14 @@ logging.basicConfig(
 )
 log = logging.getLogger("bot")
 
-# ===== CẤU HÌNH TRỰC TIẾP =====
-API_ID = 39057925
-API_HASH = "cbd2d21fce9a70d33f2baaf26cb5c12a"
-SESSION_NAME = "Bao Huy"
-PHONE = "+84347635805"
+# ===== CẤU HÌNH =====
+API_ID = 12345678
+API_HASH = os.environ.get("API_HASH", "")
+SESSION_NAME = "acc_chinh"
+PHONE = "+84123456789"
 
 BOT_TOKEN = "6367532329:AAF4F5XEYrdn121tbxmnxdHLDu7WzuePKkA"
+BOT_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
 ADMIN_IDS = {5736655322}
 
@@ -39,18 +42,16 @@ stats = {"sent": 0, "deleted_box": 0, "deleted_inbox": 0}
 queue = asyncio.Queue()
 processed = set()
 
-# Trạng thái đăng nhập
+main_client_ref = {"client": None, "me": None, "started_at": None}
+
 login_state = {
     "client": None,
     "phone": None,
     "phone_code_hash": None,
-    "awaiting": None,       # None | "otp" | "2fa"
-    "last_login_at": None,  # timestamp đăng nhập thành công gần nhất
-    "last_error": None,     # lỗi gần nhất
+    "awaiting": None,
+    "last_error": None,
+    "last_login_at": None,
 }
-
-# Tham chiếu client chính đang chạy (dùng cho /status)
-main_client_ref = {"client": None, "me": None, "started_at": None}
 
 
 def load_json(path, default):
@@ -77,60 +78,205 @@ config = load_json(CONFIG_FILE, config)
 stats = load_json(STATS_FILE, stats)
 
 
-def is_admin(event):
-    return event.sender_id in ADMIN_IDS
+# ===== BOT API HELPERS =====
+async def bot_send(chat_id, text):
+    try:
+        async with aiohttp.ClientSession() as s:
+            async with s.post(f"{BOT_API}/sendMessage", json={
+                "chat_id": chat_id, "text": text
+            }) as r:
+                return await r.json()
+    except Exception as e:
+        log.error(f"bot_send lỗi: {e}")
 
 
-async def auto_delete(*messages):
+async def bot_delete(chat_id, message_id):
+    try:
+        async with aiohttp.ClientSession() as s:
+            await s.post(f"{BOT_API}/deleteMessage", json={
+                "chat_id": chat_id, "message_id": message_id
+            })
+    except Exception as e:
+        log.error(f"bot_delete lỗi: {e}")
+
+
+async def bot_get_updates(offset=None, timeout=25):
+    params = {"timeout": timeout}
+    if offset is not None:
+        params["offset"] = offset
+    try:
+        async with aiohttp.ClientSession() as s:
+            async with s.get(f"{BOT_API}/getUpdates", params=params, timeout=timeout + 10) as r:
+                data = await r.json()
+                return data.get("result", [])
+    except Exception as e:
+        log.error(f"getUpdates lỗi: {e}")
+        return []
+
+
+async def bot_reply_clean(chat_id, msg_id, text):
+    # Gửi phản hồi rồi tự xóa cả lệnh gốc lẫn phản hồi
+    resp = await bot_send(chat_id, text)
+    reply_id = resp["result"]["message_id"] if resp and resp.get("ok") else None
     await asyncio.sleep(AUTO_DELETE_AFTER)
-    for msg in messages:
-        if msg is None:
-            continue
-        try:
-            await msg.delete()
-        except Exception:
-            pass
+    await bot_delete(chat_id, msg_id)
+    if reply_id:
+        await bot_delete(chat_id, reply_id)
 
 
-async def reply_and_clean(event, text):
-    reply = await event.reply(text)
-    asyncio.create_task(auto_delete(event, reply))
+# ===== LOGIN QUA BOT =====
+async def do_login_start(chat_id, phone):
+    if not API_HASH:
+        await bot_send(chat_id, "Thiếu API_HASH trên server. Không thể đăng nhập.")
+        return
+    try:
+        client = TelegramClient(f"login_{int(time.time())}", API_ID, API_HASH)
+        await client.connect()
+        sent = await client.send_code_request(phone)
+        login_state["client"] = client
+        login_state["phone"] = phone
+        login_state["phone_code_hash"] = sent.phone_code_hash
+        login_state["awaiting"] = "otp"
+        login_state["last_error"] = None
+        await bot_send(chat_id, f"Đã gửi OTP tới {phone}. Gửi: /otp <mã>")
+        log.info(f"Gửi OTP tới {phone}")
+    except Exception as e:
+        login_state["last_error"] = str(e)
+        await bot_send(chat_id, f"Lỗi gửi OTP: {e}")
+
+
+async def do_login_otp(chat_id, code):
+    client = login_state.get("client")
+    phone = login_state.get("phone")
+    if not client or login_state.get("awaiting") != "otp":
+        await bot_send(chat_id, "Không có phiên OTP. Gửi /login <sdt> trước")
+        return
+    try:
+        await client.sign_in(phone=phone, code=code, phone_code_hash=login_state["phone_code_hash"])
+        login_state["awaiting"] = None
+        login_state["last_login_at"] = time.time()
+        me = await client.get_me()
+        await bot_send(chat_id, f"Đăng nhập OK: {me.id} | @{me.username}")
+        log.info(f"Login OK: {me.id}")
+    except SessionPasswordNeededError:
+        login_state["awaiting"] = "2fa"
+        await bot_send(chat_id, "Cần 2FA. Gửi: /pass <matkhau>")
+    except PhoneCodeInvalidError:
+        login_state["last_error"] = "OTP sai"
+        await bot_send(chat_id, "OTP sai")
+    except PhoneCodeExpiredError:
+        login_state["last_error"] = "OTP hết hạn"
+        await bot_send(chat_id, "OTP hết hạn")
+    except Exception as e:
+        login_state["last_error"] = str(e)
+        await bot_send(chat_id, f"Lỗi OTP: {e}")
+
+
+async def do_login_pass(chat_id, password):
+    client = login_state.get("client")
+    if not client or login_state.get("awaiting") != "2fa":
+        await bot_send(chat_id, "Không có phiên 2FA")
+        return
+    try:
+        await client.sign_in(password=password)
+        login_state["awaiting"] = None
+        login_state["last_login_at"] = time.time()
+        me = await client.get_me()
+        await bot_send(chat_id, f"2FA OK: {me.id} | @{me.username}")
+        log.info(f"Login 2FA OK: {me.id}")
+    except Exception as e:
+        login_state["last_error"] = str(e)
+        await bot_send(chat_id, f"Lỗi 2FA: {e}")
 
 
 async def check_login_status():
-    # Kiểm tra trạng thái client chính: kết nối, ủy quyền, thông tin user
     client = main_client_ref.get("client")
-    if client is None:
-        return "Client: chưa khởi tạo"
     lines = []
-    lines.append(f"Kết nối: {client.is_connected()}")
-    try:
-        authorized = await client.is_user_authorized()
-    except Exception as e:
-        authorized = f"lỗi ({e})"
-    lines.append(f"Ủy quyền: {authorized}")
-
+    if client is None:
+        lines.append("Client chính: chưa khởi tạo")
+    else:
+        lines.append(f"Kết nối: {client.is_connected()}")
+        try:
+            lines.append(f"Ủy quyền: {await client.is_user_authorized()}")
+        except Exception as e:
+            lines.append(f"Ủy quyền: lỗi ({e})")
     me = main_client_ref.get("me")
     if me:
-        lines.append(f"User: {me.id} | @{getattr(me, 'username', '') or 'không có'}")
-        lines.append(f"Tên: {getattr(me, 'first_name', '') or ''} {getattr(me, 'last_name', '') or ''}".strip())
-    else:
-        lines.append("User: chưa có")
-
-    started = main_client_ref.get("started_at")
-    if started:
-        uptime = int(time.time() - started)
-        lines.append(f"Uptime: {uptime}s")
-
-    # Trạng thái phiên login tạm
-    lines.append(f"Login tạm: awaiting={login_state['awaiting']} | phone={login_state['phone']}")
+        lines.append(f"User chính: {me.id} | @{getattr(me, 'username', '') or 'không có'}")
+    lines.append(f"Login bot: awaiting={login_state['awaiting']} | phone={login_state['phone']}")
     if login_state["last_login_at"]:
         lines.append(f"Login gần nhất: {int(time.time() - login_state['last_login_at'])}s trước")
     if login_state["last_error"]:
-        lines.append(f"Lỗi gần nhất: {login_state['last_error']}")
+        lines.append(f"Lỗi: {login_state['last_error']}")
     return "\n".join(lines)
 
 
+# ===== BOT POLLING =====
+async def bot_polling():
+    offset = None
+    while True:
+        updates = await bot_get_updates(offset=offset)
+        for upd in updates:
+            offset = upd["update_id"] + 1
+            msg = upd.get("message")
+            if not msg:
+                continue
+            chat_id = msg["chat"]["id"]
+            from_id = msg["from"]["id"]
+            msg_id = msg["message_id"]
+            text = (msg.get("text") or "").strip()
+
+            # Chỉ admin được dùng, người khác bị xóa tin
+            if from_id not in ADMIN_IDS:
+                await bot_delete(chat_id, msg_id)
+                continue
+
+            if text.startswith("/login"):
+                parts = text.split(maxsplit=1)
+                if len(parts) < 2:
+                    await bot_reply_clean(chat_id, msg_id, "Cú pháp: /login <sdt>")
+                    continue
+                await do_login_start(chat_id, parts[1].strip())
+            elif text.startswith("/otp"):
+                parts = text.split(maxsplit=1)
+                if len(parts) < 2:
+                    await bot_reply_clean(chat_id, msg_id, "Cú pháp: /otp <mã>")
+                    continue
+                await do_login_otp(chat_id, parts[1].strip())
+            elif text.startswith("/pass"):
+                parts = text.split(maxsplit=1)
+                if len(parts) < 2:
+                    await bot_reply_clean(chat_id, msg_id, "Cú pháp: /pass <matkhau>")
+                    continue
+                await do_login_pass(chat_id, parts[1].strip())
+            elif text.startswith("/status"):
+                await bot_reply_clean(chat_id, msg_id, await check_login_status())
+            elif text.startswith("/ping"):
+                await bot_reply_clean(chat_id, msg_id, f"Bot API OK | ready={status['bot_ready']}")
+            elif text.startswith("/delay"):
+                parts = text.split(maxsplit=1)
+                if len(parts) < 2:
+                    await bot_reply_clean(chat_id, msg_id, "Cú pháp: /delay <giây>")
+                    continue
+                try:
+                    config["delay"] = float(parts[1])
+                    save_json(CONFIG_FILE, config)
+                    await bot_reply_clean(chat_id, msg_id, f"Delay: {config['delay']}s")
+                except ValueError:
+                    await bot_reply_clean(chat_id, msg_id, "Giá trị không hợp lệ")
+            elif text.startswith("/help"):
+                await bot_reply_clean(
+                    chat_id, msg_id,
+                    "LỆNH ADMIN:\n"
+                    "/login <sdt> | /otp <mã> | /pass <2fa>\n"
+                    "/status /ping /delay /id"
+                )
+            elif text.startswith("/id"):
+                await bot_reply_clean(chat_id, msg_id, f"Chat: {chat_id} | User: {from_id}")
+        await asyncio.sleep(0.5)
+
+
+# ===== TELETHON USER CLIENT =====
 async def sender_worker(client):
     while True:
         target, message, fake = await queue.get()
@@ -148,74 +294,11 @@ async def sender_worker(client):
         queue.task_done()
 
 
-async def cmd_login(event, text):
-    parts = text.split()
-    if len(parts) < 3:
-        await reply_and_clean(event, "Cú pháp: /login <sdt> <otp> [matkhau2fa]")
+async def run_user_client():
+    if not API_HASH:
+        log.warning("Thiếu API_HASH — bỏ qua user client, chỉ chạy Bot API")
+        mark_bot_ready()
         return
-    phone = parts[1]
-    otp = parts[2]
-    password_2fa = parts[3] if len(parts) > 3 else None
-    try:
-        client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
-        await client.connect()
-        sent = await client.send_code_request(phone)
-        login_state["client"] = client
-        login_state["phone"] = phone
-        login_state["phone_code_hash"] = sent.phone_code_hash
-        login_state["awaiting"] = "otp"
-        try:
-            await client.sign_in(phone=phone, code=otp, phone_code_hash=sent.phone_code_hash)
-            login_state["awaiting"] = None
-            login_state["last_login_at"] = time.time()
-            login_state["last_error"] = None
-            me = await client.get_me()
-            await reply_and_clean(event, f"Đăng nhập OK: {me.id}")
-        except SessionPasswordNeededError:
-            if not password_2fa:
-                login_state["awaiting"] = "2fa"
-                await reply_and_clean(event, "Cần 2FA. Gửi: /login2fa <matkhau>")
-                return
-            await client.sign_in(password=password_2fa)
-            login_state["awaiting"] = None
-            login_state["last_login_at"] = time.time()
-            login_state["last_error"] = None
-            me = await client.get_me()
-            await reply_and_clean(event, f"Đăng nhập 2FA OK: {me.id}")
-        except PhoneCodeInvalidError:
-            login_state["last_error"] = "OTP sai"
-            await reply_and_clean(event, "OTP sai")
-        except PhoneCodeExpiredError:
-            login_state["last_error"] = "OTP hết hạn"
-            await reply_and_clean(event, "OTP hết hạn")
-    except Exception as e:
-        login_state["last_error"] = str(e)
-        log.error(f"Login lỗi: {e}")
-        await reply_and_clean(event, f"Lỗi: {e}")
-
-
-async def cmd_login2fa(event, text):
-    parts = text.split(maxsplit=1)
-    if len(parts) < 2:
-        await reply_and_clean(event, "Cú pháp: /login2fa <matkhau>")
-        return
-    client = login_state.get("client")
-    if client is None or login_state.get("awaiting") != "2fa":
-        await reply_and_clean(event, "Không có phiên chờ 2FA")
-        return
-    try:
-        await client.sign_in(password=parts[1].strip())
-        login_state["awaiting"] = None
-        login_state["last_login_at"] = time.time()
-        login_state["last_error"] = None
-        me = await client.get_me()
-        await reply_and_clean(event, f"2FA OK: {me.id}")
-    except Exception as e:
-        login_state["last_error"] = str(e)
-        await reply_and_clean(event, f"Lỗi 2FA: {e}")
-
-
-async def run_bot():
     try:
         client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
         await client.start(phone=PHONE)
@@ -223,7 +306,6 @@ async def run_bot():
         main_client_ref["client"] = client
         main_client_ref["me"] = me
         main_client_ref["started_at"] = time.time()
-        login_state["last_login_at"] = time.time()
         log.info(f"Đăng nhập: {me.id} | @{me.username}")
         mark_bot_ready()
 
@@ -244,93 +326,21 @@ async def run_bot():
                 except Exception:
                     pass
 
-        @client.on(events.NewMessage(outgoing=True))
-        async def cmd_handler(event):
-            if event.id in processed:
-                return
-            processed.add(event.id)
-
-            text = event.raw_text.strip()
-            if not text.startswith("/"):
-                return
-
-            if not is_admin(event):
-                log.warning(f"Từ chối lệnh từ id={event.sender_id}")
-                asyncio.create_task(auto_delete(event))
-                return
-
-            cmd = text.split()[0].lower()
-            try:
-                if cmd == "/help":
-                    await reply_and_clean(
-                        event,
-                        "LỆNH ADMIN:\n"
-                        "/status - Trạng thái login hiện tại\n"
-                        "/login <sdt> <otp> [2fa]\n"
-                        "/login2fa <matkhau>\n"
-                        "/id /delay /delaysoan /gui /fakesoan\n"
-                        "/cam /sua /camib /suaib /list /stats /clear /ping"
-                    )
-                elif cmd == "/status":
-                    await reply_and_clean(event, await check_login_status())
-                elif cmd == "/login":
-                    await cmd_login(event, text)
-                elif cmd == "/login2fa":
-                    await cmd_login2fa(event, text)
-                elif cmd == "/ping":
-                    await reply_and_clean(event, f"Bot: {status['bot_ready']} | Running: {status['running']}")
-                elif cmd == "/id":
-                    await reply_and_clean(event, f"ID: {me.id} | Admin: {event.sender_id in ADMIN_IDS}")
-                elif cmd == "/delay":
-                    config["delay"] = float(text.split()[1])
-                    save_json(CONFIG_FILE, config)
-                    await reply_and_clean(event, f"Delay: {config['delay']}s")
-                elif cmd == "/delaysoan":
-                    config["delay_soan"] = float(text.split()[1])
-                    save_json(CONFIG_FILE, config)
-                    await reply_and_clean(event, f"Soạn: {config['delay_soan']}s")
-                elif cmd == "/gui":
-                    parts = text.split(maxsplit=2)
-                    await queue.put((parts[1], parts[2], False))
-                    await reply_and_clean(event, "Đã vào hàng đợi")
-                elif cmd == "/fakesoan":
-                    parts = text.split(maxsplit=2)
-                    await queue.put((parts[1], parts[2], True))
-                    await reply_and_clean(event, "Đã vào hàng đợi")
-                elif cmd in ("/cam", "/sua", "/camib", "/suaib"):
-                    target = int(text.split()[1])
-                    path = CAMIB_FILE if "ib" in cmd else CAM_FILE
-                    data = set(load_json(path, []))
-                    if cmd in ("/cam", "/camib"):
-                        data.add(target)
-                    else:
-                        data.discard(target)
-                    save_json(path, list(data))
-                    await reply_and_clean(event, f"OK {target}")
-                elif cmd == "/list":
-                    await reply_and_clean(event, f"BOX: {load_json(CAM_FILE, [])} | INBOX: {load_json(CAMIB_FILE, [])}")
-                elif cmd == "/stats":
-                    await reply_and_clean(event, f"Gửi: {stats['sent']}")
-                elif cmd == "/clear":
-                    save_json(CAM_FILE, [])
-                    save_json(CAMIB_FILE, [])
-                    await reply_and_clean(event, "Đã xóa")
-            except Exception as e:
-                await reply_and_clean(event, f"Lỗi: {e}")
-
-        log.info(f"Bot sẵn sàng | Admin: {ADMIN_IDS}")
+        log.info(f"User client sẵn sàng | Admin: {ADMIN_IDS}")
         await client.run_until_disconnected()
     except Exception as e:
-        login_state["last_error"] = str(e)
-        log.error(f"Bot crash: {e}")
-        raise
+        log.error(f"User client crash: {e}")
+        mark_bot_ready()
 
 
 async def main():
     runner = await start_keepalive()
-    bot_task = asyncio.create_task(run_bot())
+    tasks = [
+        asyncio.create_task(run_user_client()),
+        asyncio.create_task(bot_polling()),
+    ]
     try:
-        await bot_task
+        await asyncio.gather(*tasks)
     except asyncio.CancelledError:
         pass
     finally:
