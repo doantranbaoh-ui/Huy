@@ -19,10 +19,10 @@ logging.basicConfig(
 log = logging.getLogger("bot")
 
 # ===== CẤU HÌNH TRỰC TIẾP =====
-API_ID = 12345678
-API_HASH = "your_api_hash_here"
-SESSION_NAME = "acc_chinh"
-PHONE = "+84123456789"
+API_ID = 39057925
+API_HASH = "cbd2d21fce9a70d33f2baaf26cb5c12a"
+SESSION_NAME = "Bao Huy"
+PHONE = "+84347635805"
 
 BOT_TOKEN = "6367532329:AAF4F5XEYrdn121tbxmnxdHLDu7WzuePKkA"
 
