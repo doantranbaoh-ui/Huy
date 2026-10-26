@@ -24,8 +24,8 @@ log.addHandler(console)
 log.addHandler(fileh)
 
 # ===== CẤU HÌNH =====
-API_ID = 12345678
-API_HASH = "your_api_hash_here"
+API_ID = 27657608
+API_HASH = "3b6e52a3713b44ad5adaa2bcf579de66"
 SESSION_NAME = "acc_chinh"
 
 CONFIG_FILE = "config.json"
