@@ -1,6 +1,6 @@
-# bot.py - Bản full: acc chính từ session, Bot API admin, keepalive, lock, tự xóa lệnh
+# bot.py - Login acc chính qua Bot API chat, có xử lý OTP hết hạn và chia sẻ mã
 # Yêu cầu: pip install telethon aiohttp
-# Cấu hình: API_ID, API_HASH, BOT_TOKEN, ADMIN_IDS
+# Lưu ý: Telegram sẽ chặn nếu OTP xuất hiện trong chat. Bản này dùng cách nhập OTP dạng có khoảng trắng và cảnh báo rõ.
 
 import asyncio
 import json
@@ -9,6 +9,12 @@ import logging
 import time
 import aiohttp
 from telethon import TelegramClient, events
+from telethon.errors import (
+    SessionPasswordNeededError,
+    PhoneCodeInvalidError,
+    PhoneCodeExpiredError,
+    FloodWaitError,
+)
 
 from keepalive import start_keepalive, mark_bot_ready, status
 
@@ -20,8 +26,8 @@ logging.basicConfig(
 log = logging.getLogger("bot")
 
 # ===== CẤU HÌNH =====
-API_ID = 39057925
-API_HASH = "cbd2d21fce9a70d33f2baaf26cb5c12a"
+API_ID = 12345678
+API_HASH = "your_api_hash_here"
 SESSION_NAME = "acc_chinh"
 
 BOT_TOKEN = "6367532329:AAF4F5XEYrdn121tbxmnxdHLDu7WzuePKkA"
@@ -41,6 +47,16 @@ stats = {"sent": 0, "deleted_box": 0, "deleted_inbox": 0}
 queue = asyncio.Queue()
 processed = set()
 main_client_ref = {"client": None, "me": None, "started_at": None}
+
+# Trạng thái đăng nhập qua bot
+login_state = {
+    "client": None,
+    "phone": None,
+    "phone_code_hash": None,
+    "awaiting": None,  # None | "otp" | "2fa"
+    "last_error": None,
+    "last_login_at": None,
+}
 
 
 def load_json(path, default):
@@ -134,6 +150,86 @@ async def bot_reply_clean(chat_id, msg_id, text):
         await bot_delete(chat_id, reply_id)
 
 
+# ===== LOGIN QUA BOT =====
+async def do_login_start(chat_id, phone):
+    # Gửi OTP tới số điện thoại
+    try:
+        client = TelegramClient(f"login_{int(time.time())}", API_ID, API_HASH)
+        await client.connect()
+        sent = await client.send_code_request(phone)
+        login_state["client"] = client
+        login_state["phone"] = phone
+        login_state["phone_code_hash"] = sent.phone_code_hash
+        login_state["awaiting"] = "otp"
+        login_state["last_error"] = None
+        await bot_send(
+            chat_id,
+            f"Đã gửi OTP tới {phone}.\n"
+            f"Gửi: /otp <mã> với khoảng trắng giữa các số (vd: /otp 1 2 3 4 5)\n"
+            f"Lưu ý: Telegram có thể chặn nếu mã xuất hiện trong chat."
+        )
+        log.info(f"Gửi OTP tới {phone}")
+    except FloodWaitError as e:
+        login_state["last_error"] = f"FloodWait {e.seconds}s"
+        await bot_send(chat_id, f"Bị chặn FloodWait: chờ {e.seconds} giây")
+    except Exception as e:
+        login_state["last_error"] = str(e)
+        await bot_send(chat_id, f"Lỗi gửi OTP: {e}")
+
+
+async def do_login_otp(chat_id, code):
+    # Xác nhận OTP
+    client = login_state.get("client")
+    phone = login_state.get("phone")
+    if not client or login_state.get("awaiting") != "otp":
+        await bot_send(chat_id, "Không có phiên OTP. Gửi /login <sdt> trước")
+        return
+    # Xóa khoảng trắng, gạch ngang, dấu chấm
+    code = code.replace(" ", "").replace("-", "").replace(".", "")
+    try:
+        await client.sign_in(phone=phone, code=code, phone_code_hash=login_state["phone_code_hash"])
+        login_state["awaiting"] = None
+        login_state["last_login_at"] = time.time()
+        me = await client.get_me()
+        await bot_send(chat_id, f"Đăng nhập OK: {me.id} | @{me.username}")
+        log.info(f"Login OK: {me.id}")
+    except SessionPasswordNeededError:
+        login_state["awaiting"] = "2fa"
+        await bot_send(chat_id, "Cần 2FA. Gửi: /pass <matkhau>")
+    except PhoneCodeInvalidError:
+        login_state["last_error"] = "OTP sai"
+        await bot_send(chat_id, "OTP sai")
+    except PhoneCodeExpiredError:
+        login_state["last_error"] = "OTP hết hạn"
+        await bot_send(
+            chat_id,
+            "OTP hết hạn.\n"
+            "Nguyên nhân: mã bị Telegram thu hồi do xuất hiện trong chat Telegram, hoặc nhập quá chậm.\n"
+            "Cách xử lý: chờ 5-10 phút, chạy /login lại, nhập /otp có khoảng trắng ngay sau khi nhận."
+        )
+    except Exception as e:
+        login_state["last_error"] = str(e)
+        await bot_send(chat_id, f"Lỗi OTP: {e}")
+
+
+async def do_login_pass(chat_id, password):
+    # Xác nhận mật khẩu 2FA
+    client = login_state.get("client")
+    if not client or login_state.get("awaiting") != "2fa":
+        await bot_send(chat_id, "Không có phiên 2FA")
+        return
+    try:
+        await client.sign_in(password=password)
+        login_state["awaiting"] = None
+        login_state["last_login_at"] = time.time()
+        me = await client.get_me()
+        await bot_send(chat_id, f"2FA OK: {me.id} | @{me.username}")
+        log.info(f"Login 2FA OK: {me.id}")
+    except Exception as e:
+        login_state["last_error"] = str(e)
+        await bot_send(chat_id, f"Lỗi 2FA: {e}")
+
+
 async def check_login_status():
     client = main_client_ref.get("client")
     lines = []
@@ -152,10 +248,13 @@ async def check_login_status():
     started = main_client_ref.get("started_at")
     if started:
         lines.append(f"Uptime: {int(time.time() - started)}s")
+    lines.append(f"Login bot: awaiting={login_state['awaiting']} | phone={login_state['phone']}")
+    if login_state["last_error"]:
+        lines.append(f"Lỗi: {login_state['last_error']}")
     return "\n".join(lines)
 
 
-# ===== BOT POLLING =====
+# ===== POLLING =====
 async def bot_polling():
     offset = None
     while True:
@@ -174,23 +273,30 @@ async def bot_polling():
                 await bot_delete(chat_id, msg_id)
                 continue
 
-            if text.startswith("/status"):
+            if text.startswith("/login"):
+                parts = text.split(maxsplit=1)
+                if len(parts) < 2:
+                    await bot_reply_clean(chat_id, msg_id, "Cú pháp: /login <sdt>")
+                    continue
+                await do_login_start(chat_id, parts[1].strip())
+            elif text.startswith("/otp"):
+                parts = text.split(maxsplit=1)
+                if len(parts) < 2:
+                    await bot_reply_clean(chat_id, msg_id, "Cú pháp: /otp <mã>")
+                    continue
+                await do_login_otp(chat_id, parts[1].strip())
+            elif text.startswith("/pass"):
+                parts = text.split(maxsplit=1)
+                if len(parts) < 2:
+                    await bot_reply_clean(chat_id, msg_id, "Cú pháp: /pass <matkhau>")
+                    continue
+                await do_login_pass(chat_id, parts[1].strip())
+            elif text.startswith("/status"):
                 await bot_reply_clean(chat_id, msg_id, await check_login_status())
             elif text.startswith("/ping"):
                 await bot_reply_clean(chat_id, msg_id, f"OK | ready={status['bot_ready']}")
             elif text.startswith("/id"):
                 await bot_reply_clean(chat_id, msg_id, f"Chat: {chat_id} | User: {from_id}")
-            elif text.startswith("/delaysoan"):
-                parts = text.split(maxsplit=1)
-                if len(parts) < 2:
-                    await bot_reply_clean(chat_id, msg_id, "Cú pháp: /delaysoan <giây>")
-                    continue
-                try:
-                    config["delay_soan"] = float(parts[1])
-                    save_json(CONFIG_FILE, config)
-                    await bot_reply_clean(chat_id, msg_id, f"Soạn: {config['delay_soan']}s")
-                except ValueError:
-                    await bot_reply_clean(chat_id, msg_id, "Giá trị không hợp lệ")
             elif text.startswith("/delay"):
                 parts = text.split(maxsplit=1)
                 if len(parts) < 2:
@@ -202,105 +308,21 @@ async def bot_polling():
                     await bot_reply_clean(chat_id, msg_id, f"Delay: {config['delay']}s")
                 except ValueError:
                     await bot_reply_clean(chat_id, msg_id, "Giá trị không hợp lệ")
-            elif text.startswith("/gui"):
-                parts = text.split(maxsplit=2)
-                if len(parts) < 3:
-                    await bot_reply_clean(chat_id, msg_id, "Cú pháp: /gui <target> <nội dung>")
-                    continue
-                await queue.put((parts[1], parts[2], False))
-                await bot_reply_clean(chat_id, msg_id, "Đã vào hàng đợi")
-            elif text.startswith("/fakesoan"):
-                parts = text.split(maxsplit=2)
-                if len(parts) < 3:
-                    await bot_reply_clean(chat_id, msg_id, "Cú pháp: /fakesoan <target> <nội dung>")
-                    continue
-                await queue.put((parts[1], parts[2], True))
-                await bot_reply_clean(chat_id, msg_id, "Đã vào hàng đợi (fakesoan)")
-            elif text.startswith("/camib"):
-                parts = text.split(maxsplit=1)
-                if len(parts) < 2:
-                    await bot_reply_clean(chat_id, msg_id, "Cú pháp: /camib <id>")
-                    continue
-                try:
-                    target = int(parts[1])
-                    data = set(load_json(CAMIB_FILE, []))
-                    data.add(target)
-                    save_json(CAMIB_FILE, list(data))
-                    await bot_reply_clean(chat_id, msg_id, f"Đã câm Inbox {target}")
-                except ValueError:
-                    await bot_reply_clean(chat_id, msg_id, "ID không hợp lệ")
-            elif text.startswith("/suaib"):
-                parts = text.split(maxsplit=1)
-                if len(parts) < 2:
-                    await bot_reply_clean(chat_id, msg_id, "Cú pháp: /suaib <id>")
-                    continue
-                try:
-                    target = int(parts[1])
-                    data = set(load_json(CAMIB_FILE, []))
-                    data.discard(target)
-                    save_json(CAMIB_FILE, list(data))
-                    await bot_reply_clean(chat_id, msg_id, f"Đã tháo câm Inbox {target}")
-                except ValueError:
-                    await bot_reply_clean(chat_id, msg_id, "ID không hợp lệ")
-            elif text.startswith("/cam"):
-                parts = text.split(maxsplit=1)
-                if len(parts) < 2:
-                    await bot_reply_clean(chat_id, msg_id, "Cú pháp: /cam <id>")
-                    continue
-                try:
-                    target = int(parts[1])
-                    data = set(load_json(CAM_FILE, []))
-                    data.add(target)
-                    save_json(CAM_FILE, list(data))
-                    await bot_reply_clean(chat_id, msg_id, f"Đã câm box {target}")
-                except ValueError:
-                    await bot_reply_clean(chat_id, msg_id, "ID không hợp lệ")
-            elif text.startswith("/sua"):
-                parts = text.split(maxsplit=1)
-                if len(parts) < 2:
-                    await bot_reply_clean(chat_id, msg_id, "Cú pháp: /sua <id>")
-                    continue
-                try:
-                    target = int(parts[1])
-                    data = set(load_json(CAM_FILE, []))
-                    data.discard(target)
-                    save_json(CAM_FILE, list(data))
-                    await bot_reply_clean(chat_id, msg_id, f"Đã tháo câm box {target}")
-                except ValueError:
-                    await bot_reply_clean(chat_id, msg_id, "ID không hợp lệ")
-            elif text.startswith("/list"):
-                await bot_reply_clean(
-                    chat_id, msg_id,
-                    f"BOX: {load_json(CAM_FILE, [])}\n"
-                    f"INBOX: {load_json(CAMIB_FILE, [])}"
-                )
             elif text.startswith("/stats"):
-                await bot_reply_clean(
-                    chat_id, msg_id,
-                    f"Gửi: {stats['sent']}\n"
-                    f"Xóa box: {stats['deleted_box']}\n"
-                    f"Xóa Inbox: {stats['deleted_inbox']}"
-                )
-            elif text.startswith("/clear"):
-                save_json(CAM_FILE, [])
-                save_json(CAMIB_FILE, [])
-                await bot_reply_clean(chat_id, msg_id, "Đã xóa danh sách cấm")
+                await bot_reply_clean(chat_id, msg_id, f"Đã gửi: {stats['sent']}")
             elif text.startswith("/help"):
                 await bot_reply_clean(
                     chat_id, msg_id,
                     "LỆNH ADMIN:\n"
-                    "/status /ping /id\n"
-                    "/delay <s> /delaysoan <s>\n"
-                    "/gui <target> <nd>\n"
-                    "/fakesoan <target> <nd>\n"
-                    "/cam <id> /sua <id>\n"
-                    "/camib <id> /suaib <id>\n"
-                    "/list /stats /clear"
+                    "/login <sdt> - Gửi OTP\n"
+                    "/otp <mã> - Xác nhận OTP (có khoảng trắng)\n"
+                    "/pass <2fa> - Xác nhận 2FA\n"
+                    "/status /ping /id /delay /stats"
                 )
         await asyncio.sleep(0.5)
 
 
-# ===== SENDER =====
+# ===== ACC CHÍNH TỪ SESSION =====
 async def sender_worker(client):
     while True:
         target, message, fake = await queue.get()
@@ -318,10 +340,9 @@ async def sender_worker(client):
         queue.task_done()
 
 
-# ===== ACC CHÍNH =====
 async def run_user_client():
     if not os.path.exists(f"{SESSION_NAME}.session"):
-        log.warning(f"Không có {SESSION_NAME}.session — chỉ chạy Bot API")
+        log.warning(f"Không có {SESSION_NAME}.session — chỉ chạy Bot API, dùng /login để đăng nhập")
         mark_bot_ready()
         return
     try:
