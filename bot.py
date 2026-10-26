@@ -1,6 +1,6 @@
-# bot.py - Bản fix full: acc chính từ session, Bot API admin, keepalive, tự xóa lệnh
+# bot.py - Bản full: acc chính từ session, Bot API admin, keepalive, lock, tự xóa lệnh
 # Yêu cầu: pip install telethon aiohttp
-# Cấu hình: API_ID, BOT_TOKEN trực tiếp; API_HASH từ biến môi trường
+# Cấu hình: API_ID, API_HASH, BOT_TOKEN, ADMIN_IDS
 
 import asyncio
 import json
@@ -21,7 +21,7 @@ log = logging.getLogger("bot")
 
 # ===== CẤU HÌNH =====
 API_ID = 39057925
-API_HASH = os.environ.get("API_HASH", "cbd2d21fce9a70d33f2baaf26cb5c12a")
+API_HASH = "cbd2d21fce9a70d33f2baaf26cb5c12a"
 SESSION_NAME = "acc_chinh"
 
 BOT_TOKEN = "6367532329:AAF4F5XEYrdn121tbxmnxdHLDu7WzuePKkA"
@@ -33,6 +33,7 @@ CONFIG_FILE = "config.json"
 CAM_FILE = "cam_list.json"
 CAMIB_FILE = "camib_list.json"
 STATS_FILE = "stats.json"
+LOCK_FILE = "acc_chinh.lock"
 AUTO_DELETE_AFTER = 1
 
 config = {"delay": 0.1, "delay_soan": 2}
@@ -66,7 +67,33 @@ config = load_json(CONFIG_FILE, config)
 stats = load_json(STATS_FILE, stats)
 
 
-# ===== BOT API HELPERS =====
+def acquire_lock():
+    if os.path.exists(LOCK_FILE):
+        try:
+            with open(LOCK_FILE, "r") as f:
+                pid = f.read().strip()
+            log.error(f"LOCK tồn tại (pid={pid}). Instance khác đang chạy. Thoát.")
+            return False
+        except Exception:
+            pass
+    try:
+        with open(LOCK_FILE, "w") as f:
+            f.write(str(os.getpid()))
+        return True
+    except Exception as e:
+        log.error(f"Không tạo được lock: {e}")
+        return False
+
+
+def release_lock():
+    try:
+        if os.path.exists(LOCK_FILE):
+            os.remove(LOCK_FILE)
+    except Exception:
+        pass
+
+
+# ===== BOT API =====
 async def bot_send(chat_id, text):
     try:
         async with aiohttp.ClientSession() as s:
@@ -143,7 +170,6 @@ async def bot_polling():
             msg_id = msg["message_id"]
             text = (msg.get("text") or "").strip()
 
-            # Chặn người lạ, xóa tin
             if from_id not in ADMIN_IDS:
                 await bot_delete(chat_id, msg_id)
                 continue
@@ -154,17 +180,6 @@ async def bot_polling():
                 await bot_reply_clean(chat_id, msg_id, f"OK | ready={status['bot_ready']}")
             elif text.startswith("/id"):
                 await bot_reply_clean(chat_id, msg_id, f"Chat: {chat_id} | User: {from_id}")
-            elif text.startswith("/delay"):
-                parts = text.split(maxsplit=1)
-                if len(parts) < 2:
-                    await bot_reply_clean(chat_id, msg_id, "Cú pháp: /delay <giây>")
-                    continue
-                try:
-                    config["delay"] = float(parts[1])
-                    save_json(CONFIG_FILE, config)
-                    await bot_reply_clean(chat_id, msg_id, f"Delay: {config['delay']}s")
-                except ValueError:
-                    await bot_reply_clean(chat_id, msg_id, "Giá trị không hợp lệ")
             elif text.startswith("/delaysoan"):
                 parts = text.split(maxsplit=1)
                 if len(parts) < 2:
@@ -176,6 +191,89 @@ async def bot_polling():
                     await bot_reply_clean(chat_id, msg_id, f"Soạn: {config['delay_soan']}s")
                 except ValueError:
                     await bot_reply_clean(chat_id, msg_id, "Giá trị không hợp lệ")
+            elif text.startswith("/delay"):
+                parts = text.split(maxsplit=1)
+                if len(parts) < 2:
+                    await bot_reply_clean(chat_id, msg_id, "Cú pháp: /delay <giây>")
+                    continue
+                try:
+                    config["delay"] = float(parts[1])
+                    save_json(CONFIG_FILE, config)
+                    await bot_reply_clean(chat_id, msg_id, f"Delay: {config['delay']}s")
+                except ValueError:
+                    await bot_reply_clean(chat_id, msg_id, "Giá trị không hợp lệ")
+            elif text.startswith("/gui"):
+                parts = text.split(maxsplit=2)
+                if len(parts) < 3:
+                    await bot_reply_clean(chat_id, msg_id, "Cú pháp: /gui <target> <nội dung>")
+                    continue
+                await queue.put((parts[1], parts[2], False))
+                await bot_reply_clean(chat_id, msg_id, "Đã vào hàng đợi")
+            elif text.startswith("/fakesoan"):
+                parts = text.split(maxsplit=2)
+                if len(parts) < 3:
+                    await bot_reply_clean(chat_id, msg_id, "Cú pháp: /fakesoan <target> <nội dung>")
+                    continue
+                await queue.put((parts[1], parts[2], True))
+                await bot_reply_clean(chat_id, msg_id, "Đã vào hàng đợi (fakesoan)")
+            elif text.startswith("/camib"):
+                parts = text.split(maxsplit=1)
+                if len(parts) < 2:
+                    await bot_reply_clean(chat_id, msg_id, "Cú pháp: /camib <id>")
+                    continue
+                try:
+                    target = int(parts[1])
+                    data = set(load_json(CAMIB_FILE, []))
+                    data.add(target)
+                    save_json(CAMIB_FILE, list(data))
+                    await bot_reply_clean(chat_id, msg_id, f"Đã câm Inbox {target}")
+                except ValueError:
+                    await bot_reply_clean(chat_id, msg_id, "ID không hợp lệ")
+            elif text.startswith("/suaib"):
+                parts = text.split(maxsplit=1)
+                if len(parts) < 2:
+                    await bot_reply_clean(chat_id, msg_id, "Cú pháp: /suaib <id>")
+                    continue
+                try:
+                    target = int(parts[1])
+                    data = set(load_json(CAMIB_FILE, []))
+                    data.discard(target)
+                    save_json(CAMIB_FILE, list(data))
+                    await bot_reply_clean(chat_id, msg_id, f"Đã tháo câm Inbox {target}")
+                except ValueError:
+                    await bot_reply_clean(chat_id, msg_id, "ID không hợp lệ")
+            elif text.startswith("/cam"):
+                parts = text.split(maxsplit=1)
+                if len(parts) < 2:
+                    await bot_reply_clean(chat_id, msg_id, "Cú pháp: /cam <id>")
+                    continue
+                try:
+                    target = int(parts[1])
+                    data = set(load_json(CAM_FILE, []))
+                    data.add(target)
+                    save_json(CAM_FILE, list(data))
+                    await bot_reply_clean(chat_id, msg_id, f"Đã câm box {target}")
+                except ValueError:
+                    await bot_reply_clean(chat_id, msg_id, "ID không hợp lệ")
+            elif text.startswith("/sua"):
+                parts = text.split(maxsplit=1)
+                if len(parts) < 2:
+                    await bot_reply_clean(chat_id, msg_id, "Cú pháp: /sua <id>")
+                    continue
+                try:
+                    target = int(parts[1])
+                    data = set(load_json(CAM_FILE, []))
+                    data.discard(target)
+                    save_json(CAM_FILE, list(data))
+                    await bot_reply_clean(chat_id, msg_id, f"Đã tháo câm box {target}")
+                except ValueError:
+                    await bot_reply_clean(chat_id, msg_id, "ID không hợp lệ")
+            elif text.startswith("/list"):
+                await bot_reply_clean(
+                    chat_id, msg_id,
+                    f"BOX: {load_json(CAM_FILE, [])}\n"
+                    f"INBOX: {load_json(CAMIB_FILE, [])}"
+                )
             elif text.startswith("/stats"):
                 await bot_reply_clean(
                     chat_id, msg_id,
@@ -183,19 +281,26 @@ async def bot_polling():
                     f"Xóa box: {stats['deleted_box']}\n"
                     f"Xóa Inbox: {stats['deleted_inbox']}"
                 )
+            elif text.startswith("/clear"):
+                save_json(CAM_FILE, [])
+                save_json(CAMIB_FILE, [])
+                await bot_reply_clean(chat_id, msg_id, "Đã xóa danh sách cấm")
             elif text.startswith("/help"):
                 await bot_reply_clean(
                     chat_id, msg_id,
                     "LỆNH ADMIN:\n"
                     "/status /ping /id\n"
-                    "/delay <giây> /delaysoan <giây>\n"
-                    "/stats\n"
-                    "Acc chính chạy từ session đã tạo bằng login_local.py."
+                    "/delay <s> /delaysoan <s>\n"
+                    "/gui <target> <nd>\n"
+                    "/fakesoan <target> <nd>\n"
+                    "/cam <id> /sua <id>\n"
+                    "/camib <id> /suaib <id>\n"
+                    "/list /stats /clear"
                 )
         await asyncio.sleep(0.5)
 
 
-# ===== SENDER WORKER =====
+# ===== SENDER =====
 async def sender_worker(client):
     while True:
         target, message, fake = await queue.get()
@@ -213,28 +318,24 @@ async def sender_worker(client):
         queue.task_done()
 
 
-# ===== ACC CHÍNH TỪ SESSION =====
+# ===== ACC CHÍNH =====
 async def run_user_client():
-    if not API_HASH:
-        log.error("Thiếu API_HASH — không thể chạy acc chính")
-        mark_bot_ready()
-        return
     if not os.path.exists(f"{SESSION_NAME}.session"):
-        log.error(f"Không có {SESSION_NAME}.session — chạy login_local.py rồi upload lên server")
+        log.warning(f"Không có {SESSION_NAME}.session — chỉ chạy Bot API")
         mark_bot_ready()
         return
     try:
         client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
         await client.connect()
         if not await client.is_user_authorized():
-            log.error("Session chưa ủy quyền — chạy login_local.py lại")
+            log.warning("Session chưa ủy quyền — chỉ chạy Bot API")
             mark_bot_ready()
             return
         me = await client.get_me()
         main_client_ref["client"] = client
         main_client_ref["me"] = me
         main_client_ref["started_at"] = time.time()
-        log.info(f"Acc chính đăng nhập: {me.id} | @{me.username}")
+        log.info(f"Acc chính: {me.id} | @{me.username}")
         mark_bot_ready()
 
         asyncio.create_task(sender_worker(client))
@@ -266,17 +367,23 @@ async def run_user_client():
 
 
 async def main():
-    runner = await start_keepalive()
-    tasks = [
-        asyncio.create_task(run_user_client()),
-        asyncio.create_task(bot_polling()),
-    ]
+    if not acquire_lock():
+        log.error("Không lấy được lock. Thoát.")
+        return
     try:
-        await asyncio.gather(*tasks)
-    except asyncio.CancelledError:
-        pass
+        runner = await start_keepalive()
+        tasks = [
+            asyncio.create_task(run_user_client()),
+            asyncio.create_task(bot_polling()),
+        ]
+        try:
+            await asyncio.gather(*tasks)
+        except asyncio.CancelledError:
+            pass
+        finally:
+            await runner.cleanup()
     finally:
-        await runner.cleanup()
+        release_lock()
 
 
 if __name__ == "__main__":
