@@ -21,8 +21,8 @@ logging.basicConfig(
 log = logging.getLogger("bot")
 
 # ===== CẤU HÌNH =====
-API_ID = 12345678
-API_HASH = os.environ.get("API_HASH", "")
+API_ID = 39057925
+API_HASH = os.environ.get("API_HASH", "cbd2d21fce9a70d33f2baaf26cb5c12a")
 SESSION_NAME = "acc_chinh"
 PHONE = "+84123456789"
 
